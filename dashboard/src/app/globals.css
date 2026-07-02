@@ -1,0 +1,71 @@
+@import "tailwindcss";
+
+:root {
+  --background: #f7f5f0;
+  --foreground: #26342d;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background:
+    radial-gradient(circle at 8% 4%, rgba(218, 232, 222, 0.65), transparent 25rem),
+    var(--background);
+  color: var(--foreground);
+  font-family: Arial, Helvetica, sans-serif;
+}
+
+button, input, select { font: inherit; }
+
+.panel {
+  border: 1px solid rgba(255, 255, 255, 0.9);
+  border-radius: 2rem;
+  background: rgba(255, 255, 255, 0.94);
+  padding: 1.5rem;
+  box-shadow: 0 18px 55px rgba(48, 63, 55, 0.07);
+}
+
+.field {
+  display: block;
+  width: 100%;
+  border: 1px solid #dce2de;
+  border-radius: 0.9rem;
+  background: #fff;
+  padding: 0.75rem 0.9rem;
+  color: #26342d;
+  outline: none;
+  transition: border-color 150ms, box-shadow 150ms;
+}
+
+.field:focus {
+  border-color: #6b8a79;
+  box-shadow: 0 0 0 3px rgba(73, 106, 90, 0.12);
+}
+
+.primary-button, .secondary-button {
+  cursor: pointer;
+  border-radius: 0.9rem;
+  padding: 0.75rem 1.15rem;
+  font-weight: 700;
+  transition: opacity 150ms, transform 150ms;
+}
+
+.primary-button {
+  border: 1px solid #496a5a;
+  background: #496a5a;
+  color: white;
+}
+
+.secondary-button {
+  border: 1px solid #d9dfdb;
+  background: rgba(255, 255, 255, 0.8);
+  color: #40534a;
+}
+
+.primary-button:hover, .secondary-button:hover { transform: translateY(-1px); }
+.primary-button:disabled { cursor: wait; opacity: 0.65; transform: none; }
+
+@media (min-width: 640px) {
+  .panel { padding: 2rem; }
+}

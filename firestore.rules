@@ -1,0 +1,29 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Qidah's app has no login, so these Sprint 1 reads are public.
+    match /students/qidah {
+      allow read: if true;
+      allow update: if request.auth != null
+        && request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['preferredLanguage', 'dailyTargetMinutes', 'status'])
+        && request.resource.data.preferredLanguage is string
+        && request.resource.data.preferredLanguage.size() > 0
+        && request.resource.data.dailyTargetMinutes is int
+        && request.resource.data.dailyTargetMinutes >= 5
+        && request.resource.data.dailyTargetMinutes <= 240
+        && request.resource.data.status in ['active', 'paused', 'inactive'];
+      allow create, delete: if false;
+    }
+
+    match /curriculum/form2/subjects/{subjectId} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

@@ -1,0 +1,24 @@
+# Flutter
+app/build/
+app/.dart_tool/
+app/.flutter-plugins
+app/.flutter-plugins-dependencies
+app/.packages
+app/pubspec.lock
+
+# Next.js
+dashboard/.next/
+dashboard/node_modules/
+dashboard/out/
+dashboard/.env.local
+
+# Firebase / secrets
+.firebaserc
+firebase-debug.log
+*.log
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
