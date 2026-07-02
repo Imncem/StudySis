@@ -19,6 +19,7 @@ export function ContentStudio() {
   const [moduleEditor, setModuleEditor] = useState<Editor<LearningModule>>(null);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [isSeeding, setIsSeeding] = useState(false);
 
   useEffect(() => {
     if (subjectId !== EDITABLE_SUBJECT_ID) return;
@@ -70,6 +71,23 @@ export function ContentStudio() {
       setNotice("Chapter created.");
     }
     setChapterEditor(null);
+  }
+
+  async function seedMathematicsChapters() {
+    setIsSeeding(true);
+    setError("");
+    setNotice("");
+    try {
+      const result = await repository.seedMathematicsChapters();
+      setNotice(
+        `Mathematics chapter seed complete: ${result.created} created, ` +
+          `${result.skipped} skipped.`,
+      );
+    } catch (nextError) {
+      setError(errorMessage(nextError));
+    } finally {
+      setIsSeeding(false);
+    }
   }
 
   async function saveModule(input: LearningModuleInput) {
@@ -175,7 +193,10 @@ export function ContentStudio() {
       <p className="eyebrow">CONTENT STUDIO / FORM 2 / MATHEMATICS</p>
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div><h1 className="page-title">Mathematics</h1><p className="page-description">Chapters follow the official textbook sequence.</p></div>
-        <button className="primary-button" onClick={() => { setChapterEditor("new"); setModuleEditor(null); }} type="button">Add chapter</button>
+        <div className="flex flex-wrap gap-3">
+          <button className="secondary-button" disabled={isSeeding} onClick={seedMathematicsChapters} type="button">{isSeeding ? "Seeding…" : "Seed Mathematics Chapters"}</button>
+          <button className="primary-button" onClick={() => { setChapterEditor("new"); setModuleEditor(null); }} type="button">Add chapter</button>
+        </div>
       </div>
 
       {(error || subjectError) && <p className="error-banner">{error || subjectError}</p>}

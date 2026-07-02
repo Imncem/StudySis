@@ -89,10 +89,10 @@ npm run dev
 Open `http://localhost:3000`, sign in, then use:
 
 ```text
-Content Studio → Mathematics → Add chapter → Add module
+Content Studio → Mathematics → Seed Mathematics Chapters
 ```
 
-Set both the chapter and module status to `active` to publish the module to Qidah's Continue flow.
+The seed is idempotent by chapter number: it creates only missing official chapter skeletons and reports created/skipped totals. Each newly seeded chapter receives six empty draft module skeletons. Draft content remains hidden from Qidah. Complete the objectives and module content, then publish from Content Studio to make it available through Continue.
 
 Dashboard checks:
 

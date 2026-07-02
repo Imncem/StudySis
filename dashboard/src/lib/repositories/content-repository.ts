@@ -15,7 +15,11 @@ import {
   type QueryDocumentSnapshot,
   type Unsubscribe,
 } from "firebase/firestore";
-import { contentPaths } from "@/lib/content-paths";
+import { contentPaths, EDITABLE_SUBJECT_ID } from "@/lib/content-paths";
+import {
+  draftModuleSeed,
+  mathematicsChapterSeed,
+} from "@/lib/seeds/mathematics-chapters";
 import type {
   Chapter,
   ChapterInput,
@@ -25,6 +29,11 @@ import type {
 } from "@/lib/types";
 
 type ErrorHandler = (error: Error) => void;
+
+export type SeedResult = {
+  created: number;
+  skipped: number;
+};
 
 export class ContentRepository {
   constructor(private readonly db: Firestore) {}
@@ -80,6 +89,71 @@ export class ContentRepository {
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
     });
+  }
+
+  async seedMathematicsChapters(): Promise<SeedResult> {
+    const subjectId = EDITABLE_SUBJECT_ID;
+    const chaptersCollection = collection(
+      this.db,
+      contentPaths.chapters(subjectId),
+    );
+    const existingSnapshot = await getDocs(chaptersCollection);
+    const existingChapterNumbers = new Set(
+      existingSnapshot.docs
+        .map((item) => item.data().chapterNumber)
+        .filter((value): value is number => Number.isInteger(value)),
+    );
+    const existingDocumentIds = new Set(
+      existingSnapshot.docs.map((item) => item.id),
+    );
+    const batch = writeBatch(this.db);
+    let created = 0;
+
+    mathematicsChapterSeed.forEach((title, index) => {
+      const chapterNumber = index + 1;
+      const chapterId = `chapter-${chapterNumber.toString().padStart(2, "0")}`;
+      if (
+        existingChapterNumbers.has(chapterNumber) ||
+        existingDocumentIds.has(chapterId)
+      ) {
+        return;
+      }
+
+      const chapterReference = doc(chaptersCollection, chapterId);
+      batch.set(chapterReference, {
+        chapterNumber,
+        title,
+        textbookChapterTitle: title,
+        learningObjectives: [],
+        estimatedMinutes: 30,
+        order: chapterNumber,
+        status: "draft",
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      });
+
+      draftModuleSeed.forEach((module, moduleIndex) => {
+        batch.set(doc(chapterReference, "modules", module.type), {
+          title: module.title,
+          type: module.type,
+          content: "",
+          summary: "",
+          estimatedMinutes: 5,
+          difficulty: "easy",
+          order: moduleIndex + 1,
+          status: "draft",
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        });
+      });
+      created += 1;
+    });
+
+    if (created > 0) await batch.commit();
+    return {
+      created,
+      skipped: mathematicsChapterSeed.length - created,
+    };
   }
 
   async updateChapter(

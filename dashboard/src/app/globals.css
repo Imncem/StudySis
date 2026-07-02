@@ -88,7 +88,7 @@ button, input, select, textarea { font: inherit; }
 }
 
 .primary-button:hover, .secondary-button:hover { transform: translateY(-1px); }
-.primary-button:disabled { cursor: wait; opacity: 0.65; transform: none; }
+.primary-button:disabled, .secondary-button:disabled { cursor: wait; opacity: 0.65; transform: none; }
 
 @media (min-width: 640px) {
   .panel, .editor-card { padding: 2rem; }

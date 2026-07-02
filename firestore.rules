@@ -20,7 +20,7 @@ service cloud.firestore {
         && data.textbookChapterTitle is string
         && data.textbookChapterTitle.size() > 0
         && data.learningObjectives is list
-        && data.learningObjectives.size() > 0
+        && (data.status != 'active' || data.learningObjectives.size() > 0)
         && data.estimatedMinutes is int
         && data.estimatedMinutes > 0
         && data.status in ['draft', 'active', 'archived']
@@ -42,9 +42,9 @@ service cloud.firestore {
           'notes', 'flashcards', 'practice', 'quiz', 'test', 'review'
         ]
         && data.content is string
-        && data.content.size() > 0
+        && (data.status != 'active' || data.content.size() > 0)
         && data.summary is string
-        && data.summary.size() > 0
+        && (data.status != 'active' || data.summary.size() > 0)
         && data.estimatedMinutes is int
         && data.estimatedMinutes > 0
         && data.difficulty in ['easy', 'medium', 'hard']
