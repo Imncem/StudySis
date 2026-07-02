@@ -2,10 +2,63 @@ rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Qidah's app has no login, so these Sprint 1 reads are public.
+    function isDashboardAdmin() {
+      return request.auth != null;
+    }
+
+    function validChapter() {
+      let data = request.resource.data;
+      return data.keys().hasOnly([
+          'chapterNumber', 'title', 'textbookChapterTitle',
+          'learningObjectives', 'estimatedMinutes', 'status', 'order',
+          'createdAt', 'updatedAt'
+        ])
+        && data.chapterNumber is int
+        && data.chapterNumber > 0
+        && data.title is string
+        && data.title.size() > 0
+        && data.textbookChapterTitle is string
+        && data.textbookChapterTitle.size() > 0
+        && data.learningObjectives is list
+        && data.learningObjectives.size() > 0
+        && data.estimatedMinutes is int
+        && data.estimatedMinutes > 0
+        && data.status in ['draft', 'active', 'archived']
+        && data.order is int
+        && data.order >= 0
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function validModule() {
+      let data = request.resource.data;
+      return data.keys().hasOnly([
+          'title', 'type', 'content', 'summary', 'estimatedMinutes',
+          'difficulty', 'order', 'status', 'createdAt', 'updatedAt'
+        ])
+        && data.title is string
+        && data.title.size() > 0
+        && data.type in [
+          'notes', 'flashcards', 'practice', 'quiz', 'test', 'review'
+        ]
+        && data.content is string
+        && data.content.size() > 0
+        && data.summary is string
+        && data.summary.size() > 0
+        && data.estimatedMinutes is int
+        && data.estimatedMinutes > 0
+        && data.difficulty in ['easy', 'medium', 'hard']
+        && data.order is int
+        && data.order >= 0
+        && data.status in ['draft', 'active', 'archived']
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    // Qidah's student app intentionally has no authentication.
     match /students/qidah {
       allow read: if true;
-      allow update: if request.auth != null
+      allow update: if isDashboardAdmin()
         && request.resource.data.diff(resource.data).affectedKeys()
           .hasOnly(['preferredLanguage', 'dailyTargetMinutes', 'status'])
         && request.resource.data.preferredLanguage is string
@@ -17,9 +70,27 @@ service cloud.firestore {
       allow create, delete: if false;
     }
 
+    // `form2` is the current curriculum catalog ID. Future catalogs can use
+    // sibling IDs without changing the subjects/chapters/modules structure.
     match /curriculum/form2/subjects/{subjectId} {
       allow read: if true;
       allow write: if false;
+
+      match /chapters/{chapterId} {
+        allow read: if true;
+        allow create, update: if isDashboardAdmin()
+          && subjectId == 'math'
+          && validChapter();
+        allow delete: if isDashboardAdmin() && subjectId == 'math';
+
+        match /modules/{moduleId} {
+          allow read: if true;
+          allow create, update: if isDashboardAdmin()
+            && subjectId == 'math'
+            && validModule();
+          allow delete: if isDashboardAdmin() && subjectId == 'math';
+        }
+      }
     }
 
     match /{document=**} {

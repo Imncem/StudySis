@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/foundation.dart';
 
+import '../config/content_paths.dart';
 import '../models/student.dart';
 import '../models/subject.dart';
 
@@ -31,7 +32,7 @@ class FirestoreService {
 
   Stream<List<Subject>> watchSubjects() {
     return _firestore
-        .collection('curriculum/form2/subjects')
+        .collection(ContentPaths.subjects)
         .orderBy('order')
         .snapshots()
         .map((snapshot) => snapshot.docs

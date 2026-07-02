@@ -1,6 +1,9 @@
+import type { Timestamp } from "firebase/firestore";
+
 export type Student = {
   name?: string;
   displayName?: string;
+  fullName?: string;
   preferredLanguage: string;
   dailyTargetMinutes: number;
   status: string;
@@ -15,3 +18,56 @@ export type Subject = {
   themeColor: string;
   order: number;
 };
+
+export const chapterStatuses = ["draft", "active", "archived"] as const;
+export type ChapterStatus = (typeof chapterStatuses)[number];
+
+export type Chapter = {
+  id: string;
+  chapterNumber: number;
+  title: string;
+  textbookChapterTitle: string;
+  learningObjectives: string[];
+  estimatedMinutes: number;
+  status: ChapterStatus;
+  order: number;
+  createdAt: Timestamp | null;
+  updatedAt: Timestamp | null;
+};
+
+export type ChapterInput = Omit<Chapter, "id" | "createdAt" | "updatedAt">;
+
+export const moduleTypes = [
+  "notes",
+  "flashcards",
+  "practice",
+  "quiz",
+  "test",
+  "review",
+] as const;
+export type ModuleType = (typeof moduleTypes)[number];
+
+export const moduleDifficulties = ["easy", "medium", "hard"] as const;
+export type ModuleDifficulty = (typeof moduleDifficulties)[number];
+
+export const moduleStatuses = ["draft", "active", "archived"] as const;
+export type ModuleStatus = (typeof moduleStatuses)[number];
+
+export type LearningModule = {
+  id: string;
+  title: string;
+  type: ModuleType;
+  content: string;
+  summary: string;
+  estimatedMinutes: number;
+  difficulty: ModuleDifficulty;
+  order: number;
+  status: ModuleStatus;
+  createdAt: Timestamp | null;
+  updatedAt: Timestamp | null;
+};
+
+export type LearningModuleInput = Omit<
+  LearningModule,
+  "id" | "createdAt" | "updatedAt"
+>;

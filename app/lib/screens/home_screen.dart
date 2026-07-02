@@ -2,7 +2,10 @@ import 'package:flutter/material.dart';
 
 import '../models/student.dart';
 import '../models/subject.dart';
+import '../models/learning_content.dart';
+import '../repositories/learning_repository.dart';
 import '../services/firestore_service.dart';
+import 'module_reader_screen.dart';
 import '../widgets/info_chip.dart';
 import '../widgets/subject_card.dart';
 
@@ -15,6 +18,52 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   final _service = FirestoreService();
+  final _learningRepository = LearningRepository();
+  late Future<LearningContent?> _nextContent;
+  bool _isOpeningModule = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _nextContent = _learningRepository.getFirstAvailableContent();
+  }
+
+  Future<void> _refresh() async {
+    final nextContent = _learningRepository.getFirstAvailableContent();
+    setState(() => _nextContent = nextContent);
+    await nextContent;
+  }
+
+  Future<void> _continueLearning() async {
+    if (_isOpeningModule) return;
+    setState(() => _isOpeningModule = true);
+    try {
+      final content = await _learningRepository.getFirstAvailableContent();
+      if (!mounted) return;
+      setState(() => _nextContent = Future.value(content));
+      if (content == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Learning modules are being prepared.'),
+          ),
+        );
+        return;
+      }
+      await Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (_) => ModuleReaderScreen(learningContent: content),
+        ),
+      );
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Could not open the module: $error')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isOpeningModule = false);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -31,7 +80,7 @@ class _HomeScreenState extends State<HomeScreen> {
             }
             final student = studentSnapshot.data!;
             return RefreshIndicator(
-              onRefresh: () async => setState(() {}),
+              onRefresh: _refresh,
               child: ListView(
                 padding: const EdgeInsets.fromLTRB(20, 24, 20, 40),
                 children: [
@@ -57,34 +106,10 @@ class _HomeScreenState extends State<HomeScreen> {
                     ],
                   ),
                   const SizedBox(height: 24),
-                  Card(
-                    color: const Color(0xFFE5EEE8),
-                    child: Padding(
-                      padding: const EdgeInsets.all(22),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text('Continue learning',
-                              style: Theme.of(context).textTheme.titleLarge),
-                          const SizedBox(height: 8),
-                          const Text(
-                            'Your next lesson will appear here when learning modules are ready.',
-                          ),
-                          const SizedBox(height: 18),
-                          FilledButton(
-                            onPressed: () {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(
-                                  content:
-                                      Text('Learning modules are coming soon.'),
-                                ),
-                              );
-                            },
-                            child: const Text('Continue'),
-                          ),
-                        ],
-                      ),
-                    ),
+                  _ContinueCard(
+                    content: _nextContent,
+                    isOpening: _isOpeningModule,
+                    onContinue: _continueLearning,
                   ),
                   const SizedBox(height: 14),
                   Card(
@@ -154,6 +179,68 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                 ],
               ),
+            );
+          },
+        ),
+      ),
+    );
+  }
+}
+
+class _ContinueCard extends StatelessWidget {
+  const _ContinueCard({
+    required this.content,
+    required this.isOpening,
+    required this.onContinue,
+  });
+
+  final Future<LearningContent?> content;
+  final bool isOpening;
+  final VoidCallback onContinue;
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      color: const Color(0xFFE5EEE8),
+      child: Padding(
+        padding: const EdgeInsets.all(22),
+        child: FutureBuilder<LearningContent?>(
+          future: content,
+          builder: (context, snapshot) {
+            final learningContent = snapshot.data;
+            final hasError = snapshot.hasError;
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Continue learning',
+                    style: Theme.of(context).textTheme.titleLarge),
+                const SizedBox(height: 8),
+                if (snapshot.connectionState == ConnectionState.waiting)
+                  const Text('Finding your next learning module…')
+                else if (learningContent == null)
+                  Text(
+                    hasError
+                        ? 'We could not check the learning modules right now.'
+                        : 'Learning modules are being prepared.',
+                  )
+                else ...[
+                  Text(
+                    'Chapter ${learningContent.chapter.chapterNumber} · '
+                    '${learningContent.module.title}',
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    '${learningContent.module.typeLabel} · '
+                    '${learningContent.module.estimatedMinutes} min',
+                  ),
+                ],
+                const SizedBox(height: 18),
+                FilledButton(
+                  onPressed: isOpening ? null : onContinue,
+                  child: Text(isOpening ? 'Opening…' : 'Continue'),
+                ),
+              ],
             );
           },
         ),

@@ -1,86 +1,73 @@
-# StudySis — Sprint 1
+# StudySis — Sprint 2 Content Studio
 
-StudySis is a personal Form 2 learning app for Qidah. This repository contains:
+StudySis is a personal KSSM Form 2 learning platform for Qidah.
 
-- `app/` — Flutter student app (no authentication)
-- `dashboard/` — Next.js admin dashboard (Firebase Email/Password authentication)
-- `firestore.rules` — Sprint 1 Firestore access rules
+- `app/` — Flutter student app with no login
+- `dashboard/` — Next.js admin dashboard with Firebase Email/Password authentication
+- `firestore.rules` — scoped student reads and authenticated content-management rules
 
-The app and dashboard both use real-time Firestore listeners. Saving Qidah's profile in the dashboard is reflected in the open Flutter app automatically.
+The dashboard is the content-management source of truth. Chapters and modules should never need to be entered manually in Firebase Console.
 
-## Required Firestore data
-
-The implementation expects this existing structure:
+## Firestore structure
 
 ```text
 students/qidah
 curriculum/form2/subjects/{subjectId}
+curriculum/form2/subjects/math/chapters/{chapterId}
+curriculum/form2/subjects/math/chapters/{chapterId}/modules/{moduleId}
 ```
 
-Suggested `students/qidah` fields:
+`form2` is treated in code as the current curriculum catalog ID rather than being scattered as a hardcoded path. A future curriculum can use a sibling catalog such as `curriculum/kssm_2027_form2/subjects/...` with the same content shape and no database redesign.
 
-```json
-{
-  "name": "Qidah",
-  "preferredLanguage": "Bahasa Melayu",
-  "dailyTargetMinutes": 20,
-  "status": "active"
-}
+Existing Sprint 1 subject documents remain compatible. Every subject needs a numeric `order` field. Mathematics must use document ID `math` to be editable in Sprint 2.
+
+### Chapter fields
+
+```text
+chapterNumber, title, textbookChapterTitle, learningObjectives,
+estimatedMinutes, status, order, createdAt, updatedAt
 ```
 
-Each subject document should contain:
+Chapter statuses are `draft`, `active`, and `archived`.
 
-```json
-{
-  "displayName": "Mathematics",
-  "shortName": "Maths",
-  "contentStatus": "available",
-  "iconName": "math",
-  "themeColor": "#527A71",
-  "order": 1
-}
+### Module fields
+
+```text
+title, type, content, summary, estimatedMinutes, difficulty,
+order, status, createdAt, updatedAt
 ```
 
-Use `contentStatus: "coming_soon"` to display the Coming soon label. All 10 subject documents need a numeric `order` field because both clients query with `orderBy("order")`; documents without this field are omitted by Firestore.
+Module types are `notes`, `flashcards`, `practice`, `quiz`, `test`, and `review`. Difficulties are `easy`, `medium`, and `hard`. Module statuses are `draft`, `active`, and `archived`.
 
-## 1. Firebase project setup
+Only active chapters and active modules are available through Continue in the student app. Draft and archived content remain hidden.
 
-1. Open the Firebase console and select the project that already contains the StudySis data.
-2. Under **Build → Authentication → Sign-in method**, enable **Email/Password**.
-3. Under **Authentication → Users**, create the admin email/password user. Do not create a student account.
-4. Register an Android app with package ID `com.studysis.studysis`, an iOS app with bundle ID `com.studysis.studysis` if needed, and a Web app for the dashboard.
-5. Install the Firebase CLI if needed: `npm install -g firebase-tools`, then run `firebase login`.
-6. Copy `.firebaserc.example` to `.firebaserc` and replace the project ID.
-7. Deploy only the Firestore rules:
+## Firebase setup
+
+The configured Firebase project is `studysis-d2151`.
+
+1. Enable **Authentication → Sign-in method → Email/Password**.
+2. Create the dashboard admin account under **Authentication → Users**.
+3. Keep the existing `students/qidah` and Form 2 subject documents.
+4. Log into Firebase CLI and deploy the Sprint 2 rules:
 
 ```powershell
+firebase login
 firebase deploy --only firestore:rules
 ```
 
-The rules allow public reads only for Qidah's profile and Form 2 subjects because the student app intentionally has no authentication. Only authenticated dashboard users can update the three supported profile fields. Everything else is denied. For production with multiple authenticated users, add an admin custom-claim check.
+The student app has no authentication, so public reads are limited to Qidah's profile, Form 2 subjects, chapters, and modules. Authenticated writes are limited to Qidah's editable profile fields and Mathematics content. No Storage or Cloud Functions are configured.
 
-No Firebase Storage bucket or Cloud Functions are required or configured.
-
-## 2. Flutter app setup and run
-
-Install the FlutterFire CLI once:
-
-```powershell
-dart pub global activate flutterfire_cli
-```
-
-Configure the app from its folder. Select the same Firebase project and the Android/iOS/Web targets you intend to run:
+## Run the Flutter app
 
 ```powershell
 cd app
 flutter pub get
-flutterfire configure
 flutter run
 ```
 
-`flutterfire configure` replaces the checked-in placeholder `lib/firebase_options.dart` and adds the platform Firebase configuration files where required. Do not commit real configuration if your team's credential policy excludes it.
+The checked-in Flutter client configuration targets `studysis-d2151`. Run `flutterfire configure --project=studysis-d2151` only if Firebase app registrations change.
 
-Useful checks:
+Checks:
 
 ```powershell
 cd app
@@ -89,17 +76,9 @@ flutter analyze
 flutter test
 ```
 
-The app opens directly to Home. There is no student login or registration flow.
+## Run the dashboard
 
-## 3. Dashboard setup and run
-
-In Firebase console, open **Project settings → Your apps → Web app → SDK setup and configuration**. Copy `dashboard/.env.local.example` to `dashboard/.env.local`, then fill in the matching Web app values:
-
-```powershell
-Copy-Item dashboard/.env.local.example dashboard/.env.local
-```
-
-Install and run:
+`dashboard/.env.local` must contain the Web Firebase configuration. It is ignored by Git.
 
 ```powershell
 cd dashboard
@@ -107,7 +86,13 @@ npm install
 npm run dev
 ```
 
-Open `http://localhost:3000` and sign in with the admin account created in Firebase Authentication.
+Open `http://localhost:3000`, sign in, then use:
+
+```text
+Content Studio → Mathematics → Add chapter → Add module
+```
+
+Set both the chapter and module status to `active` to publish the module to Qidah's Continue flow.
 
 Dashboard checks:
 
@@ -117,9 +102,12 @@ npm run lint
 npm run build
 ```
 
-## Current Sprint 1 scope
+## Sprint 2 scope
 
-- Flutter Home with Qidah's target, language, one Continue action, Muffin placeholder, and ordered subject cards
-- Admin login and Qidah profile editing
-- Real-time subject/profile reads
-- No lesson, quiz, reward, Mastery Engine, Coins, Abang Belanja, Storage, or Cloud Functions implementation yet
+- Permanent dashboard sidebar
+- Functional Dashboard, Student, and Content Studio sections
+- Mathematics chapter and module CRUD
+- Server-generated Firestore timestamps
+- Active-module Continue flow and Flutter module reader
+- Placeholders only for Rewards, Muffin, Progress, and Settings
+- No Mastery Engine, AI conversations, Coins, Abang Belanja, streaks, analytics, notifications, Storage, or Cloud Functions
