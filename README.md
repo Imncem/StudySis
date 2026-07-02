@@ -15,6 +15,10 @@ students/qidah
 curriculum/form2/subjects/{subjectId}
 curriculum/form2/subjects/math/chapters/{chapterId}
 curriculum/form2/subjects/math/chapters/{chapterId}/modules/{moduleId}
+curriculum/form2/subjects/math/chapters/{chapterId}/modules/notes/sections/{sectionId}
+curriculum/form2/subjects/math/chapters/{chapterId}/modules/flashcards/cards/{cardId}
+curriculum/form2/subjects/math/chapters/{chapterId}/modules/practice/items/{itemId}
+curriculum/form2/subjects/math/chapters/{chapterId}/modules/quiz/questions/{questionId}
 ```
 
 `form2` is treated in code as the current curriculum catalog ID rather than being scattered as a hardcoded path. A future curriculum can use a sibling catalog such as `curriculum/kssm_2027_form2/subjects/...` with the same content shape and no database redesign.
@@ -39,7 +43,9 @@ order, status, createdAt, updatedAt
 
 Module types are `notes`, `flashcards`, `practice`, `quiz`, `test`, and `review`. Difficulties are `easy`, `medium`, and `hard`. Module statuses are `draft`, `active`, and `archived`.
 
-Only active chapters and active modules are available through Continue in the student app. Draft and archived content remain hidden.
+Only active chapters and active Notes modules are available through Continue in the student app. Notes sections are ordered by their `order` field and published together through the parent Notes module. Draft and archived modules remain hidden.
+
+From the Notes reader, **Go to Flashcards** opens the active Flashcards module for the same chapter. Only active cards are loaded. Swipe vertically between cards and horizontally between the question and answer. Check and Bookmark state is local to the current app session; Muffin remains a placeholder.
 
 ## Firebase setup
 
@@ -92,7 +98,7 @@ Open `http://localhost:3000`, sign in, then use:
 Content Studio → Mathematics → Seed Mathematics Chapters
 ```
 
-The seed is idempotent by chapter number: it creates only missing official chapter skeletons and reports created/skipped totals. Each newly seeded chapter receives six empty draft module skeletons. Draft content remains hidden from Qidah. Complete the objectives and module content, then publish from Content Studio to make it available through Continue.
+The seed is idempotent by chapter number: it creates only missing official chapter skeletons and reports created/skipped totals. Each newly seeded chapter receives six empty draft module skeletons. Open a module card to manage its structured content. Notes supports sections, Flashcards supports cards, Practice supports questions, and Quiz supports MCQs. Test and Review remain placeholders. Publish the Notes module to make its ordered sections available through Continue.
 
 Dashboard checks:
 
@@ -108,6 +114,8 @@ npm run build
 - Functional Dashboard, Student, and Content Studio sections
 - Mathematics chapter and module CRUD
 - Server-generated Firestore timestamps
-- Active-module Continue flow and Flutter module reader
+- Structured Notes, Flashcards, Practice, and Quiz dashboard editors
+- Active Notes Continue flow and ordered Flutter notes reader
+- Vertical card navigation and horizontal question/answer Flashcard reader
 - Placeholders only for Rewards, Muffin, Progress, and Settings
 - No Mastery Engine, AI conversations, Coins, Abang Belanja, streaks, analytics, notifications, Storage, or Cloud Functions

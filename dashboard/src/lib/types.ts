@@ -71,3 +71,65 @@ export type LearningModuleInput = Omit<
   LearningModule,
   "id" | "createdAt" | "updatedAt"
 >;
+
+export type NoteSection = {
+  id: string;
+  heading: string;
+  body: string;
+  example: string;
+  order: number;
+  createdAt: Timestamp | null;
+  updatedAt: Timestamp | null;
+};
+export type NoteSectionInput = Omit<
+  NoteSection,
+  "id" | "createdAt" | "updatedAt"
+>;
+
+export type Flashcard = {
+  id: string;
+  front: string;
+  back: string;
+  hint: string;
+  order: number;
+  status: ModuleStatus;
+  createdAt: Timestamp | null;
+  updatedAt: Timestamp | null;
+};
+export type FlashcardInput = Omit<
+  Flashcard,
+  "id" | "createdAt" | "updatedAt"
+>;
+
+export type PracticeItem = {
+  id: string;
+  question: string;
+  answer: string;
+  explanation: string;
+  difficulty: ModuleDifficulty;
+  order: number;
+  status: ModuleStatus;
+  createdAt: Timestamp | null;
+  updatedAt: Timestamp | null;
+};
+export type PracticeItemInput = Omit<
+  PracticeItem,
+  "id" | "createdAt" | "updatedAt"
+>;
+
+export type QuizQuestion = {
+  id: string;
+  question: string;
+  options: string[];
+  correctOptionIndex: number;
+  explanation: string;
+  difficulty: ModuleDifficulty;
+  order: number;
+  status: ModuleStatus;
+  createdAt: Timestamp | null;
+  updatedAt: Timestamp | null;
+};
+export type QuizQuestionInput = Omit<
+  QuizQuestion,
+  "id" | "createdAt" | "updatedAt"
+>;

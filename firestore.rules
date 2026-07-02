@@ -20,7 +20,6 @@ service cloud.firestore {
         && data.textbookChapterTitle is string
         && data.textbookChapterTitle.size() > 0
         && data.learningObjectives is list
-        && (data.status != 'active' || data.learningObjectives.size() > 0)
         && data.estimatedMinutes is int
         && data.estimatedMinutes > 0
         && data.status in ['draft', 'active', 'archived']
@@ -42,11 +41,86 @@ service cloud.firestore {
           'notes', 'flashcards', 'practice', 'quiz', 'test', 'review'
         ]
         && data.content is string
-        && (data.status != 'active' || data.content.size() > 0)
         && data.summary is string
-        && (data.status != 'active' || data.summary.size() > 0)
         && data.estimatedMinutes is int
         && data.estimatedMinutes > 0
+        && data.difficulty in ['easy', 'medium', 'hard']
+        && data.order is int
+        && data.order >= 0
+        && data.status in ['draft', 'active', 'archived']
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function validNoteSection() {
+      let data = request.resource.data;
+      return data.keys().hasOnly([
+          'heading', 'body', 'example', 'order', 'createdAt', 'updatedAt'
+        ])
+        && data.heading is string
+        && data.heading.size() > 0
+        && data.body is string
+        && data.body.size() > 0
+        && data.example is string
+        && data.order is int
+        && data.order >= 0
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function validFlashcard() {
+      let data = request.resource.data;
+      return data.keys().hasOnly([
+          'front', 'back', 'hint', 'order', 'status',
+          'createdAt', 'updatedAt'
+        ])
+        && data.front is string
+        && data.front.size() > 0
+        && data.back is string
+        && data.back.size() > 0
+        && data.hint is string
+        && data.order is int
+        && data.order >= 0
+        && data.status in ['draft', 'active', 'archived']
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function validPracticeItem() {
+      let data = request.resource.data;
+      return data.keys().hasOnly([
+          'question', 'answer', 'explanation', 'difficulty', 'order',
+          'status', 'createdAt', 'updatedAt'
+        ])
+        && data.question is string
+        && data.question.size() > 0
+        && data.answer is string
+        && data.answer.size() > 0
+        && data.explanation is string
+        && data.explanation.size() > 0
+        && data.difficulty in ['easy', 'medium', 'hard']
+        && data.order is int
+        && data.order >= 0
+        && data.status in ['draft', 'active', 'archived']
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function validQuizQuestion() {
+      let data = request.resource.data;
+      return data.keys().hasOnly([
+          'question', 'options', 'correctOptionIndex', 'explanation',
+          'difficulty', 'order', 'status', 'createdAt', 'updatedAt'
+        ])
+        && data.question is string
+        && data.question.size() > 0
+        && data.options is list
+        && data.options.size() >= 2
+        && data.correctOptionIndex is int
+        && data.correctOptionIndex >= 0
+        && data.correctOptionIndex < data.options.size()
+        && data.explanation is string
+        && data.explanation.size() > 0
         && data.difficulty in ['easy', 'medium', 'hard']
         && data.order is int
         && data.order >= 0
@@ -89,6 +163,50 @@ service cloud.firestore {
             && subjectId == 'math'
             && validModule();
           allow delete: if isDashboardAdmin() && subjectId == 'math';
+
+          match /sections/{sectionId} {
+            allow read: if true;
+            allow create, update: if isDashboardAdmin()
+              && subjectId == 'math'
+              && moduleId == 'notes'
+              && validNoteSection();
+            allow delete: if isDashboardAdmin()
+              && subjectId == 'math'
+              && moduleId == 'notes';
+          }
+
+          match /cards/{cardId} {
+            allow read: if true;
+            allow create, update: if isDashboardAdmin()
+              && subjectId == 'math'
+              && moduleId == 'flashcards'
+              && validFlashcard();
+            allow delete: if isDashboardAdmin()
+              && subjectId == 'math'
+              && moduleId == 'flashcards';
+          }
+
+          match /items/{itemId} {
+            allow read: if true;
+            allow create, update: if isDashboardAdmin()
+              && subjectId == 'math'
+              && moduleId == 'practice'
+              && validPracticeItem();
+            allow delete: if isDashboardAdmin()
+              && subjectId == 'math'
+              && moduleId == 'practice';
+          }
+
+          match /questions/{questionId} {
+            allow read: if true;
+            allow create, update: if isDashboardAdmin()
+              && subjectId == 'math'
+              && moduleId == 'quiz'
+              && validQuizQuestion();
+            allow delete: if isDashboardAdmin()
+              && subjectId == 'math'
+              && moduleId == 'quiz';
+          }
         }
       }
     }

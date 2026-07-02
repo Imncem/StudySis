@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../models/learning_content.dart';
+import 'flashcard_screen.dart';
 
 class ModuleReaderScreen extends StatelessWidget {
   const ModuleReaderScreen({required this.learningContent, super.key});
@@ -50,33 +51,78 @@ class ModuleReaderScreen extends StatelessWidget {
               ],
             ),
             const SizedBox(height: 24),
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(22),
-                child: SelectableText(
-                  module.content,
-                  style: Theme.of(context)
-                      .textTheme
-                      .bodyLarge
-                      ?.copyWith(height: 1.7),
+            if (learningContent.noteSections.isEmpty)
+              const Card(
+                child: Padding(
+                  padding: EdgeInsets.all(28),
+                  child: Text(
+                    'This lesson is being prepared.',
+                    textAlign: TextAlign.center,
+                  ),
                 ),
-              ),
-            ),
-            const SizedBox(height: 14),
-            Card(
-              color: const Color(0xFFEFF4F0),
-              child: Padding(
-                padding: const EdgeInsets.all(20),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text('Summary',
-                        style: Theme.of(context).textTheme.titleMedium),
-                    const SizedBox(height: 8),
-                    SelectableText(module.summary),
-                  ],
+              )
+            else
+              for (final section in learningContent.noteSections) ...[
+                Card(
+                  child: Padding(
+                    padding: const EdgeInsets.all(22),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          section.heading,
+                          style: Theme.of(context).textTheme.titleLarge,
+                        ),
+                        const SizedBox(height: 12),
+                        SelectableText(
+                          section.body,
+                          style: Theme.of(context)
+                              .textTheme
+                              .bodyLarge
+                              ?.copyWith(height: 1.7),
+                        ),
+                        if (section.example.isNotEmpty) ...[
+                          const SizedBox(height: 18),
+                          Container(
+                            width: double.infinity,
+                            padding: const EdgeInsets.all(16),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFEFF4F0),
+                              borderRadius: BorderRadius.circular(16),
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Example',
+                                  style: Theme.of(context).textTheme.titleSmall,
+                                ),
+                                const SizedBox(height: 6),
+                                SelectableText(section.example),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
                 ),
-              ),
+                const SizedBox(height: 12),
+              ],
+            const SizedBox(height: 12),
+            OutlinedButton.icon(
+              onPressed: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => FlashcardScreen(
+                      subjectName: learningContent.subjectName,
+                      chapter: chapter,
+                    ),
+                  ),
+                );
+              },
+              icon: const Icon(Icons.style_rounded),
+              label: const Text('Go to Flashcards'),
             ),
           ],
         ),

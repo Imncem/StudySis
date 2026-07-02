@@ -13,4 +13,19 @@ export const contentPaths = {
     `${contentPaths.chapter(subjectId, chapterId)}/modules`,
   module: (subjectId: string, chapterId: string, moduleId: string) =>
     `${contentPaths.modules(subjectId, chapterId)}/${moduleId}`,
+  moduleContent: (
+    subjectId: string,
+    chapterId: string,
+    moduleId: string,
+    collectionName: string,
+  ) =>
+    `${contentPaths.module(subjectId, chapterId, moduleId)}/${collectionName}`,
+  moduleContentItem: (
+    subjectId: string,
+    chapterId: string,
+    moduleId: string,
+    collectionName: string,
+    itemId: string,
+  ) =>
+    `${contentPaths.moduleContent(subjectId, chapterId, moduleId, collectionName)}/${itemId}`,
 };

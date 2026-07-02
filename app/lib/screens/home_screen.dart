@@ -30,7 +30,9 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Future<void> _refresh() async {
     final nextContent = _learningRepository.getFirstAvailableContent();
-    setState(() => _nextContent = nextContent);
+    setState(() {
+      _nextContent = nextContent;
+    });
     await nextContent;
   }
 
@@ -40,7 +42,9 @@ class _HomeScreenState extends State<HomeScreen> {
     try {
       final content = await _learningRepository.getFirstAvailableContent();
       if (!mounted) return;
-      setState(() => _nextContent = Future.value(content));
+      setState(() {
+        _nextContent = Future.value(content);
+      });
       if (content == null) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(

@@ -1,7 +1,6 @@
 import {
   addDoc,
   collection,
-  deleteDoc,
   doc,
   getDocs,
   onSnapshot,
@@ -29,6 +28,7 @@ import type {
 } from "@/lib/types";
 
 type ErrorHandler = (error: Error) => void;
+const structuredCollections = ["sections", "cards", "items", "questions"];
 
 export type SeedResult = {
   created: number;
@@ -185,10 +185,30 @@ export class ContentRepository {
     const modules = await getDocs(
       collection(this.db, contentPaths.modules(subjectId, chapterId)),
     );
-    if (modules.size >= 499) {
+    const nestedSnapshots = await Promise.all(
+      modules.docs.flatMap((module) =>
+        structuredCollections.map((collectionName) =>
+          getDocs(
+            collection(
+              this.db,
+              contentPaths.moduleContent(
+                subjectId,
+                chapterId,
+                module.id,
+                collectionName,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    const nestedDocuments = nestedSnapshots.flatMap((snapshot) => snapshot.docs);
+    const writeCount = nestedDocuments.length + modules.size + 1;
+    if (writeCount > 500) {
       throw new Error("This chapter has too many modules for a safe dashboard deletion.");
     }
     const batch = writeBatch(this.db);
+    nestedDocuments.forEach((item) => batch.delete(item.ref));
     modules.docs.forEach((item) => batch.delete(item.ref));
     batch.delete(doc(this.db, contentPaths.chapter(subjectId, chapterId)));
     await batch.commit();
@@ -223,9 +243,29 @@ export class ContentRepository {
     chapterId: string,
     moduleId: string,
   ): Promise<void> {
-    await deleteDoc(
-      doc(this.db, contentPaths.module(subjectId, chapterId, moduleId)),
+    const nestedSnapshots = await Promise.all(
+      structuredCollections.map((collectionName) =>
+        getDocs(
+          collection(
+            this.db,
+            contentPaths.moduleContent(
+              subjectId,
+              chapterId,
+              moduleId,
+              collectionName,
+            ),
+          ),
+        ),
+      ),
     );
+    const nestedDocuments = nestedSnapshots.flatMap((snapshot) => snapshot.docs);
+    if (nestedDocuments.length >= 500) {
+      throw new Error("This module has too much content for a safe dashboard deletion.");
+    }
+    const batch = writeBatch(this.db);
+    nestedDocuments.forEach((item) => batch.delete(item.ref));
+    batch.delete(doc(this.db, contentPaths.module(subjectId, chapterId, moduleId)));
+    await batch.commit();
   }
 
   async publishModule(

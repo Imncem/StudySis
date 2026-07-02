@@ -1,22 +1,31 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useSubjects } from "@/hooks/use-study-data";
 import { EDITABLE_SUBJECT_ID } from "@/lib/content-paths";
+import { getFirebaseDb } from "@/lib/firebase";
+import { StructuredContentRepository } from "@/lib/repositories/structured-content-repository";
 import type { Chapter, ChapterInput, LearningModule, LearningModuleInput } from "@/lib/types";
 import { ChapterForm } from "./chapter-form";
+import { ModuleCompletionCount } from "./module-completion-count";
 import { ModuleForm } from "./module-form";
+import { StructuredModuleEditor } from "./structured-module-editor";
 
 type Editor<T> = "new" | T | null;
 
 export function ContentStudio() {
   const { subjects, error: subjectError, repository } = useSubjects();
+  const structuredRepository = useMemo(
+    () => new StructuredContentRepository(getFirebaseDb()),
+    [],
+  );
   const [subjectId, setSubjectId] = useState<string | null>(null);
   const [chapters, setChapters] = useState<Chapter[]>([]);
   const [selectedChapterId, setSelectedChapterId] = useState<string | null>(null);
   const [modules, setModules] = useState<LearningModule[]>([]);
   const [chapterEditor, setChapterEditor] = useState<Editor<Chapter>>(null);
   const [moduleEditor, setModuleEditor] = useState<Editor<LearningModule>>(null);
+  const [structuredModuleId, setStructuredModuleId] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [isSeeding, setIsSeeding] = useState(false);
@@ -51,12 +60,15 @@ export function ContentStudio() {
   }, [repository, selectedChapterId, subjectId]);
 
   const selectedChapter = chapters.find((chapter) => chapter.id === selectedChapterId) ?? null;
+  const structuredModule =
+    modules.find((module) => module.id === structuredModuleId) ?? null;
 
   function openSubject(nextSubjectId: string) {
     if (nextSubjectId !== EDITABLE_SUBJECT_ID) return;
     setSubjectId(nextSubjectId);
     setChapterEditor(null);
     setModuleEditor(null);
+    setStructuredModuleId(null);
     setError("");
     setNotice("");
   }
@@ -132,6 +144,7 @@ export function ContentStudio() {
       setNotice("Chapter and its modules deleted.");
       setChapterEditor(null);
       setModuleEditor(null);
+      setStructuredModuleId(null);
     } catch (nextError) {
       setError(errorMessage(nextError));
     }
@@ -144,6 +157,7 @@ export function ContentStudio() {
       await repository.deleteModule(subjectId, selectedChapterId, module.id);
       setNotice("Module deleted.");
       setModuleEditor(null);
+      setStructuredModuleId(null);
     } catch (nextError) {
       setError(errorMessage(nextError));
     }
@@ -211,7 +225,7 @@ export function ContentStudio() {
             <div className="space-y-3">
               {chapters.map((chapter) => (
                 <article className={`rounded-2xl border p-4 ${selectedChapterId === chapter.id ? "border-[#70917f] bg-[#f4f8f5]" : "border-[#e8ebe7]"}`} key={chapter.id}>
-                  <button className="w-full text-left" onClick={() => { setSelectedChapterId(chapter.id); setModuleEditor(null); }} type="button">
+                  <button className="w-full text-left" onClick={() => { setSelectedChapterId(chapter.id); setModuleEditor(null); setStructuredModuleId(null); }} type="button">
                     <div className="flex items-start justify-between gap-3"><div><p className="text-xs font-semibold uppercase tracking-wide text-[#668071]">Chapter {chapter.chapterNumber}</p><h3 className="mt-1 font-bold text-[#293930]">{chapter.title}</h3></div><Status value={chapter.status} /></div>
                     <p className="mt-2 line-clamp-2 text-sm text-slate-500">{chapter.textbookChapterTitle}</p>
                   </button>
@@ -227,13 +241,28 @@ export function ContentStudio() {
               <div className="panel text-center text-sm text-slate-500">Select or create a chapter to manage modules.</div>
             ) : moduleEditor ? (
               <ModuleForm module={moduleEditor === "new" ? undefined : moduleEditor} key={moduleEditor === "new" ? `new-${selectedChapter.id}` : moduleEditor.id} onCancel={() => setModuleEditor(null)} onSave={saveModule} />
+            ) : structuredModule ? (
+              <StructuredModuleEditor
+                chapterId={selectedChapter.id}
+                module={structuredModule}
+                onBack={() => setStructuredModuleId(null)}
+                onEditDetails={() => {
+                  setModuleEditor(structuredModule);
+                  setStructuredModuleId(null);
+                }}
+                onPublish={() => publishModule(structuredModule)}
+                repository={structuredRepository}
+                subjectId={subjectId}
+              />
             ) : (
               <div className="panel">
                 <div className="flex flex-wrap items-start justify-between gap-4"><div><p className="eyebrow">CHAPTER {selectedChapter.chapterNumber}</p><h2 className="mt-1 text-xl font-bold text-[#293930]">Learning modules</h2><p className="mt-1 text-sm text-slate-500">{selectedChapter.title}</p></div><button className="primary-button" onClick={() => setModuleEditor("new")} type="button">Add module</button></div>
                 <div className="mt-6 space-y-3">
                   {modules.map((module) => (
                     <article className="rounded-2xl border border-[#e8ebe7] p-4" key={module.id}>
-                      <div className="flex flex-wrap items-start justify-between gap-3"><div><p className="text-xs font-semibold uppercase tracking-wide text-[#668071]">{titleCase(module.type)} · {module.estimatedMinutes} min</p><h3 className="mt-1 font-bold text-[#293930]">{module.title}</h3><p className="mt-2 line-clamp-2 text-sm text-slate-500">{module.summary}</p></div><Status value={module.status} /></div>
+                      <button className="w-full text-left" onClick={() => setStructuredModuleId(module.id)} type="button">
+                        <div className="flex flex-wrap items-start justify-between gap-3"><div><p className="text-xs font-semibold uppercase tracking-wide text-[#668071]">{titleCase(module.type)} · {module.estimatedMinutes} min</p><h3 className="mt-1 font-bold text-[#293930]">{module.title}</h3><p className="mt-2 text-sm font-medium text-[#60766a]"><ModuleCompletionCount chapterId={selectedChapter.id} module={module} repository={structuredRepository} subjectId={subjectId} /></p></div><Status value={module.status} /></div>
+                      </button>
                       <div className="mt-4 flex flex-wrap gap-2 border-t border-[#e8ebe7] pt-3"><button className="small-button" onClick={() => setModuleEditor(module)} type="button">Edit</button>{module.status !== "active" && <button className="small-button" onClick={() => publishModule(module)} type="button">Publish</button>}<button className="small-button danger" onClick={() => deleteModule(module)} type="button">Delete</button></div>
                     </article>
                   ))}
