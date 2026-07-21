@@ -6,14 +6,20 @@ import '../repositories/learning_repository.dart';
 
 class FlashcardScreen extends StatefulWidget {
   const FlashcardScreen({
+    required this.subjectId,
     required this.subjectName,
     required this.chapter,
+    this.initialCompletedCardIds = const {},
+    this.onCardCompleted,
     this.repository,
     super.key,
   });
 
+  final String subjectId;
   final String subjectName;
   final Chapter chapter;
+  final Set<String> initialCompletedCardIds;
+  final ValueChanged<String>? onCardCompleted;
   final LearningRepository? repository;
 
   @override
@@ -32,7 +38,11 @@ class _FlashcardScreenState extends State<FlashcardScreen> {
   void initState() {
     super.initState();
     _repository = widget.repository ?? LearningRepository();
-    _cards = _repository.getActiveFlashcards(widget.chapter.id);
+    _cards = _repository.getActiveFlashcards(
+      widget.chapter.id,
+      subjectId: widget.subjectId,
+    );
+    _completedCards.addAll(widget.initialCompletedCardIds);
   }
 
   @override
@@ -106,12 +116,16 @@ class _FlashcardScreenState extends State<FlashcardScreen> {
   void _reload() {
     setState(() {
       _currentIndex = 0;
-      _cards = _repository.getActiveFlashcards(widget.chapter.id);
+      _cards = _repository.getActiveFlashcards(
+        widget.chapter.id,
+        subjectId: widget.subjectId,
+      );
     });
   }
 
   void _complete(Flashcard card) {
     setState(() => _completedCards.add(card.id));
+    widget.onCardCompleted?.call(card.id);
     _showMessage('Got it');
   }
 

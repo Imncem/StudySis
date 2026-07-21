@@ -5,7 +5,7 @@ import '../models/subject.dart';
 import '../models/learning_content.dart';
 import '../repositories/learning_repository.dart';
 import '../services/firestore_service.dart';
-import 'module_reader_screen.dart';
+import 'subject_screen.dart';
 import '../widgets/info_chip.dart';
 import '../widgets/subject_card.dart';
 
@@ -55,7 +55,17 @@ class _HomeScreenState extends State<HomeScreen> {
       }
       await Navigator.of(context).push(
         MaterialPageRoute<void>(
-          builder: (_) => ModuleReaderScreen(learningContent: content),
+          builder: (_) => SubjectScreen(
+            subject: Subject(
+              id: 'math',
+              displayName: content.subjectName,
+              shortName: content.subjectName,
+              contentStatus: 'available',
+              iconName: 'math',
+              themeColor: '#496A5A',
+              order: 1,
+            ),
+          ),
         ),
       );
     } catch (error) {
@@ -174,7 +184,19 @@ class _HomeScreenState extends State<HomeScreen> {
                       return Column(
                         children: [
                           for (final subject in subjects) ...[
-                            SubjectCard(subject: subject),
+                            SubjectCard(
+                              subject: subject,
+                              onTap: subject.isComingSoon
+                                  ? null
+                                  : () {
+                                      Navigator.of(context).push(
+                                        MaterialPageRoute<void>(
+                                          builder: (_) =>
+                                              SubjectScreen(subject: subject),
+                                        ),
+                                      );
+                                    },
+                            ),
                             const SizedBox(height: 10),
                           ],
                         ],

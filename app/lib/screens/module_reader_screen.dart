@@ -115,6 +115,7 @@ class ModuleReaderScreen extends StatelessWidget {
                 Navigator.of(context).push(
                   MaterialPageRoute<void>(
                     builder: (_) => FlashcardScreen(
+                      subjectId: 'math',
                       subjectName: learningContent.subjectName,
                       chapter: chapter,
                     ),

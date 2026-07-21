@@ -14,8 +14,21 @@ class LearningRepository {
 
   final FirebaseFirestore _firestore;
 
-  Future<List<Flashcard>> getActiveFlashcards(String chapterId) async {
-    const subjectId = ContentPaths.mathematicsSubjectId;
+  Future<List<Chapter>> getActiveChapters(String subjectId) async {
+    final chapterSnapshot = await _firestore
+        .collection(ContentPaths.chapters(subjectId))
+        .orderBy('order')
+        .get();
+    return chapterSnapshot.docs
+        .map((chapter) => Chapter.fromMap(chapter.id, chapter.data()))
+        .where((chapter) => chapter.isActive)
+        .toList(growable: false);
+  }
+
+  Future<List<Flashcard>> getActiveFlashcards(
+    String chapterId, {
+    String subjectId = ContentPaths.mathematicsSubjectId,
+  }) async {
     final moduleSnapshot = await _firestore
         .doc(ContentPaths.module(subjectId, chapterId, 'flashcards'))
         .get();
@@ -39,6 +52,51 @@ class LearningRepository {
       '[StudySis] Active flashcards: chapter=$chapterId, count=${cards.length}',
     );
     return cards;
+  }
+
+  Future<LearningContent?> getChapterNotesContent({
+    required String subjectId,
+    required String chapterId,
+  }) async {
+    final subjectSnapshot =
+        await _firestore.doc(ContentPaths.subject(subjectId)).get();
+    final subjectName =
+        (subjectSnapshot.data()?['displayName'] ?? 'Mathematics').toString();
+
+    final chapterSnapshot = await _firestore
+        .doc('${ContentPaths.chapters(subjectId)}/$chapterId')
+        .get();
+    final chapterData = chapterSnapshot.data();
+    if (!chapterSnapshot.exists || chapterData == null) return null;
+    final chapter = Chapter.fromMap(chapterSnapshot.id, chapterData);
+    if (!chapter.isActive) return null;
+
+    final moduleSnapshot = await _firestore
+        .collection(ContentPaths.modules(subjectId, chapter.id))
+        .orderBy('order')
+        .get();
+    for (final moduleDocument in moduleSnapshot.docs) {
+      final module =
+          LearningModule.fromMap(moduleDocument.id, moduleDocument.data());
+      if (module.isActive && module.type == 'notes') {
+        final sectionSnapshot = await _firestore
+            .collection(
+              ContentPaths.noteSections(subjectId, chapter.id, module.id),
+            )
+            .orderBy('order')
+            .get();
+        final sections = sectionSnapshot.docs
+            .map((section) => NoteSection.fromMap(section.id, section.data()))
+            .toList(growable: false);
+        return LearningContent(
+          subjectName: subjectName,
+          chapter: chapter,
+          module: module,
+          noteSections: sections,
+        );
+      }
+    }
+    return null;
   }
 
   Future<LearningContent?> getFirstAvailableContent() async {
