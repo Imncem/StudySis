@@ -222,6 +222,34 @@ void main() {
     expect(values.last.overallProgress, 25);
   });
 
+  test('streams all chapter progress documents for the current user', () async {
+    final firestore = FakeFirebaseFirestore();
+    final repository = _repository(uid, firestore);
+    await repository.markLearnCompleted(
+      subjectId: subjectId,
+      chapterId: 'chapter-1',
+    );
+    await repository.markLearnCompleted(
+      subjectId: subjectId,
+      chapterId: 'chapter-2',
+    );
+    await firestore
+        .doc('student_progress/anotherUid/chapters/math_chapter-3')
+        .set({
+      'studentProfileId': 'qidah',
+      'subjectId': subjectId,
+      'chapterId': 'chapter-3',
+      'overallProgress': 100,
+    });
+
+    final progress = await repository.getAllChapterProgress();
+
+    expect(progress.map((chapter) => chapter.chapterId), {
+      'chapter-1',
+      'chapter-2',
+    });
+  });
+
   test('practice latest updates and best percentage never decreases', () async {
     final repository = _repository(uid);
     await repository.recordPracticeResult(

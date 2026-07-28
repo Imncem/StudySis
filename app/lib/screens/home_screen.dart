@@ -6,6 +6,7 @@ import '../models/learning_content.dart';
 import '../repositories/learning_repository.dart';
 import '../services/firestore_service.dart';
 import 'subject_screen.dart';
+import 'progress_screen.dart';
 import '../widgets/info_chip.dart';
 import '../widgets/subject_card.dart';
 
@@ -126,6 +127,16 @@ class _HomeScreenState extends State<HomeScreen> {
                     onContinue: _continueLearning,
                   ),
                   const SizedBox(height: 14),
+                  _ProgressEntryCard(
+                    onTap: () {
+                      Navigator.of(context).push(
+                        MaterialPageRoute<void>(
+                          builder: (_) => const ProgressScreen(),
+                        ),
+                      );
+                    },
+                  ),
+                  const SizedBox(height: 14),
                   Card(
                     child: Padding(
                       padding: const EdgeInsets.all(20),
@@ -207,6 +218,56 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
             );
           },
+        ),
+      ),
+    );
+  }
+}
+
+class _ProgressEntryCard extends StatelessWidget {
+  const _ProgressEntryCard({required this.onTap});
+
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      child: InkWell(
+        borderRadius: BorderRadius.circular(24),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.all(20),
+          child: Row(
+            children: [
+              Container(
+                width: 50,
+                height: 50,
+                decoration: BoxDecoration(
+                  color: const Color(0xFFE5EEE8),
+                  borderRadius: BorderRadius.circular(18),
+                ),
+                child: const Icon(
+                  Icons.insights_rounded,
+                  color: Color(0xFF496A5A),
+                ),
+              ),
+              const SizedBox(width: 14),
+              const Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Progress',
+                      style: TextStyle(fontWeight: FontWeight.w700),
+                    ),
+                    SizedBox(height: 3),
+                    Text('See your saved learning progress.'),
+                  ],
+                ),
+              ),
+              const Icon(Icons.chevron_right_rounded),
+            ],
+          ),
         ),
       ),
     );

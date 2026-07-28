@@ -19,6 +19,22 @@ class StudentProgressRepository {
   final FirebaseAuth? _auth;
   final String Function()? _uidProvider;
 
+  Stream<ProgressStreamData> streamAllChapterProgress() {
+    final uid = _uid;
+    return _chaptersCollection(uid).snapshots().map(
+          (snapshot) => ProgressStreamData(
+            progress: snapshot.docs.map(_progressFromSnapshot).toList(),
+            isFromCache: snapshot.metadata.isFromCache,
+          ),
+        );
+  }
+
+  Future<List<ChapterProgress>> getAllChapterProgress() async {
+    final uid = _uid;
+    final snapshot = await _chaptersCollection(uid).get();
+    return snapshot.docs.map(_progressFromSnapshot).toList();
+  }
+
   Stream<ChapterProgress> streamChapterProgress({
     required String subjectId,
     required String chapterId,
@@ -241,11 +257,48 @@ class StudentProgressRepository {
     String subjectId,
     String chapterId,
   ) {
+    return _chaptersCollection(uid).doc('${subjectId}_$chapterId');
+  }
+
+  CollectionReference<Map<String, dynamic>> _chaptersCollection(String uid) {
     return _firestore
         .collection('student_progress')
         .doc(uid)
-        .collection('chapters')
-        .doc('${subjectId}_$chapterId');
+        .collection('chapters');
+  }
+
+  ChapterProgress _progressFromSnapshot(
+    QueryDocumentSnapshot<Map<String, dynamic>> snapshot,
+  ) {
+    final data = snapshot.data();
+    final ids = _idsFromProgressDocument(snapshot.id, data);
+    return ChapterProgress.fromMap(
+      subjectId: ids.subjectId,
+      chapterId: ids.chapterId,
+      data: data,
+    );
+  }
+
+  _ProgressDocumentIds _idsFromProgressDocument(
+    String documentId,
+    Map<String, dynamic> data,
+  ) {
+    final subjectId = data['subjectId'];
+    final chapterId = data['chapterId'];
+    if (subjectId is String &&
+        subjectId.trim().isNotEmpty &&
+        chapterId is String &&
+        chapterId.trim().isNotEmpty) {
+      return _ProgressDocumentIds(subjectId.trim(), chapterId.trim());
+    }
+    final separator = documentId.indexOf('_');
+    if (separator > 0 && separator < documentId.length - 1) {
+      return _ProgressDocumentIds(
+        documentId.substring(0, separator),
+        documentId.substring(separator + 1),
+      );
+    }
+    return _ProgressDocumentIds('math', documentId);
   }
 
   String get _uid {
@@ -310,4 +363,21 @@ class StudentProgressRepository {
       return 'unavailable';
     }
   }
+}
+
+class ProgressStreamData {
+  const ProgressStreamData({
+    required this.progress,
+    required this.isFromCache,
+  });
+
+  final List<ChapterProgress> progress;
+  final bool isFromCache;
+}
+
+class _ProgressDocumentIds {
+  const _ProgressDocumentIds(this.subjectId, this.chapterId);
+
+  final String subjectId;
+  final String chapterId;
 }
