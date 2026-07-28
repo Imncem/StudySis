@@ -20,7 +20,7 @@ export function ModuleCompletionCount({ repository, subjectId, chapterId, module
   const labels: Record<string, string> = {
     notes: "sections",
     flashcards: "cards",
-    practice: "items",
+    practice: "questions",
     quiz: "questions",
   };
   const label = labels[module.type];

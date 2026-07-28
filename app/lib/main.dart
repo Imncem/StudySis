@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 
 import 'firebase_options.dart';
 import 'screens/home_screen.dart';
+import 'services/student_auth_service.dart';
 import 'theme/app_theme.dart';
 
 Future<void> main() async {
@@ -16,6 +17,8 @@ Future<void> main() async {
     debugPrint(
       '[StudySis] Firebase initialized: projectId=${firebaseApp.options.projectId}',
     );
+    final user = await StudentAuthService().ensureSignedInAnonymously();
+    debugPrint('[StudySis] Student session ready: uid=${user.uid}');
   } catch (error) {
     startupError = error;
   }
@@ -62,8 +65,10 @@ class FirebaseSetupScreen extends StatelessWidget {
                     style: Theme.of(context).textTheme.headlineSmall,
                     textAlign: TextAlign.center),
                 const SizedBox(height: 12),
-                const Text(
-                  'Run `flutterfire configure` in the app folder, then restart the app. See the root README for details.',
+                Text(
+                  error is StudentAuthException
+                      ? 'Enable Anonymous Authentication in Firebase Console > Authentication > Sign-in method > Anonymous, then restart StudySis.'
+                      : 'Run `flutterfire configure` in the app folder, then restart the app. See the root README for details.',
                   textAlign: TextAlign.center,
                 ),
                 const SizedBox(height: 16),

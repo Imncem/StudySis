@@ -5,6 +5,8 @@ import 'package:studysis/models/chapter.dart';
 import 'package:studysis/models/learning_module.dart';
 import 'package:studysis/models/note_section.dart';
 import 'package:studysis/models/flashcard.dart';
+import 'package:studysis/models/practice_question.dart';
+import 'package:studysis/models/quiz_question.dart';
 
 void main() {
   test('student maps Firestore fields', () {
@@ -81,5 +83,65 @@ void main() {
 
     expect(card.isActive, isTrue);
     expect(card.back, contains('ordered list'));
+  });
+
+  test('practice question maps published multiple choice content', () {
+    final question = PracticeQuestion.fromMap('practice-1', {
+      'question': 'What is 2 + 2?',
+      'options': ['2', '3', '4', '5'],
+      'correctAnswerIndex': 2,
+      'explanation': '2 + 2 equals 4.',
+      'hint': 'Count two more after 2.',
+      'topic': 'addition',
+      'difficulty': 'easy',
+      'order': 1,
+      'status': 'active',
+    });
+
+    expect(question.isPublished, isTrue);
+    expect(question.isValid, isTrue);
+    expect(question.topic, 'addition');
+    expect(question.options, hasLength(4));
+    expect(question.correctAnswerIndex, 2);
+  });
+
+  test('practice question handles legacy answer data without crashing', () {
+    final question = PracticeQuestion.fromMap('practice-2', {
+      'question': 'Legacy question',
+      'answer': 'Legacy answer',
+      'isPublished': true,
+    });
+
+    expect(question.isValid, isFalse);
+    expect(question.options, ['Legacy answer']);
+    expect(question.correctAnswerIndex, -1);
+    expect(question.status, 'active');
+  });
+
+  test('quiz question maps active assessment content', () {
+    final question = QuizQuestion.fromMap('quiz-1', {
+      'question': 'Which value is even?',
+      'options': ['3', '5', '8', '9'],
+      'correctOptionIndex': 2,
+      'explanation': '8 is divisible by 2.',
+      'difficulty': 'easy',
+      'order': 1,
+      'status': 'active',
+    });
+
+    expect(question.isActive, isTrue);
+    expect(question.isValid, isTrue);
+    expect(question.correctOptionIndex, 2);
+  });
+
+  test('quiz question handles invalid data without crashing', () {
+    final question = QuizQuestion.fromMap('quiz-2', {
+      'question': 'Incomplete quiz question',
+      'options': ['Only one option'],
+      'status': 'active',
+    });
+
+    expect(question.isActive, isTrue);
+    expect(question.isValid, isFalse);
   });
 }

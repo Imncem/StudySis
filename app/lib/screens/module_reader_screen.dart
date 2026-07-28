@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
 
 import '../models/learning_content.dart';
-import 'flashcard_screen.dart';
+
+enum ModuleReaderExitAction { goToFlashcards }
 
 class ModuleReaderScreen extends StatelessWidget {
   const ModuleReaderScreen({required this.learningContent, super.key});
@@ -112,15 +113,8 @@ class ModuleReaderScreen extends StatelessWidget {
             const SizedBox(height: 12),
             OutlinedButton.icon(
               onPressed: () {
-                Navigator.of(context).push(
-                  MaterialPageRoute<void>(
-                    builder: (_) => FlashcardScreen(
-                      subjectId: 'math',
-                      subjectName: learningContent.subjectName,
-                      chapter: chapter,
-                    ),
-                  ),
-                );
+                Navigator.of(context)
+                    .pop(ModuleReaderExitAction.goToFlashcards);
               },
               icon: const Icon(Icons.style_rounded),
               label: const Text('Go to Flashcards'),

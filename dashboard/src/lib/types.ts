@@ -104,11 +104,15 @@ export type FlashcardInput = Omit<
 export type PracticeItem = {
   id: string;
   question: string;
-  answer: string;
+  options: string[];
+  correctAnswerIndex: number;
   explanation: string;
+  hint: string;
+  topic: string;
   difficulty: ModuleDifficulty;
   order: number;
   status: ModuleStatus;
+  answer?: string;
   createdAt: Timestamp | null;
   updatedAt: Timestamp | null;
 };

@@ -9,6 +9,14 @@ export const contentPaths = {
     `${contentPaths.subject(subjectId)}/chapters`,
   chapter: (subjectId: string, chapterId: string) =>
     `${contentPaths.chapters(subjectId)}/${chapterId}`,
+  practiceQuestions: (subjectId: string, chapterId: string) =>
+    `${contentPaths.chapter(subjectId, chapterId)}/practice_questions`,
+  practiceQuestion: (
+    subjectId: string,
+    chapterId: string,
+    questionId: string,
+  ) =>
+    `${contentPaths.practiceQuestions(subjectId, chapterId)}/${questionId}`,
   modules: (subjectId: string, chapterId: string) =>
     `${contentPaths.chapter(subjectId, chapterId)}/modules`,
   module: (subjectId: string, chapterId: string, moduleId: string) =>

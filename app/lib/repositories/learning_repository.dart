@@ -7,6 +7,8 @@ import '../models/flashcard.dart';
 import '../models/learning_content.dart';
 import '../models/learning_module.dart';
 import '../models/note_section.dart';
+import '../models/practice_question.dart';
+import '../models/quiz_question.dart';
 
 class LearningRepository {
   LearningRepository({FirebaseFirestore? firestore})
@@ -97,6 +99,50 @@ class LearningRepository {
       }
     }
     return null;
+  }
+
+  Future<List<PracticeQuestion>> getPublishedPracticeQuestions({
+    required String subjectId,
+    required String chapterId,
+  }) async {
+    final questionSnapshot = await _firestore
+        .collection(ContentPaths.practiceQuestions(subjectId, chapterId))
+        .orderBy('order')
+        .get();
+    final questions = questionSnapshot.docs
+        .map((question) => PracticeQuestion.fromMap(
+              question.id,
+              question.data(),
+            ))
+        .where((question) => question.isPublished)
+        .toList(growable: false);
+    debugPrint(
+      '[StudySis] Published practice questions: subject=$subjectId, '
+      'chapter=$chapterId, count=${questions.length}',
+    );
+    return questions;
+  }
+
+  Future<List<QuizQuestion>> getActiveQuizQuestions({
+    required String subjectId,
+    required String chapterId,
+  }) async {
+    final questionSnapshot = await _firestore
+        .collection(ContentPaths.quizQuestions(subjectId, chapterId))
+        .orderBy('order')
+        .get();
+    final questions = questionSnapshot.docs
+        .map((question) => QuizQuestion.fromMap(
+              question.id,
+              question.data(),
+            ))
+        .where((question) => question.isActive)
+        .toList(growable: false);
+    debugPrint(
+      '[StudySis] Active quiz questions: subject=$subjectId, '
+      'chapter=$chapterId, count=${questions.length}',
+    );
+    return questions;
   }
 
   Future<LearningContent?> getFirstAvailableContent() async {

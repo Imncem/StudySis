@@ -20,4 +20,10 @@ class ContentPaths {
 
   static String flashcardCards(String subjectId, String chapterId) =>
       '${module(subjectId, chapterId, 'flashcards')}/cards';
+
+  static String practiceQuestions(String subjectId, String chapterId) =>
+      '${chapters(subjectId)}/$chapterId/practice_questions';
+
+  static String quizQuestions(String subjectId, String chapterId) =>
+      '${module(subjectId, chapterId, 'quiz')}/questions';
 }

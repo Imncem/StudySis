@@ -3,7 +3,82 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     function isDashboardAdmin() {
+      return request.auth != null
+        && request.auth.token.firebase.sign_in_provider == 'password';
+    }
+
+    function isSignedIn() {
       return request.auth != null;
+    }
+
+    function validPercent(value) {
+      return value is int && value >= 0 && value <= 100;
+    }
+
+    function validCount(value) {
+      return value is int && value >= 0;
+    }
+
+    function optionalBool(data, field) {
+      return !data.keys().hasAny([field]) || data[field] is bool;
+    }
+
+    function optionalCount(data, field) {
+      return !data.keys().hasAny([field]) || validCount(data[field]);
+    }
+
+    function optionalPercent(data, field) {
+      return !data.keys().hasAny([field]) || validPercent(data[field]);
+    }
+
+    function optionalTimestamp(data, field) {
+      return !data.keys().hasAny([field])
+        || data[field] == null
+        || data[field] is timestamp;
+    }
+
+    function validChapterProgress(uid) {
+      let data = request.resource.data;
+      return data.keys().hasOnly([
+          'studentProfileId', 'subjectId', 'chapterId',
+          'learnCompleted', 'learnCompletedAt',
+          'flashcardsMasteredCount', 'flashcardsTotalCount',
+          'flashcardsCompleted', 'masteredFlashcardIds',
+          'practiceLatestPercentage', 'practiceBestPercentage',
+          'practiceCorrectCount', 'practiceTotalQuestions',
+          'practiceCompletedAt',
+          'quizLatestPercentage', 'quizBestPercentage',
+          'quizCorrectCount', 'quizIncorrectCount', 'quizUnansweredCount',
+          'quizPassed', 'quizCompletedAt',
+          'overallProgress', 'lastActivityAt', 'createdAt', 'updatedAt'
+        ])
+        && data.studentProfileId == 'qidah'
+        && data.subjectId is string
+        && data.subjectId.size() > 0
+        && data.chapterId is string
+        && data.chapterId.size() > 0
+        && optionalBool(data, 'learnCompleted')
+        && optionalTimestamp(data, 'learnCompletedAt')
+        && optionalCount(data, 'flashcardsMasteredCount')
+        && optionalCount(data, 'flashcardsTotalCount')
+        && optionalBool(data, 'flashcardsCompleted')
+        && (!data.keys().hasAny(['masteredFlashcardIds']) || data.masteredFlashcardIds is list)
+        && optionalPercent(data, 'practiceLatestPercentage')
+        && optionalPercent(data, 'practiceBestPercentage')
+        && optionalCount(data, 'practiceCorrectCount')
+        && optionalCount(data, 'practiceTotalQuestions')
+        && optionalTimestamp(data, 'practiceCompletedAt')
+        && optionalPercent(data, 'quizLatestPercentage')
+        && optionalPercent(data, 'quizBestPercentage')
+        && optionalCount(data, 'quizCorrectCount')
+        && optionalCount(data, 'quizIncorrectCount')
+        && optionalCount(data, 'quizUnansweredCount')
+        && optionalBool(data, 'quizPassed')
+        && optionalTimestamp(data, 'quizCompletedAt')
+        && validPercent(data.overallProgress)
+        && data.lastActivityAt is timestamp
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
     }
 
     function validChapter() {
@@ -89,15 +164,21 @@ service cloud.firestore {
     function validPracticeItem() {
       let data = request.resource.data;
       return data.keys().hasOnly([
-          'question', 'answer', 'explanation', 'difficulty', 'order',
-          'status', 'createdAt', 'updatedAt'
+          'question', 'options', 'correctAnswerIndex', 'explanation',
+          'hint', 'topic', 'difficulty', 'order', 'status',
+          'createdAt', 'updatedAt'
         ])
         && data.question is string
         && data.question.size() > 0
-        && data.answer is string
-        && data.answer.size() > 0
+        && data.options is list
+        && data.options.size() == 4
+        && data.correctAnswerIndex is int
+        && data.correctAnswerIndex >= 0
+        && data.correctAnswerIndex < data.options.size()
         && data.explanation is string
         && data.explanation.size() > 0
+        && data.hint is string
+        && data.topic is string
         && data.difficulty in ['easy', 'medium', 'hard']
         && data.order is int
         && data.order >= 0
@@ -144,6 +225,15 @@ service cloud.firestore {
       allow create, delete: if false;
     }
 
+    match /student_progress/{uid}/chapters/{chapterProgressId} {
+      allow read: if isDashboardAdmin()
+        || (isSignedIn() && request.auth.uid == uid);
+      allow create, update: if isSignedIn()
+        && request.auth.uid == uid
+        && validChapterProgress(uid);
+      allow delete: if false;
+    }
+
     // `form2` is the current curriculum catalog ID. Future catalogs can use
     // sibling IDs without changing the subjects/chapters/modules structure.
     match /curriculum/form2/subjects/{subjectId} {
@@ -156,6 +246,14 @@ service cloud.firestore {
           && subjectId == 'math'
           && validChapter();
         allow delete: if isDashboardAdmin() && subjectId == 'math';
+
+        match /practice_questions/{questionId} {
+          allow read: if true;
+          allow create, update: if isDashboardAdmin()
+            && subjectId == 'math'
+            && validPracticeItem();
+          allow delete: if isDashboardAdmin() && subjectId == 'math';
+        }
 
         match /modules/{moduleId} {
           allow read: if true;

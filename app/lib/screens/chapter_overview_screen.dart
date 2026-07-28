@@ -3,9 +3,15 @@ import 'package:flutter/material.dart';
 import '../models/chapter.dart';
 import '../models/flashcard.dart';
 import '../models/learning_content.dart';
+import '../models/practice_question.dart';
+import '../models/quiz_question.dart';
 import '../repositories/learning_repository.dart';
+import '../models/chapter_progress.dart';
+import '../repositories/student_progress_repository.dart';
 import 'flashcard_screen.dart';
 import 'module_reader_screen.dart';
+import 'practice_screen.dart';
+import 'quiz_screen.dart';
 
 class ChapterOverviewScreen extends StatefulWidget {
   const ChapterOverviewScreen({
@@ -13,6 +19,7 @@ class ChapterOverviewScreen extends StatefulWidget {
     required this.subjectName,
     required this.chapter,
     this.repository,
+    this.progressRepository,
     super.key,
   });
 
@@ -20,6 +27,7 @@ class ChapterOverviewScreen extends StatefulWidget {
   final String subjectName;
   final Chapter chapter;
   final LearningRepository? repository;
+  final StudentProgressRepository? progressRepository;
 
   @override
   State<ChapterOverviewScreen> createState() => _ChapterOverviewScreenState();
@@ -27,16 +35,15 @@ class ChapterOverviewScreen extends StatefulWidget {
 
 class _ChapterOverviewScreenState extends State<ChapterOverviewScreen> {
   late final LearningRepository _repository;
+  late final StudentProgressRepository _progressRepository;
   late Future<_ChapterJourneyData> _journey;
-  final Set<String> _completedModules = {};
-  final Set<String> _masteredFlashcards = {};
-
-  static const _moduleCount = 5;
 
   @override
   void initState() {
     super.initState();
     _repository = widget.repository ?? LearningRepository();
+    _progressRepository =
+        widget.progressRepository ?? StudentProgressRepository();
     _journey = _loadJourney();
   }
 
@@ -49,7 +56,20 @@ class _ChapterOverviewScreenState extends State<ChapterOverviewScreen> {
       widget.chapter.id,
       subjectId: widget.subjectId,
     );
-    return _ChapterJourneyData(notes: notes, flashcards: flashcards);
+    final practiceQuestions = await _repository.getPublishedPracticeQuestions(
+      subjectId: widget.subjectId,
+      chapterId: widget.chapter.id,
+    );
+    final quizQuestions = await _repository.getActiveQuizQuestions(
+      subjectId: widget.subjectId,
+      chapterId: widget.chapter.id,
+    );
+    return _ChapterJourneyData(
+      notes: notes,
+      flashcards: flashcards,
+      practiceQuestions: practiceQuestions,
+      quizQuestions: quizQuestions,
+    );
   }
 
   void _reload() {
@@ -58,37 +78,149 @@ class _ChapterOverviewScreenState extends State<ChapterOverviewScreen> {
     });
   }
 
-  Future<void> _openLearn(LearningContent? notes) async {
+  Future<void> _openLearn(
+    LearningContent? notes,
+    List<Flashcard> flashcards,
+  ) async {
     if (notes == null) {
       _showComingSoon('Learn is being prepared.');
       return;
     }
-    await Navigator.of(context).push(
-      MaterialPageRoute<void>(
+    final action = await Navigator.of(context).push<ModuleReaderExitAction>(
+      MaterialPageRoute<ModuleReaderExitAction>(
         builder: (_) => ModuleReaderScreen(learningContent: notes),
       ),
     );
     if (!mounted) return;
-    setState(() => _completedModules.add('learn'));
+    final saved = await _persistProgress(
+      () => _progressRepository.markLearnCompleted(
+        subjectId: widget.subjectId,
+        chapterId: widget.chapter.id,
+      ),
+      savedMessage: 'Learn progress saved.',
+    );
+    if (!saved || action != ModuleReaderExitAction.goToFlashcards || !mounted) {
+      return;
+    }
+    final latestProgress = await _progressRepository.getChapterProgress(
+      subjectId: widget.subjectId,
+      chapterId: widget.chapter.id,
+    );
+    if (!mounted) return;
+    await _openFlashcards(flashcards, latestProgress);
   }
 
-  Future<void> _openFlashcards(List<Flashcard> cards) async {
+  Future<void> _openFlashcards(
+    List<Flashcard> cards,
+    ChapterProgress progress,
+  ) async {
+    final masteredIds = progress.masteredFlashcardIds.toSet();
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (_) => FlashcardScreen(
           subjectId: widget.subjectId,
           subjectName: widget.subjectName,
           chapter: widget.chapter,
-          initialCompletedCardIds: _masteredFlashcards,
-          onCardCompleted: (cardId) {
-            setState(() => _masteredFlashcards.add(cardId));
+          initialCompletedCardIds: masteredIds,
+          onCardCompleted: (cardId) async {
+            masteredIds.add(cardId);
+            await _persistProgress(
+              () => _progressRepository.updateFlashcardProgress(
+                subjectId: widget.subjectId,
+                chapterId: widget.chapter.id,
+                masteredCount: masteredIds.length,
+                totalCount: cards.length,
+                masteredCardIds: masteredIds.toList(),
+              ),
+            );
           },
         ),
       ),
     );
-    if (!mounted || cards.isEmpty) return;
-    if (_masteredFlashcards.length >= cards.length) {
-      setState(() => _completedModules.add('flashcards'));
+  }
+
+  Future<void> _openPractice(
+    List<PracticeQuestion> questions,
+    ChapterProgress progress,
+  ) async {
+    if (!progress.flashcardsCompleted) {
+      _showComingSoon('Finish Flashcards first to unlock Practice.');
+      return;
+    }
+    if (questions.isEmpty) {
+      _showComingSoon('Practice questions coming soon.');
+      return;
+    }
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => PracticeScreen(
+          title: 'Chapter ${widget.chapter.chapterNumber} Practice',
+          questionsFuture: Future.value(questions),
+          onComplete: (result) async {
+            await _persistProgress(
+              () => _progressRepository.recordPracticeResult(
+                subjectId: widget.subjectId,
+                chapterId: widget.chapter.id,
+                result: result,
+              ),
+              savedMessage: 'Practice progress saved.',
+            );
+          },
+        ),
+      ),
+    );
+  }
+
+  Future<void> _openQuiz(
+    List<QuizQuestion> questions,
+    ChapterProgress progress,
+  ) async {
+    if (!progress.practiceCompleted) {
+      _showComingSoon('Finish Practice first to unlock Quiz.');
+      return;
+    }
+    if (questions.isEmpty) {
+      _showComingSoon('Quiz questions coming soon.');
+      return;
+    }
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => QuizScreen(
+          chapter: widget.chapter,
+          subjectId: widget.subjectId,
+          subjectTitle: widget.subjectName,
+          title: 'Chapter ${widget.chapter.chapterNumber} Quiz',
+          questionsFuture: Future.value(questions),
+          onComplete: (result) async {
+            await _persistProgress(
+              () => _progressRepository.recordQuizResult(
+                subjectId: widget.subjectId,
+                chapterId: widget.chapter.id,
+                result: result,
+              ),
+              savedMessage: 'Quiz progress saved.',
+            );
+          },
+        ),
+      ),
+    );
+  }
+
+  Future<bool> _persistProgress(
+    Future<void> Function() write, {
+    String? savedMessage,
+  }) async {
+    try {
+      await write();
+      if (!mounted || savedMessage == null) return true;
+      _showComingSoon(savedMessage);
+      return true;
+    } catch (error, stackTrace) {
+      debugPrint('[StudySis][progress][overview] save failed: $error');
+      debugPrint('[StudySis][progress][overview] stackTrace=$stackTrace');
+      if (!mounted) return false;
+      _showComingSoon('Progress could not be saved. Please try again.');
+      return false;
     }
   }
 
@@ -110,99 +242,161 @@ class _ChapterOverviewScreenState extends State<ChapterOverviewScreen> {
         child: FutureBuilder<_ChapterJourneyData>(
           future: _journey,
           builder: (context, snapshot) {
-            final data = snapshot.data;
             final isLoading =
                 snapshot.connectionState == ConnectionState.waiting;
-            final progress = _completedModules.length / _moduleCount;
-            final percent = (progress * 100).round();
+            final data = snapshot.data;
             final hasLearn = data?.notes != null;
             final flashcardTotal = data?.flashcards.length ?? 0;
+            final practiceTotal = data?.practiceQuestions.length ?? 0;
+            final quizTotal = data?.quizQuestions.length ?? 0;
 
             return RefreshIndicator(
               onRefresh: () async => _reload(),
-              child: ListView(
-                padding: const EdgeInsets.fromLTRB(20, 12, 20, 40),
-                children: [
-                  Text(
-                    widget.subjectName.toUpperCase(),
-                    style: TextStyle(
-                      color: Theme.of(context).colorScheme.primary,
-                      fontSize: 12,
-                      fontWeight: FontWeight.w700,
-                      letterSpacing: 1.2,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    'Chapter ${widget.chapter.chapterNumber}: ${widget.chapter.title}',
-                    style: Theme.of(context).textTheme.headlineMedium,
-                  ),
-                  const SizedBox(height: 22),
-                  _ProgressCard(percent: percent, progress: progress),
-                  const SizedBox(height: 12),
-                  const _MuffinCard(),
-                  const SizedBox(height: 24),
-                  Text(
-                    'Learning Journey',
-                    style: Theme.of(context).textTheme.titleLarge,
-                  ),
-                  const SizedBox(height: 12),
-                  if (isLoading)
-                    const Padding(
-                      padding: EdgeInsets.all(32),
-                      child: Center(child: CircularProgressIndicator()),
-                    )
-                  else if (snapshot.hasError)
-                    _ErrorJourneyCard(onRetry: _reload)
-                  else ...[
-                    _JourneyCard(
-                      icon: Icons.menu_book_rounded,
-                      title: 'Learn',
-                      description: 'Read and understand the lesson.',
-                      status: _completedModules.contains('learn')
-                          ? 'Completed'
-                          : hasLearn
-                              ? 'Continue'
-                              : 'Preparing',
-                      onTap: () => _openLearn(data?.notes),
-                    ),
-                    _JourneyCard(
-                      icon: Icons.psychology_rounded,
-                      title: 'Flashcards',
-                      description: 'Remember the important ideas.',
-                      status:
-                          '${_masteredFlashcards.length} / $flashcardTotal mastered',
-                      onTap: () =>
-                          _openFlashcards(data?.flashcards ?? const []),
-                    ),
-                    _JourneyCard(
-                      icon: Icons.edit_note_rounded,
-                      title: 'Practice',
-                      description: 'Guided exercises.',
-                      status: _completedModules.contains('learn')
-                          ? 'Coming soon'
-                          : 'Locked',
-                      locked: !_completedModules.contains('learn'),
-                      onTap: () => _showComingSoon('Practice is coming soon.'),
-                    ),
-                    _JourneyCard(
-                      icon: Icons.track_changes_rounded,
-                      title: 'Quiz',
-                      description: 'Timed challenge.',
-                      status: 'Locked',
-                      locked: true,
-                      onTap: () => _showComingSoon('Quiz is coming soon.'),
-                    ),
-                    _JourneyCard(
-                      icon: Icons.emoji_events_rounded,
-                      title: 'Challenge',
-                      description: 'Mixed chapter questions.',
-                      status: 'Locked',
-                      locked: true,
-                      onTap: () => _showComingSoon('Challenge is coming soon.'),
-                    ),
-                  ],
-                ],
+              child: StreamBuilder<ChapterProgress>(
+                stream: _progressRepository.streamChapterProgress(
+                  subjectId: widget.subjectId,
+                  chapterId: widget.chapter.id,
+                ),
+                builder: (context, progressSnapshot) {
+                  final progress = progressSnapshot.data ??
+                      ChapterProgress.empty(
+                        subjectId: widget.subjectId,
+                        chapterId: widget.chapter.id,
+                      );
+                  final progressValue = progress.overallProgress / 100;
+                  final learnCompleted = progress.learnCompleted;
+                  final flashcardsCompleted = progress.flashcardsCompleted;
+                  final practiceCompleted = progress.practiceCompleted;
+                  final quizCompleted = progress.quizCompleted;
+
+                  return ListView(
+                    padding: const EdgeInsets.fromLTRB(20, 12, 20, 40),
+                    children: [
+                      Text(
+                        widget.subjectName.toUpperCase(),
+                        style: TextStyle(
+                          color: Theme.of(context).colorScheme.primary,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: 1.2,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        'Chapter ${widget.chapter.chapterNumber}: ${widget.chapter.title}',
+                        style: Theme.of(context).textTheme.headlineMedium,
+                      ),
+                      const SizedBox(height: 22),
+                      _ProgressCard(
+                        percent: progress.overallProgress,
+                        progress: progressValue,
+                      ),
+                      if (progressSnapshot.connectionState ==
+                          ConnectionState.waiting) ...[
+                        const SizedBox(height: 8),
+                        const _InlineNotice(
+                          message: 'Checking saved progress...',
+                        ),
+                      ] else if (progressSnapshot.hasError) ...[
+                        const SizedBox(height: 8),
+                        const _InlineNotice(
+                          message:
+                              'Saved progress could not load. Showing starter state.',
+                        ),
+                      ],
+                      const SizedBox(height: 12),
+                      const _MuffinCard(),
+                      const SizedBox(height: 24),
+                      Text(
+                        'Learning Journey',
+                        style: Theme.of(context).textTheme.titleLarge,
+                      ),
+                      const SizedBox(height: 12),
+                      if (isLoading)
+                        const Padding(
+                          padding: EdgeInsets.all(32),
+                          child: Center(child: CircularProgressIndicator()),
+                        )
+                      else if (snapshot.hasError)
+                        _ErrorJourneyCard(onRetry: _reload)
+                      else ...[
+                        _JourneyCard(
+                          icon: Icons.menu_book_rounded,
+                          title: 'Learn',
+                          description: 'Read and understand the lesson.',
+                          status: learnCompleted
+                              ? 'Completed'
+                              : hasLearn
+                                  ? 'Continue'
+                                  : 'Preparing',
+                          onTap: () => _openLearn(
+                            data?.notes,
+                            data?.flashcards ?? const [],
+                          ),
+                        ),
+                        _JourneyCard(
+                          icon: Icons.psychology_rounded,
+                          title: 'Flashcards',
+                          description: 'Remember the important ideas.',
+                          status:
+                              '${progress.flashcardsMasteredCount} / $flashcardTotal mastered',
+                          locked: !learnCompleted,
+                          onTap: () => learnCompleted
+                              ? _openFlashcards(
+                                  data?.flashcards ?? const [],
+                                  progress,
+                                )
+                              : _showComingSoon(
+                                  'Finish Learn first to unlock Flashcards.',
+                                ),
+                        ),
+                        _JourneyCard(
+                          icon: Icons.edit_note_rounded,
+                          title: 'Practice',
+                          description: 'Guided exercises.',
+                          status: practiceCompleted
+                              ? 'Latest ${progress.practiceLatestPercentage}% · Best ${progress.practiceBestPercentage}%'
+                              : flashcardsCompleted && practiceTotal > 0
+                                  ? '$practiceTotal questions'
+                                  : flashcardsCompleted
+                                      ? 'Coming soon'
+                                      : 'Locked',
+                          locked: !flashcardsCompleted,
+                          onTap: () => _openPractice(
+                            data?.practiceQuestions ?? const [],
+                            progress,
+                          ),
+                        ),
+                        _JourneyCard(
+                          icon: Icons.track_changes_rounded,
+                          title: 'Quiz',
+                          description: 'Timed challenge.',
+                          status: quizCompleted
+                              ? 'Latest ${progress.quizLatestPercentage}% · Best ${progress.quizBestPercentage}% · ${progress.quizPassed ? 'Pass' : 'Needs Revision'}'
+                              : practiceCompleted && quizTotal > 0
+                                  ? '$quizTotal questions'
+                                  : practiceCompleted
+                                      ? 'Coming soon'
+                                      : 'Locked',
+                          locked: !practiceCompleted,
+                          onTap: () => _openQuiz(
+                            data?.quizQuestions ?? const [],
+                            progress,
+                          ),
+                        ),
+                        _JourneyCard(
+                          icon: Icons.emoji_events_rounded,
+                          title: 'Challenge',
+                          description: 'Mixed chapter questions.',
+                          status: 'Locked',
+                          locked: true,
+                          onTap: () =>
+                              _showComingSoon('Challenge is coming soon.'),
+                        ),
+                      ],
+                    ],
+                  );
+                },
               ),
             );
           },
@@ -213,10 +407,17 @@ class _ChapterOverviewScreenState extends State<ChapterOverviewScreen> {
 }
 
 class _ChapterJourneyData {
-  const _ChapterJourneyData({required this.notes, required this.flashcards});
+  const _ChapterJourneyData({
+    required this.notes,
+    required this.flashcards,
+    required this.practiceQuestions,
+    required this.quizQuestions,
+  });
 
   final LearningContent? notes;
   final List<Flashcard> flashcards;
+  final List<PracticeQuestion> practiceQuestions;
+  final List<QuizQuestion> quizQuestions;
 }
 
 class _ProgressCard extends StatelessWidget {
@@ -283,6 +484,28 @@ class _MuffinCard extends StatelessWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _InlineNotice extends StatelessWidget {
+  const _InlineNotice({required this.message});
+
+  final String message;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF1F4F0),
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Text(
+        message,
+        style: Theme.of(context).textTheme.bodySmall,
       ),
     );
   }

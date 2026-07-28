@@ -32,7 +32,7 @@ type Location = { subjectId: string; chapterId: string; moduleId: string };
 const childCollectionByType = {
   notes: "sections",
   flashcards: "cards",
-  practice: "items",
+  practice: "practice_questions",
   quiz: "questions",
 } as const;
 
@@ -51,6 +51,16 @@ export class StructuredContentRepository {
     if (!collectionName) {
       onData(0);
       return () => undefined;
+    }
+    if (module.type === "practice") {
+      return onSnapshot(
+        collection(
+          this.db,
+          contentPaths.practiceQuestions(location.subjectId, location.chapterId),
+        ),
+        (snapshot) => onData(snapshot.size),
+        onError,
+      );
     }
     return onSnapshot(
       collection(
@@ -100,19 +110,46 @@ export class StructuredContentRepository {
   }
 
   watchPracticeItems(location: Location, onData: (items: PracticeItem[]) => void, onError: ErrorHandler) {
-    return this.watchOrdered(location, "items", mapPracticeItem, onData, onError);
+    return onSnapshot(
+      query(
+        collection(
+          this.db,
+          contentPaths.practiceQuestions(location.subjectId, location.chapterId),
+        ),
+        orderBy("order"),
+      ),
+      (snapshot) => onData(snapshot.docs.map(mapPracticeItem)),
+      onError,
+    );
   }
 
   createPracticeItem(location: Location, input: PracticeItemInput) {
-    return this.create(location, "items", input);
+    return addDoc(
+      collection(
+        this.db,
+        contentPaths.practiceQuestions(location.subjectId, location.chapterId),
+      ),
+      { ...input, createdAt: serverTimestamp(), updatedAt: serverTimestamp() },
+    );
   }
 
   updatePracticeItem(location: Location, id: string, input: PracticeItemInput) {
-    return this.update(location, "items", id, input);
+    return updateDoc(
+      doc(
+        this.db,
+        contentPaths.practiceQuestion(location.subjectId, location.chapterId, id),
+      ),
+      { ...input, updatedAt: serverTimestamp() },
+    );
   }
 
   deletePracticeItem(location: Location, id: string) {
-    return this.remove(location, "items", id);
+    return deleteDoc(
+      doc(
+        this.db,
+        contentPaths.practiceQuestion(location.subjectId, location.chapterId, id),
+      ),
+    );
   }
 
   watchQuizQuestions(location: Location, onData: (items: QuizQuestion[]) => void, onError: ErrorHandler) {
@@ -204,7 +241,27 @@ function mapFlashcard(item: QueryDocumentSnapshot<DocumentData>): Flashcard {
 
 function mapPracticeItem(item: QueryDocumentSnapshot<DocumentData>): PracticeItem {
   const data = item.data();
-  return { ...base(item), question: data.question ?? "", answer: data.answer ?? "", explanation: data.explanation ?? "", difficulty: data.difficulty ?? "easy", order: data.order ?? 0, status: data.status ?? "draft" };
+  const legacyAnswer = typeof data.answer === "string" ? data.answer : "";
+  const options = Array.isArray(data.options)
+    ? data.options.map((option) => String(option))
+    : legacyAnswer
+      ? [legacyAnswer, "", "", ""]
+      : ["", "", "", ""];
+  return {
+    ...base(item),
+    question: data.question ?? "",
+    options,
+    correctAnswerIndex: Number.isInteger(data.correctAnswerIndex)
+      ? data.correctAnswerIndex
+      : 0,
+    explanation: data.explanation ?? "",
+    hint: data.hint ?? "",
+    topic: data.topic ?? "",
+    difficulty: data.difficulty ?? "easy",
+    order: data.order ?? 0,
+    status: data.status ?? (data.isPublished ? "active" : "draft"),
+    answer: legacyAnswer,
+  };
 }
 
 function mapQuizQuestion(item: QueryDocumentSnapshot<DocumentData>): QuizQuestion {
