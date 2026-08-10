@@ -10,6 +10,7 @@ class QuizMuffinContext {
     required this.options,
     required this.questionNumber,
     required this.totalQuestions,
+    this.selectedStudentAnswer,
   });
 
   final String subjectId;
@@ -20,6 +21,7 @@ class QuizMuffinContext {
   final List<String> options;
   final int questionNumber;
   final int totalQuestions;
+  final String? selectedStudentAnswer;
 
   factory QuizMuffinContext.fromQuestion({
     required String subjectId,
@@ -29,6 +31,7 @@ class QuizMuffinContext {
     required QuizQuestion question,
     required int questionNumber,
     required int totalQuestions,
+    int? selectedAnswerIndex,
   }) {
     return QuizMuffinContext(
       subjectId: subjectId,
@@ -39,6 +42,11 @@ class QuizMuffinContext {
       options: List.unmodifiable(question.options),
       questionNumber: questionNumber,
       totalQuestions: totalQuestions,
+      selectedStudentAnswer: selectedAnswerIndex == null
+          ? null
+          : selectedAnswerIndex < question.options.length
+              ? question.options[selectedAnswerIndex]
+              : null,
     );
   }
 
@@ -52,6 +60,8 @@ class QuizMuffinContext {
       'options': options,
       'questionNumber': questionNumber,
       'totalQuestions': totalQuestions,
+      if (selectedStudentAnswer != null)
+        'selectedStudentAnswer': selectedStudentAnswer!,
     };
   }
 }

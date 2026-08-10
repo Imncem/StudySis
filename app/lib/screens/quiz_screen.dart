@@ -1,8 +1,14 @@
 import 'package:flutter/material.dart';
 
 import '../models/chapter.dart';
+import '../models/muffin.dart';
+import '../models/page_translation.dart';
 import '../models/quiz_muffin_context.dart';
 import '../models/quiz_question.dart';
+import '../services/muffin_context_registry.dart';
+import '../services/muffin_service.dart';
+import '../widgets/muffin_assist_sheet.dart';
+import '../widgets/page_translation_scope.dart';
 
 class QuizScreen extends StatefulWidget {
   const QuizScreen({
@@ -11,6 +17,7 @@ class QuizScreen extends StatefulWidget {
     required this.subjectTitle,
     required this.title,
     required this.questionsFuture,
+    this.muffinService,
     this.onComplete,
     super.key,
   });
@@ -20,6 +27,7 @@ class QuizScreen extends StatefulWidget {
   final String subjectTitle;
   final String title;
   final Future<List<QuizQuestion>> questionsFuture;
+  final MuffinService? muffinService;
   final ValueChanged<QuizResult>? onComplete;
 
   @override
@@ -28,12 +36,12 @@ class QuizScreen extends StatefulWidget {
 
 class _QuizScreenState extends State<QuizScreen> {
   late Future<List<QuizQuestion>> _questionsFuture;
+  final _translationOwner = Object();
   final Map<String, int> _selectedAnswers = {};
   final _scrollController = ScrollController();
   int _questionIndex = 0;
   QuizResult? _result;
   bool _reviewing = false;
-  bool _muffinSheetOpen = false;
 
   @override
   void initState() {
@@ -54,34 +62,21 @@ class _QuizScreenState extends State<QuizScreen> {
 
   void _previous() {
     if (_questionIndex == 0) return;
-    _closeMuffinSheet();
+    _resetVisibleQuestionContext();
     setState(() => _questionIndex -= 1);
     _scrollController.jumpTo(0);
   }
 
   void _next(int totalQuestions) {
     if (_questionIndex >= totalQuestions - 1) return;
-    _closeMuffinSheet();
+    _resetVisibleQuestionContext();
     setState(() => _questionIndex += 1);
     _scrollController.jumpTo(0);
   }
 
-  void _closeMuffinSheet() {
-    if (!_muffinSheetOpen || !mounted) return;
-    Navigator.of(context).pop();
-    _muffinSheetOpen = false;
-  }
-
-  Future<void> _showMuffin(QuizMuffinContext muffinContext) async {
-    _muffinSheetOpen = true;
-    await showModalBottomSheet<void>(
-      context: context,
-      showDragHandle: true,
-      isScrollControlled: true,
-      builder: (_) => _MuffinGuidanceSheet(muffinContext: muffinContext),
-    );
-    if (!mounted) return;
-    _muffinSheetOpen = false;
+  void _resetVisibleQuestionContext() {
+    PageTranslationScope.maybeOf(context)?.resetForPageChange();
+    MuffinContextRegistry.instance.clear();
   }
 
   Future<void> _confirmSubmit(List<QuizQuestion> questions) async {
@@ -184,6 +179,7 @@ class _QuizScreenState extends State<QuizScreen> {
             final safeIndex =
                 _questionIndex.clamp(0, validQuestions.length - 1);
             final question = validQuestions[safeIndex];
+            final displayedLanguage = _displayedLanguage(context);
             final muffinContext = QuizMuffinContext.fromQuestion(
               subjectId: widget.subjectId,
               subjectTitle: widget.subjectTitle,
@@ -192,12 +188,64 @@ class _QuizScreenState extends State<QuizScreen> {
               question: question,
               questionNumber: safeIndex + 1,
               totalQuestions: validQuestions.length,
+              selectedAnswerIndex: _selectedAnswers[question.id],
+            );
+            _registerTranslationContent(context, question, safeIndex);
+            MuffinContextRegistry.instance.set(
+              MuffinScreenContext(
+                mode: MuffinMode.quiz,
+                subtitle: 'I can guide you without revealing the answer.',
+                context: MuffinContext(
+                  studentProfileId: 'qidah',
+                  preferredLanguage: 'Mixed',
+                  subjectId: muffinContext.subjectId,
+                  subjectTitle: muffinContext.subjectTitle,
+                  chapterId: muffinContext.chapterId,
+                  chapterTitle: muffinContext.chapterTitle,
+                  mode: MuffinMode.quiz,
+                  currentScreen: 'quiz',
+                  questionId: question.id,
+                  displayedLanguage: displayedLanguage,
+                  currentQuestion: muffinContext.questionText,
+                  answerOptions: muffinContext.options,
+                  selectedStudentAnswer: muffinContext.selectedStudentAnswer,
+                  contextKey:
+                      'quiz_${widget.subjectId}_${widget.chapter.id}_question_${question.id}',
+                  originalScreenContent: [
+                    muffinContext.questionText,
+                    ...muffinContext.options,
+                  ].join('\n'),
+                ),
+                actions: [
+                  const MuffinActionConfig(
+                    action: MuffinAction.smallHint,
+                    label: 'Give me a small hint',
+                  ),
+                  const MuffinActionConfig(
+                    action: MuffinAction.explainConcept,
+                    label: 'Explain the concept',
+                  ),
+                  MuffinActionConfig(
+                    action: MuffinAction.translate,
+                    label: 'Translate the question',
+                    contextOverride: _toMalay,
+                  ),
+                  MuffinActionConfig(
+                    action: MuffinAction.translate,
+                    label: 'Translate the question to English',
+                    contextOverride: _toEnglish,
+                  ),
+                  const MuffinActionConfig(
+                    action: MuffinAction.guideQuestion,
+                    label: 'Guide me through the question',
+                  ),
+                ],
+              ),
             );
             return _AttemptView(
               quizTitle: widget.title,
               scrollController: _scrollController,
               question: question,
-              muffinContext: muffinContext,
               questionNumber: safeIndex + 1,
               totalQuestions: validQuestions.length,
               selectedAnswerIndex: _selectedAnswers[question.id],
@@ -207,12 +255,64 @@ class _QuizScreenState extends State<QuizScreen> {
               onPrevious: _previous,
               onNext: () => _next(validQuestions.length),
               onSubmit: () => _confirmSubmit(validQuestions),
-              onAskMuffin: _showMuffin,
             );
           },
         ),
       ),
     );
+  }
+
+  String _displayedLanguage(BuildContext context) {
+    final state = PageTranslationScope.maybeOf(context)?.state;
+    if (state?.isTranslated == true && state?.targetLanguage != null) {
+      return state!.targetLanguage!;
+    }
+    return state?.sourceLanguage ?? TranslationLanguage.unknown;
+  }
+
+  void _registerTranslationContent(
+    BuildContext context,
+    QuizQuestion question,
+    int index,
+  ) {
+    final controller = PageTranslationScope.maybeOf(context);
+    if (controller == null) return;
+    final route = ModalRoute.of(context);
+    if (route?.isCurrent != true) return;
+    final fields = [
+      PageTranslationField(
+          id: 'quizTitle', type: 'heading', text: widget.title),
+      PageTranslationField(
+        id: 'questionProgress',
+        type: 'label',
+        text: 'Question ${index + 1}',
+      ),
+      PageTranslationField(
+        id: 'question_${question.id}',
+        type: 'question',
+        text: question.question,
+      ),
+      for (var i = 0; i < question.options.length; i++)
+        PageTranslationField(
+          id: 'option_${optionLabel(i).toLowerCase()}',
+          type: 'option',
+          text: question.options[i],
+        ),
+    ];
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || ModalRoute.of(context)?.isCurrent != true) return;
+      controller.registerPage(
+        ownerToken: _translationOwner,
+        routeName: ModalRoute.of(context)?.settings.name,
+        content: TranslatablePageContent(
+          pageType: 'quiz',
+          pageId:
+              'quiz_${widget.subjectId}_${widget.chapter.id}_${question.id}',
+          sourceLanguage: _detectLanguage(fields),
+          fields: fields,
+        ),
+      );
+    });
   }
 }
 
@@ -271,7 +371,6 @@ class _AttemptView extends StatelessWidget {
     required this.quizTitle,
     required this.scrollController,
     required this.question,
-    required this.muffinContext,
     required this.questionNumber,
     required this.totalQuestions,
     required this.selectedAnswerIndex,
@@ -281,13 +380,11 @@ class _AttemptView extends StatelessWidget {
     required this.onPrevious,
     required this.onNext,
     required this.onSubmit,
-    required this.onAskMuffin,
   });
 
   final String quizTitle;
   final ScrollController scrollController;
   final QuizQuestion question;
-  final QuizMuffinContext muffinContext;
   final int questionNumber;
   final int totalQuestions;
   final int? selectedAnswerIndex;
@@ -297,7 +394,6 @@ class _AttemptView extends StatelessWidget {
   final VoidCallback onPrevious;
   final VoidCallback onNext;
   final VoidCallback onSubmit;
-  final ValueChanged<QuizMuffinContext> onAskMuffin;
 
   @override
   Widget build(BuildContext context) {
@@ -305,7 +401,11 @@ class _AttemptView extends StatelessWidget {
       controller: scrollController,
       padding: const EdgeInsets.fromLTRB(20, 12, 20, 40),
       children: [
-        Text(quizTitle, style: Theme.of(context).textTheme.headlineMedium),
+        const PageTranslationBanner(),
+        Text(
+          PageTranslationScope.text(context, 'quizTitle', quizTitle),
+          style: Theme.of(context).textTheme.headlineMedium,
+        ),
         const SizedBox(height: 8),
         Text(
           'Question $questionNumber of $totalQuestions',
@@ -325,7 +425,11 @@ class _AttemptView extends StatelessWidget {
           child: Padding(
             padding: const EdgeInsets.all(22),
             child: Text(
-              question.question,
+              PageTranslationScope.text(
+                context,
+                'question_${question.id}',
+                question.question,
+              ),
               style: Theme.of(context)
                   .textTheme
                   .titleLarge
@@ -337,18 +441,16 @@ class _AttemptView extends StatelessWidget {
         for (var index = 0; index < question.options.length; index++) ...[
           _QuizOption(
             label: optionLabel(index),
-            text: question.options[index],
+            text: PageTranslationScope.text(
+              context,
+              'option_${optionLabel(index).toLowerCase()}',
+              question.options[index],
+            ),
             selected: selectedAnswerIndex == index,
             onTap: () => onSelectAnswer(index),
           ),
           const SizedBox(height: 10),
         ],
-        const SizedBox(height: 14),
-        _MuffinAssistSection(
-          muffinContext: muffinContext,
-          onAskMuffin: onAskMuffin,
-        ),
-        const SizedBox(height: 14),
         Row(
           children: [
             Expanded(
@@ -439,181 +541,27 @@ class _QuizOption extends StatelessWidget {
   }
 }
 
-class _MuffinAssistSection extends StatelessWidget {
-  const _MuffinAssistSection({
-    required this.muffinContext,
-    required this.onAskMuffin,
-  });
-
-  final QuizMuffinContext muffinContext;
-  final ValueChanged<QuizMuffinContext> onAskMuffin;
-
-  @override
-  Widget build(BuildContext context) {
-    return Semantics(
-      button: true,
-      label: 'Ask Muffin for quiz guidance',
-      child: Card(
-        color: const Color(0xFFF6F8F5),
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Row(
-            children: [
-              const Expanded(
-                child: Text(
-                  'Need a little help?',
-                  style: TextStyle(fontWeight: FontWeight.w700),
-                ),
-              ),
-              TextButton.icon(
-                onPressed: () => onAskMuffin(muffinContext),
-                icon: const Icon(Icons.psychology_rounded),
-                label: const Text('Ask Muffin'),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
+String _detectLanguage(List<PageTranslationField> fields) {
+  final text = fields.map((field) => field.text.toLowerCase()).join(' ');
+  final malaySignals =
+      RegExp(r'\b(ialah|dan|yang|dengan|contoh|nombor|pola|bab)\b')
+          .allMatches(text)
+          .length;
+  final englishSignals =
+      RegExp(r'\b(the|and|with|example|number|pattern|chapter)\b')
+          .allMatches(text)
+          .length;
+  if (malaySignals > englishSignals) return TranslationLanguage.malay;
+  if (englishSignals > malaySignals) return TranslationLanguage.english;
+  return TranslationLanguage.unknown;
 }
 
-class _MuffinGuidanceSheet extends StatefulWidget {
-  const _MuffinGuidanceSheet({required this.muffinContext});
-
-  final QuizMuffinContext muffinContext;
-
-  @override
-  State<_MuffinGuidanceSheet> createState() => _MuffinGuidanceSheetState();
+MuffinContext _toMalay(MuffinContext context) {
+  return context.copyWith(targetLanguage: 'Bahasa Melayu');
 }
 
-class _MuffinGuidanceSheetState extends State<_MuffinGuidanceSheet> {
-  static const _defaultMessage =
-      'Muffin guidance is being prepared.\nSoon, I will help you think through the question without giving away the answer.';
-  String _message = _defaultMessage;
-
-  @override
-  Widget build(BuildContext context) {
-    return SafeArea(
-      child: Semantics(
-        label:
-            'Muffin guidance for question ${widget.muffinContext.questionNumber} of ${widget.muffinContext.totalQuestions}',
-        child: SingleChildScrollView(
-          padding: EdgeInsets.fromLTRB(
-            20,
-            4,
-            20,
-            20 + MediaQuery.of(context).viewInsets.bottom,
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Container(
-                    width: 42,
-                    height: 42,
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFE5EEE8),
-                      borderRadius: BorderRadius.circular(15),
-                    ),
-                    child: const Icon(
-                      Icons.psychology_rounded,
-                      color: Color(0xFF496A5A),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Muffin',
-                          style: Theme.of(context).textTheme.titleLarge,
-                        ),
-                        const SizedBox(height: 2),
-                        Text(
-                          'I can guide you without revealing the answer.',
-                          style: Theme.of(context).textTheme.bodySmall,
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 18),
-              _MuffinGuidanceAction(
-                label: 'Give me a small hint',
-                onPressed: () => _setMessage(
-                  'Soon, Muffin will provide a gentle clue to help you begin.',
-                ),
-              ),
-              _MuffinGuidanceAction(
-                label: 'Explain the concept',
-                onPressed: () => _setMessage(
-                  'Soon, Muffin will explain the concept behind this question.',
-                ),
-              ),
-              _MuffinGuidanceAction(
-                label: 'Help me identify the pattern',
-                onPressed: () => _setMessage(
-                  'Soon, Muffin will guide you in finding the relationship between the values.',
-                ),
-              ),
-              const SizedBox(height: 12),
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFF6F8F5),
-                  borderRadius: BorderRadius.circular(20),
-                  border: Border.all(color: const Color(0xFFE2E8E3)),
-                ),
-                child: Text(_message),
-              ),
-              const SizedBox(height: 16),
-              SizedBox(
-                width: double.infinity,
-                child: OutlinedButton(
-                  onPressed: () => Navigator.of(context).pop(),
-                  child: const Text('Close'),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  void _setMessage(String message) {
-    setState(() => _message = message);
-  }
-}
-
-class _MuffinGuidanceAction extends StatelessWidget {
-  const _MuffinGuidanceAction({
-    required this.label,
-    required this.onPressed,
-  });
-
-  final String label;
-  final VoidCallback onPressed;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 10),
-      child: SizedBox(
-        width: double.infinity,
-        child: OutlinedButton(
-          onPressed: onPressed,
-          child: Text(label),
-        ),
-      ),
-    );
-  }
+MuffinContext _toEnglish(MuffinContext context) {
+  return context.copyWith(targetLanguage: 'English');
 }
 
 class _ResultsView extends StatelessWidget {

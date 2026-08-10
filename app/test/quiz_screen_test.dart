@@ -7,6 +7,7 @@ import 'package:studysis/models/quiz_muffin_context.dart';
 import 'package:studysis/models/quiz_question.dart';
 import 'package:studysis/screens/quiz_screen.dart';
 import 'package:studysis/services/muffin_guidance_policy.dart';
+import 'package:studysis/services/muffin_context_registry.dart';
 import 'package:studysis/theme/app_theme.dart';
 
 void main() {
@@ -44,95 +45,27 @@ void main() {
     expect(find.text('Correct'), findsNothing);
   });
 
-  testWidgets('renders Ask Muffin assistance and opens bottom sheet',
+  testWidgets('Quiz uses global Muffin entry only and registers safe actions',
       (tester) async {
     await tester.pumpWidget(_quizApp(Future.value(_questions())));
     await tester.pumpAndSettle();
 
-    expect(find.text('Need a little help?'), findsOneWidget);
-    expect(find.text('Ask Muffin'), findsOneWidget);
-
-    await _tapVisible(tester, find.text('Ask Muffin'));
-    await tester.pumpAndSettle();
-
-    expect(find.text('Muffin'), findsOneWidget);
-    expect(find.text('I can guide you without revealing the answer.'),
-        findsOneWidget);
-    expect(find.text('Give me a small hint'), findsOneWidget);
-    expect(find.text('Explain the concept'), findsOneWidget);
-    expect(find.text('Help me identify the pattern'), findsOneWidget);
-  });
-
-  testWidgets('changes Muffin placeholder response based on selected action',
-      (tester) async {
-    await tester.pumpWidget(_quizApp(Future.value(_questions())));
-    await tester.pumpAndSettle();
-
-    await _tapVisible(tester, find.text('Ask Muffin'));
-    await tester.pumpAndSettle();
-
-    await tester.tap(find.text('Give me a small hint'));
-    await tester.pumpAndSettle();
+    expect(find.text('Need a little help?'), findsNothing);
+    expect(find.text('Ask Muffin'), findsNothing);
+    final registered = MuffinContextRegistry.instance.current.value!;
+    expect(registered.context.toJson().toString(),
+        isNot(contains('correctOptionIndex')));
+    expect(registered.context.toJson().toString(),
+        isNot(contains('correctAnswer')));
     expect(
-      find.text('Soon, Muffin will provide a gentle clue to help you begin.'),
-      findsOneWidget,
+      registered.actions.map((action) => action.label),
+      containsAll([
+        'Give me a small hint',
+        'Explain the concept',
+        'Translate the question',
+        'Guide me through the question',
+      ]),
     );
-
-    await tester.tap(find.text('Explain the concept'));
-    await tester.pumpAndSettle();
-    expect(
-      find.text('Soon, Muffin will explain the concept behind this question.'),
-      findsOneWidget,
-    );
-
-    await tester.tap(find.text('Help me identify the pattern'));
-    await tester.pumpAndSettle();
-    expect(
-      find.text(
-        'Soon, Muffin will guide you in finding the relationship between the values.',
-      ),
-      findsOneWidget,
-    );
-  });
-
-  testWidgets('closes Muffin bottom sheet', (tester) async {
-    await tester.pumpWidget(_quizApp(Future.value(_questions())));
-    await tester.pumpAndSettle();
-
-    await _tapVisible(tester, find.text('Ask Muffin'));
-    await tester.pumpAndSettle();
-
-    await tester.tap(find.text('Close'));
-    await tester.pumpAndSettle();
-
-    expect(find.text('I can guide you without revealing the answer.'),
-        findsNothing);
-  });
-
-  testWidgets('Muffin keeps selected answer and does not submit quiz',
-      (tester) async {
-    await tester.pumpWidget(_quizApp(Future.value(_questions())));
-    await tester.pumpAndSettle();
-
-    await tester.tap(find.text('A').first);
-    await _tapVisible(tester, find.text('Ask Muffin'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Explain the concept'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Close'));
-    await tester.pumpAndSettle();
-
-    await _tapVisible(tester, find.text('Next'));
-    await tester.pumpAndSettle();
-    await _tapVisible(tester, find.text('Next'));
-    await tester.pumpAndSettle();
-    await _tapVisible(tester, find.text('Submit Quiz'));
-    await tester.pumpAndSettle();
-
-    expect(find.text('Submit Quiz?'), findsOneWidget);
-    expect(find.textContaining('You have answered 1 of 3 questions.'),
-        findsOneWidget);
-    expect(find.text('Quiz Complete'), findsNothing);
   });
 
   testWidgets('retains and allows changing a selected answer', (tester) async {

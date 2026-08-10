@@ -5,6 +5,11 @@ import 'firebase_options.dart';
 import 'screens/home_screen.dart';
 import 'services/student_auth_service.dart';
 import 'theme/app_theme.dart';
+import 'widgets/floating_muffin_shell.dart';
+import 'widgets/page_translation_scope.dart';
+
+final studySisNavigatorKey = GlobalKey<NavigatorState>();
+final pageTranslationController = PageTranslationController();
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -34,9 +39,19 @@ class StudySisApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
+      navigatorKey: studySisNavigatorKey,
       title: 'StudySis',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.light,
+      builder: (context, child) => PageTranslationScope(
+        controller: pageTranslationController,
+        child: FloatingMuffinShell(
+          navigatorKey: studySisNavigatorKey,
+          translationController: pageTranslationController,
+          enabled: startupError == null,
+          child: child ?? const SizedBox.shrink(),
+        ),
+      ),
       home: startupError == null
           ? const HomeScreen()
           : FirebaseSetupScreen(error: startupError!),

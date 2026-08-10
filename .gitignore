@@ -11,6 +11,7 @@ dashboard/.next/
 dashboard/node_modules/
 dashboard/out/
 dashboard/.env.local
+functions/node_modules/
 
 # Firebase / secrets
 .firebaserc

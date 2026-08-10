@@ -1,0 +1,19 @@
+{
+  "name": "studysis-muffin-functions",
+  "version": "0.1.0",
+  "private": true,
+  "type": "commonjs",
+  "main": "index.js",
+  "scripts": {
+    "lint": "node --check index.js && node --check muffinPolicy.js",
+    "test": "node --test"
+  },
+  "engines": {
+    "node": "20"
+  },
+  "dependencies": {
+    "firebase-admin": "^12.7.0",
+    "firebase-functions": "^6.1.0"
+  },
+  "devDependencies": {}
+}

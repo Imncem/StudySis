@@ -155,6 +155,10 @@ class _ChapterOverviewScreenState extends State<ChapterOverviewScreen> {
       MaterialPageRoute<void>(
         builder: (_) => PracticeScreen(
           title: 'Chapter ${widget.chapter.chapterNumber} Practice',
+          subjectId: widget.subjectId,
+          subjectTitle: widget.subjectName,
+          chapterId: widget.chapter.id,
+          chapterTitle: widget.chapter.title,
           questionsFuture: Future.value(questions),
           onComplete: (result) async {
             await _persistProgress(

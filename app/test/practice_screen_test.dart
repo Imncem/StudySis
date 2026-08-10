@@ -110,6 +110,37 @@ void main() {
         findsOneWidget);
     expect(find.text('Return to Chapter'), findsOneWidget);
   });
+
+  testWidgets('Practice removes inline Muffin entry point', (tester) async {
+    _setLargeSurface(tester);
+    await tester.pumpWidget(_practiceApp(Future.value([_questionOne()])));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Ask Muffin'), findsNothing);
+    expect(find.byIcon(Icons.psychology_rounded), findsNothing);
+  });
+
+  testWidgets('official score is unaffected without inline Muffin UI',
+      (tester) async {
+    _setLargeSurface(tester);
+    await tester.pumpWidget(_practiceApp(Future.value([_questionOne()])));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('4'));
+    await _tapVisible(tester, find.text('Submit Answer'));
+    await tester.pumpAndSettle();
+    await _tapVisible(tester, find.text('Next Question'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('1 out of 1 correct'), findsOneWidget);
+  });
+}
+
+void _setLargeSurface(WidgetTester tester) {
+  tester.view.physicalSize = const Size(1000, 1400);
+  tester.view.devicePixelRatio = 1;
+  addTearDown(tester.view.resetPhysicalSize);
+  addTearDown(tester.view.resetDevicePixelRatio);
 }
 
 Widget _practiceApp(Future<List<PracticeQuestion>> questionsFuture) {

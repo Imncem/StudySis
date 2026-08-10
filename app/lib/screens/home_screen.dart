@@ -1,14 +1,17 @@
 import 'package:flutter/material.dart';
 
+import '../models/learning_content.dart';
+import '../models/page_translation.dart';
 import '../models/student.dart';
 import '../models/subject.dart';
-import '../models/learning_content.dart';
 import '../repositories/learning_repository.dart';
 import '../services/firestore_service.dart';
-import 'subject_screen.dart';
-import 'progress_screen.dart';
+import '../services/muffin_context_registry.dart';
 import '../widgets/info_chip.dart';
+import '../widgets/page_translation_scope.dart';
 import '../widgets/subject_card.dart';
+import 'progress_screen.dart';
+import 'subject_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -20,12 +23,14 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   final _service = FirestoreService();
   final _learningRepository = LearningRepository();
+  final _translationOwner = Object();
   late Future<LearningContent?> _nextContent;
   bool _isOpeningModule = false;
 
   @override
   void initState() {
     super.initState();
+    MuffinContextRegistry.instance.resetToHome();
     _nextContent = _learningRepository.getFirstAvailableContent();
   }
 
@@ -80,6 +85,67 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
+  void _registerTranslationContent(BuildContext context) {
+    final controller = PageTranslationScope.maybeOf(context);
+    if (controller == null) return;
+    final route = ModalRoute.of(context);
+    if (route?.isCurrent != true) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || ModalRoute.of(context)?.isCurrent != true) return;
+      controller.registerPage(
+        ownerToken: _translationOwner,
+        routeName: ModalRoute.of(context)?.settings.name,
+        content: const TranslatablePageContent(
+          pageType: 'home',
+          pageId: 'home_dashboard',
+          sourceLanguage: TranslationLanguage.english,
+          fields: [
+            PageTranslationField(
+              id: 'greeting',
+              type: 'heading',
+              text: 'Hi Qidah',
+            ),
+            PageTranslationField(
+              id: 'encouragement',
+              type: 'paragraph',
+              text: "Let's take one gentle step today.",
+            ),
+            PageTranslationField(
+              id: 'dailyTargetLabel',
+              type: 'label',
+              text: 'Daily target',
+            ),
+            PageTranslationField(
+              id: 'languageLabel',
+              type: 'label',
+              text: 'Language',
+            ),
+            PageTranslationField(
+              id: 'continueTitle',
+              type: 'heading',
+              text: 'Continue learning',
+            ),
+            PageTranslationField(
+              id: 'progressTitle',
+              type: 'heading',
+              text: 'Progress',
+            ),
+            PageTranslationField(
+              id: 'progressDescription',
+              type: 'paragraph',
+              text: 'See your saved learning progress.',
+            ),
+            PageTranslationField(
+              id: 'subjects',
+              type: 'heading',
+              text: 'Subjects',
+            ),
+          ],
+        ),
+      );
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -94,28 +160,46 @@ class _HomeScreenState extends State<HomeScreen> {
               return const Center(child: CircularProgressIndicator());
             }
             final student = studentSnapshot.data!;
+            _registerTranslationContent(context);
             return RefreshIndicator(
               onRefresh: _refresh,
               child: ListView(
                 padding: const EdgeInsets.fromLTRB(20, 24, 20, 40),
                 children: [
-                  Text('Hi Qidah',
-                      style: Theme.of(context).textTheme.headlineMedium),
+                  const PageTranslationBanner(),
+                  Text(
+                    PageTranslationScope.text(context, 'greeting', 'Hi Qidah'),
+                    style: Theme.of(context).textTheme.headlineMedium,
+                  ),
                   const SizedBox(height: 6),
-                  Text('Let’s take one gentle step today.',
-                      style: Theme.of(context).textTheme.bodyLarge),
+                  Text(
+                    PageTranslationScope.text(
+                      context,
+                      'encouragement',
+                      "Let's take one gentle step today.",
+                    ),
+                    style: Theme.of(context).textTheme.bodyLarge,
+                  ),
                   const SizedBox(height: 22),
                   Row(
                     children: [
                       InfoChip(
                         icon: Icons.timer_outlined,
-                        label: 'Daily target',
+                        label: PageTranslationScope.text(
+                          context,
+                          'dailyTargetLabel',
+                          'Daily target',
+                        ),
                         value: '${student.dailyTargetMinutes} min',
                       ),
                       const SizedBox(width: 12),
                       InfoChip(
                         icon: Icons.translate_rounded,
-                        label: 'Language',
+                        label: PageTranslationScope.text(
+                          context,
+                          'languageLabel',
+                          'Language',
+                        ),
                         value: student.preferredLanguage,
                       ),
                     ],
@@ -136,42 +220,11 @@ class _HomeScreenState extends State<HomeScreen> {
                       );
                     },
                   ),
-                  const SizedBox(height: 14),
-                  Card(
-                    child: Padding(
-                      padding: const EdgeInsets.all(20),
-                      child: Row(
-                        children: [
-                          Container(
-                            width: 50,
-                            height: 50,
-                            decoration: BoxDecoration(
-                              color: const Color(0xFFFFE6D5),
-                              borderRadius: BorderRadius.circular(18),
-                            ),
-                            child: const Icon(Icons.pets_rounded,
-                                color: Color(0xFFA45E37)),
-                          ),
-                          const SizedBox(width: 14),
-                          const Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text('Muffin',
-                                    style:
-                                        TextStyle(fontWeight: FontWeight.w700)),
-                                SizedBox(height: 3),
-                                Text('Your study companion is getting ready.'),
-                              ],
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
                   const SizedBox(height: 28),
-                  Text('Subjects',
-                      style: Theme.of(context).textTheme.titleLarge),
+                  Text(
+                    PageTranslationScope.text(context, 'subjects', 'Subjects'),
+                    style: Theme.of(context).textTheme.titleLarge,
+                  ),
                   const SizedBox(height: 12),
                   StreamBuilder<List<Subject>>(
                     stream: _service.watchSubjects(),
@@ -252,16 +305,26 @@ class _ProgressEntryCard extends StatelessWidget {
                 ),
               ),
               const SizedBox(width: 14),
-              const Expanded(
+              Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'Progress',
-                      style: TextStyle(fontWeight: FontWeight.w700),
+                      PageTranslationScope.text(
+                        context,
+                        'progressTitle',
+                        'Progress',
+                      ),
+                      style: const TextStyle(fontWeight: FontWeight.w700),
                     ),
-                    SizedBox(height: 3),
-                    Text('See your saved learning progress.'),
+                    const SizedBox(height: 3),
+                    Text(
+                      PageTranslationScope.text(
+                        context,
+                        'progressDescription',
+                        'See your saved learning progress.',
+                      ),
+                    ),
                   ],
                 ),
               ),
@@ -299,11 +362,17 @@ class _ContinueCard extends StatelessWidget {
             return Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('Continue learning',
-                    style: Theme.of(context).textTheme.titleLarge),
+                Text(
+                  PageTranslationScope.text(
+                    context,
+                    'continueTitle',
+                    'Continue learning',
+                  ),
+                  style: Theme.of(context).textTheme.titleLarge,
+                ),
                 const SizedBox(height: 8),
                 if (snapshot.connectionState == ConnectionState.waiting)
-                  const Text('Finding your next learning module…')
+                  const Text('Finding your next learning module...')
                 else if (learningContent == null)
                   Text(
                     hasError
@@ -312,20 +381,20 @@ class _ContinueCard extends StatelessWidget {
                   )
                 else ...[
                   Text(
-                    'Chapter ${learningContent.chapter.chapterNumber} · '
+                    'Chapter ${learningContent.chapter.chapterNumber} - '
                     '${learningContent.module.title}',
                     style: Theme.of(context).textTheme.titleMedium,
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    '${learningContent.module.typeLabel} · '
+                    '${learningContent.module.typeLabel} - '
                     '${learningContent.module.estimatedMinutes} min',
                   ),
                 ],
                 const SizedBox(height: 18),
                 FilledButton(
                   onPressed: isOpening ? null : onContinue,
-                  child: Text(isOpening ? 'Opening…' : 'Continue'),
+                  child: Text(isOpening ? 'Opening...' : 'Continue'),
                 ),
               ],
             );

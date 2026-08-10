@@ -2,7 +2,13 @@ import 'package:flutter/material.dart';
 
 import '../models/chapter.dart';
 import '../models/flashcard.dart';
+import '../models/muffin.dart';
+import '../models/page_translation.dart';
 import '../repositories/learning_repository.dart';
+import '../services/muffin_context_registry.dart';
+import '../services/muffin_service.dart';
+import '../widgets/muffin_assist_sheet.dart';
+import '../widgets/page_translation_scope.dart';
 
 class FlashcardScreen extends StatefulWidget {
   const FlashcardScreen({
@@ -12,6 +18,7 @@ class FlashcardScreen extends StatefulWidget {
     this.initialCompletedCardIds = const {},
     this.onCardCompleted,
     this.repository,
+    this.muffinService,
     super.key,
   });
 
@@ -21,6 +28,7 @@ class FlashcardScreen extends StatefulWidget {
   final Set<String> initialCompletedCardIds;
   final ValueChanged<String>? onCardCompleted;
   final LearningRepository? repository;
+  final MuffinService? muffinService;
 
   @override
   State<FlashcardScreen> createState() => _FlashcardScreenState();
@@ -30,8 +38,10 @@ class _FlashcardScreenState extends State<FlashcardScreen> {
   late final LearningRepository _repository;
   late Future<List<Flashcard>> _cards;
   final _verticalController = PageController();
+  final _translationOwner = Object();
   final Set<String> _completedCards = {};
   final Set<String> _bookmarkedCards = {};
+  final Set<String> _revealedCards = {};
   int _currentIndex = 0;
 
   @override
@@ -75,8 +85,62 @@ class _FlashcardScreenState extends State<FlashcardScreen> {
               );
             }
             final safeIndex = _currentIndex.clamp(0, cards.length - 1);
+            final currentCard = cards[safeIndex];
+            final currentAnswerVisible =
+                _revealedCards.contains(currentCard.id);
+            final displayedLanguage = _displayedLanguage(context);
+            _registerTranslationContent(
+              context,
+              currentCard,
+              currentAnswerVisible,
+              safeIndex,
+            );
+            MuffinContextRegistry.instance.set(
+              MuffinScreenContext(
+                mode: MuffinMode.learn,
+                subtitle: currentAnswerVisible
+                    ? 'I can explain this flashcard.'
+                    : 'I can help without revealing the answer.',
+                context: _contextForCard(
+                  currentCard,
+                  currentAnswerVisible,
+                  displayedLanguage,
+                ).copyWith(
+                  contextKey:
+                      'flashcard_${widget.subjectId}_${widget.chapter.id}_card_${currentCard.id}_${currentAnswerVisible ? 'back' : 'front'}',
+                ),
+                actions: [
+                  const MuffinActionConfig(
+                    action: MuffinAction.explainSimply,
+                    label: 'Explain this card',
+                  ),
+                  MuffinActionConfig(
+                    action: MuffinAction.translate,
+                    label: 'Translate this card',
+                    contextOverride: _toMalay,
+                  ),
+                  MuffinActionConfig(
+                    action: MuffinAction.translate,
+                    label: 'Translate this card to English',
+                    contextOverride: _toEnglish,
+                  ),
+                  const MuffinActionConfig(
+                    action: MuffinAction.anotherExample,
+                    label: 'Give another example',
+                  ),
+                  const MuffinActionConfig(
+                    action: MuffinAction.stillConfused,
+                    label: "I'm still confused",
+                  ),
+                ],
+              ),
+            );
             return Column(
               children: [
+                const Padding(
+                  padding: EdgeInsets.fromLTRB(16, 8, 16, 0),
+                  child: PageTranslationBanner(),
+                ),
                 _FlashcardHeader(
                   subjectName: widget.subjectName,
                   chapterTitle: widget.chapter.title,
@@ -89,6 +153,7 @@ class _FlashcardScreenState extends State<FlashcardScreen> {
                     controller: _verticalController,
                     itemCount: cards.length,
                     onPageChanged: (index) {
+                      _resetVisibleCardContext();
                       setState(() => _currentIndex = index);
                     },
                     scrollDirection: Axis.vertical,
@@ -100,7 +165,12 @@ class _FlashcardScreenState extends State<FlashcardScreen> {
                         isCompleted: _completedCards.contains(card.id),
                         onBookmark: () => _bookmark(card),
                         onComplete: () => _complete(card),
-                        onMuffin: _showMuffin,
+                        isAnswerVisible: _revealedCards.contains(card.id),
+                        onSideChanged: (showingAnswer) {
+                          if (!showingAnswer) return;
+                          _resetVisibleCardContext();
+                          setState(() => _revealedCards.add(card.id));
+                        },
                       );
                     },
                   ),
@@ -111,6 +181,61 @@ class _FlashcardScreenState extends State<FlashcardScreen> {
         ),
       ),
     );
+  }
+
+  void _registerTranslationContent(
+    BuildContext context,
+    Flashcard card,
+    bool includeAnswer,
+    int index,
+  ) {
+    final controller = PageTranslationScope.maybeOf(context);
+    if (controller == null) return;
+    final route = ModalRoute.of(context);
+    if (route?.isCurrent != true) return;
+    final fields = [
+      PageTranslationField(
+        id: 'subjectName',
+        type: 'label',
+        text: widget.subjectName.toUpperCase(),
+      ),
+      PageTranslationField(
+        id: 'chapterTitle',
+        type: 'heading',
+        text: widget.chapter.title,
+      ),
+      PageTranslationField(
+        id: 'front_${card.id}',
+        type: 'question',
+        text: card.front,
+      ),
+      if (card.hint.trim().isNotEmpty)
+        PageTranslationField(
+          id: 'hint_${card.id}',
+          type: 'hint',
+          text: 'Hint: ${card.hint}',
+        ),
+      if (includeAnswer)
+        PageTranslationField(
+          id: 'back_${card.id}',
+          type: 'answer',
+          text: card.back,
+        ),
+    ];
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || ModalRoute.of(context)?.isCurrent != true) return;
+      controller.registerPage(
+        ownerToken: _translationOwner,
+        routeName: ModalRoute.of(context)?.settings.name,
+        content: TranslatablePageContent(
+          pageType: 'flashcards',
+          pageId:
+              'flashcard_${widget.subjectId}_${widget.chapter.id}_${card.id}_${includeAnswer ? 'back' : 'front'}',
+          sourceLanguage: _detectLanguage(fields),
+          fields: fields,
+        ),
+      );
+    });
   }
 
   void _reload() {
@@ -147,48 +272,48 @@ class _FlashcardScreenState extends State<FlashcardScreen> {
       ..showSnackBar(SnackBar(content: Text(message)));
   }
 
-  void _showMuffin() {
-    showModalBottomSheet<void>(
-      context: context,
-      showDragHandle: true,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
-      ),
-      builder: (sheetContext) => SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(24, 4, 24, 28),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text('Muffin is getting ready.',
-                  style: Theme.of(context).textTheme.titleLarge),
-              const SizedBox(height: 8),
-              const Text('These learning helpers will be available later.'),
-              const SizedBox(height: 20),
-              for (final label in const [
-                'Explain simply',
-                'Translate',
-                'Give another example',
-                'I’m still confused',
-              ]) ...[
-                SizedBox(
-                  width: double.infinity,
-                  child: OutlinedButton(
-                    onPressed: () {
-                      Navigator.of(sheetContext).pop();
-                      _showMessage('Muffin is getting ready.');
-                    },
-                    child: Text(label),
-                  ),
-                ),
-                const SizedBox(height: 8),
-              ],
-            ],
-          ),
-        ),
-      ),
+  MuffinContext _contextForCard(
+    Flashcard card,
+    bool includeAnswer,
+    String displayedLanguage,
+  ) {
+    final originalContent = [
+      card.front,
+      if (includeAnswer) card.back,
+      if (card.hint.trim().isNotEmpty) 'Hint: ${card.hint}',
+    ].join('\n');
+    return MuffinContext(
+      studentProfileId: 'qidah',
+      preferredLanguage: 'Mixed',
+      subjectId: widget.subjectId,
+      subjectTitle: widget.subjectName,
+      chapterId: widget.chapter.id,
+      chapterTitle: widget.chapter.title,
+      mode: MuffinMode.learn,
+      currentScreen: 'flashcards',
+      cardId: card.id,
+      displayedLanguage: displayedLanguage,
+      currentQuestion: card.front,
+      lessonBody: includeAnswer ? card.back : null,
+      relevantNotes: [
+        includeAnswer ? 'Current side: back' : 'Current side: front'
+      ],
+      relevantFlashcards: [originalContent],
+      originalScreenContent: originalContent,
     );
+  }
+
+  void _resetVisibleCardContext() {
+    PageTranslationScope.maybeOf(context)?.resetForPageChange();
+    MuffinContextRegistry.instance.clear();
+  }
+
+  String _displayedLanguage(BuildContext context) {
+    final state = PageTranslationScope.maybeOf(context)?.state;
+    if (state?.isTranslated == true && state?.targetLanguage != null) {
+      return state!.targetLanguage!;
+    }
+    return state?.sourceLanguage ?? TranslationLanguage.unknown;
   }
 }
 
@@ -225,7 +350,11 @@ class _FlashcardHeader extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      subjectName.toUpperCase(),
+                      PageTranslationScope.text(
+                        context,
+                        'subjectName',
+                        subjectName.toUpperCase(),
+                      ),
                       style: TextStyle(
                         color: Theme.of(context).colorScheme.primary,
                         fontSize: 11,
@@ -234,7 +363,11 @@ class _FlashcardHeader extends StatelessWidget {
                       ),
                     ),
                     Text(
-                      chapterTitle,
+                      PageTranslationScope.text(
+                        context,
+                        'chapterTitle',
+                        chapterTitle,
+                      ),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: Theme.of(context).textTheme.titleMedium,
@@ -264,22 +397,47 @@ class _FlashcardHeader extends StatelessWidget {
   }
 }
 
+String _detectLanguage(List<PageTranslationField> fields) {
+  final text = fields.map((field) => field.text.toLowerCase()).join(' ');
+  final malaySignals =
+      RegExp(r'\b(ialah|dan|yang|dengan|contoh|nombor|pola|bab)\b')
+          .allMatches(text)
+          .length;
+  final englishSignals =
+      RegExp(r'\b(the|and|with|example|number|pattern|chapter)\b')
+          .allMatches(text)
+          .length;
+  if (malaySignals > englishSignals) return TranslationLanguage.malay;
+  if (englishSignals > malaySignals) return TranslationLanguage.english;
+  return TranslationLanguage.unknown;
+}
+
+MuffinContext _toMalay(MuffinContext context) {
+  return context.copyWith(targetLanguage: 'Bahasa Melayu');
+}
+
+MuffinContext _toEnglish(MuffinContext context) {
+  return context.copyWith(targetLanguage: 'English');
+}
+
 class _FlashcardPage extends StatelessWidget {
   const _FlashcardPage({
     required this.card,
     required this.isCompleted,
     required this.isBookmarked,
     required this.onComplete,
-    required this.onMuffin,
     required this.onBookmark,
+    required this.onSideChanged,
+    required this.isAnswerVisible,
   });
 
   final Flashcard card;
   final bool isCompleted;
   final bool isBookmarked;
   final VoidCallback onComplete;
-  final VoidCallback onMuffin;
   final VoidCallback onBookmark;
+  final ValueChanged<bool> onSideChanged;
+  final bool isAnswerVisible;
 
   @override
   Widget build(BuildContext context) {
@@ -291,19 +449,38 @@ class _FlashcardPage extends StatelessWidget {
             child: ClipRRect(
               borderRadius: BorderRadius.circular(28),
               child: PageView(
+                onPageChanged: (index) => onSideChanged(index == 1),
                 children: [
                   _FlashcardSide(
                     label: 'QUESTION',
-                    text: card.front,
-                    hint: card.hint,
+                    text: PageTranslationScope.text(
+                      context,
+                      'front_${card.id}',
+                      card.front,
+                    ),
+                    hint: PageTranslationScope.text(
+                      context,
+                      'hint_${card.id}',
+                      card.hint.isEmpty ? '' : 'Hint: ${card.hint}',
+                    ),
                     instruction: 'Swipe left to reveal answer',
                     color: const Color(0xFFE5EEE8),
                     icon: Icons.arrow_back_rounded,
                   ),
                   _FlashcardSide(
                     label: 'ANSWER',
-                    text: card.back,
-                    hint: card.hint,
+                    text: isAnswerVisible
+                        ? PageTranslationScope.text(
+                            context,
+                            'back_${card.id}',
+                            card.back,
+                          )
+                        : card.back,
+                    hint: PageTranslationScope.text(
+                      context,
+                      'hint_${card.id}',
+                      card.hint.isEmpty ? '' : 'Hint: ${card.hint}',
+                    ),
                     instruction: 'Swipe right to return',
                     color: const Color(0xFFFFF2E8),
                     icon: Icons.arrow_forward_rounded,
@@ -325,12 +502,6 @@ class _FlashcardPage extends StatelessWidget {
                   label: isCompleted ? 'Got it' : 'Check',
                   active: isCompleted,
                   onPressed: onComplete,
-                ),
-                const SizedBox(height: 22),
-                _SideAction(
-                  icon: Icons.pets_rounded,
-                  label: 'Muffin',
-                  onPressed: onMuffin,
                 ),
                 const SizedBox(height: 22),
                 _SideAction(
@@ -406,8 +577,7 @@ class _FlashcardSide extends StatelessWidget {
                 color: Colors.white.withValues(alpha: 0.7),
                 borderRadius: BorderRadius.circular(16),
               ),
-              child: Text('Hint: $hint',
-                  style: Theme.of(context).textTheme.bodyMedium),
+              child: Text(hint, style: Theme.of(context).textTheme.bodyMedium),
             ),
             const SizedBox(height: 16),
           ],

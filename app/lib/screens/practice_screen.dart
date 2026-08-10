@@ -1,18 +1,34 @@
 import 'package:flutter/material.dart';
 
 import '../models/chapter_progress.dart';
+import '../models/muffin.dart';
+import '../models/page_translation.dart';
 import '../models/practice_question.dart';
+import '../services/muffin_context_registry.dart';
+import '../services/muffin_service.dart';
+import '../widgets/muffin_assist_sheet.dart';
+import '../widgets/page_translation_scope.dart';
 
 class PracticeScreen extends StatefulWidget {
   const PracticeScreen({
     required this.title,
     required this.questionsFuture,
+    this.subjectId = 'math',
+    this.subjectTitle = 'Mathematics',
+    this.chapterId,
+    this.chapterTitle,
+    this.muffinService,
     this.onComplete,
     super.key,
   });
 
   final String title;
   final Future<List<PracticeQuestion>> questionsFuture;
+  final String subjectId;
+  final String subjectTitle;
+  final String? chapterId;
+  final String? chapterTitle;
+  final MuffinService? muffinService;
   final ValueChanged<PracticeResult>? onComplete;
 
   @override
@@ -21,6 +37,7 @@ class PracticeScreen extends StatefulWidget {
 
 class _PracticeScreenState extends State<PracticeScreen> {
   late Future<List<PracticeQuestion>> _questionsFuture;
+  final _translationOwner = Object();
   int _questionIndex = 0;
   int? _selectedAnswerIndex;
   bool _hasSubmitted = false;
@@ -103,6 +120,36 @@ class _PracticeScreenState extends State<PracticeScreen> {
     );
   }
 
+  MuffinContext _contextForQuestion(PracticeQuestion question) {
+    final selectedIndex = _selectedAnswerIndex;
+    return MuffinContext(
+      studentProfileId: 'qidah',
+      preferredLanguage: 'Mixed',
+      subjectId: widget.subjectId,
+      subjectTitle: widget.subjectTitle,
+      chapterId: widget.chapterId,
+      chapterTitle: widget.chapterTitle,
+      mode: MuffinMode.practice,
+      currentScreen: 'practice',
+      currentQuestion: question.question,
+      answerOptions: question.options,
+      selectedStudentAnswer: selectedIndex == null
+          ? null
+          : selectedIndex < question.options.length
+              ? question.options[selectedIndex]
+              : null,
+      relevantNotes: [
+        if (question.topic.trim().isNotEmpty) 'Topic: ${question.topic}',
+        if (question.difficulty.trim().isNotEmpty)
+          'Difficulty: ${question.difficulty}',
+      ],
+      originalScreenContent: [
+        question.question,
+        ...question.options,
+      ].join('\n'),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -160,6 +207,41 @@ class _PracticeScreenState extends State<PracticeScreen> {
             final safeIndex =
                 _questionIndex.clamp(0, validQuestions.length - 1);
             final question = validQuestions[safeIndex];
+            _registerTranslationContent(context, question, safeIndex);
+            MuffinContextRegistry.instance.set(
+              MuffinScreenContext(
+                mode: MuffinMode.practice,
+                subtitle: 'I can guide practice without changing your score.',
+                context: _contextForQuestion(question).copyWith(
+                  contextKey:
+                      'practice_${widget.subjectId}_${widget.chapterId ?? 'chapter'}_question_${question.id}',
+                ),
+                actions: [
+                  const MuffinActionConfig(
+                    action: MuffinAction.smallHint,
+                    label: 'Give me a small hint',
+                  ),
+                  const MuffinActionConfig(
+                    action: MuffinAction.explainConcept,
+                    label: 'Explain the concept',
+                  ),
+                  MuffinActionConfig(
+                    action: MuffinAction.translate,
+                    label: 'Translate the question',
+                    contextOverride: _toMalay,
+                  ),
+                  MuffinActionConfig(
+                    action: MuffinAction.translate,
+                    label: 'Translate the question to English',
+                    contextOverride: _toEnglish,
+                  ),
+                  const MuffinActionConfig(
+                    action: MuffinAction.generateSimilarQuestion,
+                    label: 'Create a similar question',
+                  ),
+                ],
+              ),
+            );
             return _QuestionView(
               question: question,
               scrollController: _scrollController,
@@ -179,6 +261,63 @@ class _PracticeScreenState extends State<PracticeScreen> {
       ),
     );
   }
+
+  void _registerTranslationContent(
+    BuildContext context,
+    PracticeQuestion question,
+    int index,
+  ) {
+    final controller = PageTranslationScope.maybeOf(context);
+    if (controller == null) return;
+    final route = ModalRoute.of(context);
+    if (route?.isCurrent != true) return;
+    final fields = [
+      const PageTranslationField(
+          id: 'title', type: 'heading', text: 'Practice'),
+      PageTranslationField(
+        id: 'questionProgress',
+        type: 'label',
+        text: 'Question ${index + 1}',
+      ),
+      PageTranslationField(
+        id: 'question_${question.id}',
+        type: 'question',
+        text: question.question,
+      ),
+      for (var i = 0; i < question.options.length; i++)
+        PageTranslationField(
+          id: 'option_${optionLabel(i).toLowerCase()}',
+          type: 'option',
+          text: question.options[i],
+        ),
+      if (question.hint.trim().isNotEmpty)
+        PageTranslationField(
+          id: 'hint_${question.id}',
+          type: 'hint',
+          text: question.hint,
+        ),
+      if (_hasSubmitted && question.explanation.trim().isNotEmpty)
+        PageTranslationField(
+          id: 'feedback_${question.id}',
+          type: 'feedback',
+          text: question.explanation,
+        ),
+    ];
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || ModalRoute.of(context)?.isCurrent != true) return;
+      controller.registerPage(
+        ownerToken: _translationOwner,
+        routeName: ModalRoute.of(context)?.settings.name,
+        content: TranslatablePageContent(
+          pageType: 'practice',
+          pageId:
+              'practice_${widget.subjectId}_${widget.chapterId ?? 'chapter'}_${question.id}_${_hasSubmitted ? 'submitted' : 'attempt'}',
+          sourceLanguage: _detectLanguage(fields),
+          fields: fields,
+        ),
+      );
+    });
+  }
 }
 
 class PracticeResult {
@@ -194,6 +333,14 @@ class PracticeResult {
         correctCount: correctAnswers,
         totalQuestions: totalQuestions,
       );
+}
+
+MuffinContext _toMalay(MuffinContext context) {
+  return context.copyWith(targetLanguage: 'Bahasa Melayu');
+}
+
+MuffinContext _toEnglish(MuffinContext context) {
+  return context.copyWith(targetLanguage: 'English');
 }
 
 class _QuestionView extends StatelessWidget {
@@ -230,7 +377,11 @@ class _QuestionView extends StatelessWidget {
       controller: scrollController,
       padding: const EdgeInsets.fromLTRB(20, 12, 20, 40),
       children: [
-        Text('Practice', style: Theme.of(context).textTheme.headlineMedium),
+        const PageTranslationBanner(),
+        Text(
+          PageTranslationScope.text(context, 'title', 'Practice'),
+          style: Theme.of(context).textTheme.headlineMedium,
+        ),
         const SizedBox(height: 8),
         Text(
           'Question $questionNumber of $totalQuestions',
@@ -250,7 +401,11 @@ class _QuestionView extends StatelessWidget {
           child: Padding(
             padding: const EdgeInsets.all(22),
             child: Text(
-              question.question,
+              PageTranslationScope.text(
+                context,
+                'question_${question.id}',
+                question.question,
+              ),
               style: Theme.of(context)
                   .textTheme
                   .titleLarge
@@ -261,7 +416,11 @@ class _QuestionView extends StatelessWidget {
         const SizedBox(height: 14),
         for (var index = 0; index < question.options.length; index++) ...[
           _AnswerOption(
-            label: question.options[index],
+            label: PageTranslationScope.text(
+              context,
+              'option_${optionLabel(index).toLowerCase()}',
+              question.options[index],
+            ),
             index: index,
             selectedAnswerIndex: selectedAnswerIndex,
             correctAnswerIndex: question.correctAnswerIndex,
@@ -283,6 +442,7 @@ class _QuestionView extends StatelessWidget {
           _FeedbackCard(
             isCorrect: _isCorrect,
             explanation: question.explanation,
+            explanationId: 'feedback_${question.id}',
           ),
         ],
         const SizedBox(height: 18),
@@ -386,10 +546,15 @@ class _AnswerOption extends StatelessWidget {
 }
 
 class _FeedbackCard extends StatelessWidget {
-  const _FeedbackCard({required this.isCorrect, required this.explanation});
+  const _FeedbackCard({
+    required this.isCorrect,
+    required this.explanation,
+    required this.explanationId,
+  });
 
   final bool isCorrect;
   final String explanation;
+  final String explanationId;
 
   @override
   Widget build(BuildContext context) {
@@ -407,7 +572,7 @@ class _FeedbackCard extends StatelessWidget {
             if (explanation.trim().isNotEmpty) ...[
               const SizedBox(height: 10),
               Text(
-                explanation,
+                PageTranslationScope.text(context, explanationId, explanation),
                 style: Theme.of(context).textTheme.bodyLarge,
               ),
             ],
@@ -416,6 +581,27 @@ class _FeedbackCard extends StatelessWidget {
       ),
     );
   }
+}
+
+String _detectLanguage(List<PageTranslationField> fields) {
+  final text = fields.map((field) => field.text.toLowerCase()).join(' ');
+  final malaySignals =
+      RegExp(r'\b(ialah|dan|yang|dengan|contoh|nombor|pola|bab)\b')
+          .allMatches(text)
+          .length;
+  final englishSignals =
+      RegExp(r'\b(the|and|with|example|number|pattern|chapter)\b')
+          .allMatches(text)
+          .length;
+  if (malaySignals > englishSignals) return TranslationLanguage.malay;
+  if (englishSignals > malaySignals) return TranslationLanguage.english;
+  return TranslationLanguage.unknown;
+}
+
+String optionLabel(int index) {
+  const labels = ['A', 'B', 'C', 'D', 'E', 'F'];
+  if (index < labels.length) return labels[index];
+  return String.fromCharCode(65 + index);
 }
 
 class _CompletionView extends StatelessWidget {
