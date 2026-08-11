@@ -18,6 +18,7 @@ enum MuffinResponseType {
   translation,
   example,
   hint,
+  guidance,
   generatedQuestion,
   refusal,
   error,
@@ -255,6 +256,8 @@ class MuffinGeneratedQuestion {
     required this.difficulty,
     required this.topic,
     required this.generatedByMuffin,
+    this.correctOptionIndex,
+    this.explanation,
   });
 
   final String question;
@@ -262,6 +265,8 @@ class MuffinGeneratedQuestion {
   final String difficulty;
   final String topic;
   final bool generatedByMuffin;
+  final int? correctOptionIndex;
+  final String? explanation;
 
   factory MuffinGeneratedQuestion.fromJson(Map<String, dynamic> data) {
     return MuffinGeneratedQuestion(
@@ -272,6 +277,8 @@ class MuffinGeneratedQuestion {
       difficulty: (data['difficulty'] ?? 'easy').toString(),
       topic: (data['topic'] ?? '').toString(),
       generatedByMuffin: data['generatedByMuffin'] == true,
+      correctOptionIndex: (data['correctOptionIndex'] as num?)?.toInt(),
+      explanation: data['explanation']?.toString(),
     );
   }
 
@@ -282,6 +289,8 @@ class MuffinGeneratedQuestion {
       'difficulty': difficulty,
       'topic': topic,
       'generatedByMuffin': generatedByMuffin,
+      if (correctOptionIndex != null) 'correctOptionIndex': correctOptionIndex,
+      if (explanation != null) 'explanation': explanation,
     };
   }
 }
@@ -290,6 +299,7 @@ class MuffinResponse {
   const MuffinResponse({
     required this.responseType,
     required this.message,
+    this.detectedLanguage,
     this.translatedText,
     this.generatedQuestion,
     this.suggestedNextAction,
@@ -297,6 +307,7 @@ class MuffinResponse {
 
   final MuffinResponseType responseType;
   final String message;
+  final String? detectedLanguage;
   final String? translatedText;
   final MuffinGeneratedQuestion? generatedQuestion;
   final String? suggestedNextAction;
@@ -310,6 +321,7 @@ class MuffinResponse {
         orElse: () => MuffinResponseType.error,
       ),
       message: (data['message'] ?? '').toString(),
+      detectedLanguage: data['detectedLanguage']?.toString(),
       translatedText: data['translatedText']?.toString(),
       generatedQuestion: generatedQuestion is Map<String, dynamic>
           ? MuffinGeneratedQuestion.fromJson(generatedQuestion)
@@ -323,6 +335,7 @@ class MuffinResponse {
       'success': responseType != MuffinResponseType.error,
       'responseType': responseType.name,
       'message': message,
+      if (detectedLanguage != null) 'detectedLanguage': detectedLanguage,
       if (translatedText != null) 'translatedText': translatedText,
       if (generatedQuestion != null)
         'generatedQuestion': generatedQuestion!.toJson(),

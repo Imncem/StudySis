@@ -2,8 +2,10 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../models/muffin.dart';
+import '../models/muffin_wallet.dart';
 import '../services/muffin_context_registry.dart';
 import '../services/muffin_service.dart';
+import '../services/muffin_wallet_service.dart';
 
 class MuffinActionConfig {
   const MuffinActionConfig({
@@ -25,10 +27,12 @@ class MuffinAssistSheet extends StatefulWidget {
     required this.context,
     required this.actions,
     MuffinService? service,
+    MuffinWalletService? walletService,
     this.initialAction,
     this.onGeneratedQuestionAnswered,
     super.key,
-  }) : service = service ?? const _DefaultMuffinService();
+  })  : service = service ?? const _DefaultMuffinService(),
+        walletService = walletService ?? const _DefaultMuffinWalletService();
 
   final String title;
   final String subtitle;
@@ -36,6 +40,7 @@ class MuffinAssistSheet extends StatefulWidget {
   final MuffinContext context;
   final List<MuffinActionConfig> actions;
   final MuffinService service;
+  final MuffinWalletService walletService;
   final MuffinActionConfig? initialAction;
   final ValueChanged<bool>? onGeneratedQuestionAnswered;
 
@@ -282,109 +287,136 @@ class _MuffinAssistSheetState extends State<MuffinAssistSheet> {
 
   @override
   Widget build(BuildContext context) {
-    return SafeArea(
-      child: SingleChildScrollView(
-        padding: EdgeInsets.fromLTRB(
-          20,
-          4,
-          20,
-          20 + MediaQuery.of(context).viewInsets.bottom,
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
+    return StreamBuilder<MuffinWallet>(
+      stream: widget.walletService.watchWallet(),
+      initialData: MuffinWallet.full,
+      builder: (context, snapshot) {
+        final wallet = snapshot.data ?? MuffinWallet.full;
+        final blocked = !wallet.hasBites || wallet.isDailyLimitReached;
+        return SafeArea(
+          child: SingleChildScrollView(
+            padding: EdgeInsets.fromLTRB(
+              20,
+              4,
+              20,
+              20 + MediaQuery.of(context).viewInsets.bottom,
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Container(
-                  width: 42,
-                  height: 42,
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFE5EEE8),
-                    borderRadius: BorderRadius.circular(15),
-                  ),
-                  child: const Icon(
-                    Icons.psychology_rounded,
-                    color: Color(0xFF496A5A),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(widget.title,
-                          style: Theme.of(context).textTheme.titleLarge),
-                      const SizedBox(height: 2),
-                      Text(
-                        widget.subtitle,
-                        style: Theme.of(context).textTheme.bodySmall,
+                Row(
+                  children: [
+                    Container(
+                      width: 42,
+                      height: 42,
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFE5EEE8),
+                        borderRadius: BorderRadius.circular(15),
                       ),
-                    ],
+                      child: const Icon(
+                        Icons.psychology_rounded,
+                        color: Color(0xFF496A5A),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(widget.title,
+                              style: Theme.of(context).textTheme.titleLarge),
+                          const SizedBox(height: 2),
+                          Text(
+                            widget.subtitle,
+                            style: Theme.of(context).textTheme.bodySmall,
+                          ),
+                        ],
+                      ),
+                    ),
+                    _MuffinBitesPill(wallet: wallet),
+                  ],
+                ),
+                if (wallet.currentBites == 1) ...[
+                  const SizedBox(height: 8),
+                  Text(
+                    'Muffin is getting a little tired.',
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                ],
+                if (blocked) ...[
+                  const SizedBox(height: 8),
+                  Text(
+                    wallet.isDailyLimitReached
+                        ? wallet.dailyRestText(DateTime.now())
+                        : wallet.cooldownText(DateTime.now()),
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                ],
+                const SizedBox(height: 18),
+                for (final action in widget.actions)
+                  if (_shouldShowAction(action))
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 10),
+                      child: SizedBox(
+                        width: double.infinity,
+                        child: OutlinedButton(
+                          onPressed:
+                              _isLoading || blocked ? null : () => _ask(action),
+                          child: _loadingAction == action.action
+                              ? const SizedBox(
+                                  height: 18,
+                                  width: 18,
+                                  child:
+                                      CircularProgressIndicator(strokeWidth: 2),
+                                )
+                              : _CostLabel(label: _labelForAction(action)),
+                        ),
+                      ),
+                    ),
+                const SizedBox(height: 10),
+                if (_errorMessage != null)
+                  _MuffinResponseCard(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(_errorMessage!),
+                        const SizedBox(height: 10),
+                        OutlinedButton(
+                          onPressed: _isLoading || widget.actions.isEmpty
+                              ? null
+                              : () => _ask(widget.actions.first),
+                          child: const Text('Retry'),
+                        ),
+                      ],
+                    ),
+                  )
+                else
+                  _ResponseView(
+                    response: _response,
+                    selectedAnswerIndex: _generatedAnswerIndex,
+                    submitted: _generatedSubmitted,
+                    onSelectGeneratedAnswer: (index) =>
+                        setState(() => _generatedAnswerIndex = index),
+                    onSubmitGeneratedAnswer: () {
+                      if (_generatedAnswerIndex == null) return;
+                      setState(() => _generatedSubmitted = true);
+                      widget.onGeneratedQuestionAnswered?.call(true);
+                    },
+                  ),
+                const SizedBox(height: 16),
+                SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton(
+                    onPressed: () => Navigator.of(context).pop(),
+                    child: const Text('Close'),
                   ),
                 ),
               ],
             ),
-            const SizedBox(height: 18),
-            for (final action in widget.actions)
-              if (_shouldShowAction(action))
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 10),
-                  child: SizedBox(
-                    width: double.infinity,
-                    child: OutlinedButton(
-                      onPressed: _isLoading ? null : () => _ask(action),
-                      child: _loadingAction == action.action
-                          ? const SizedBox(
-                              height: 18,
-                              width: 18,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            )
-                          : Text(_labelForAction(action)),
-                    ),
-                  ),
-                ),
-            const SizedBox(height: 10),
-            if (_errorMessage != null)
-              _MuffinResponseCard(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(_errorMessage!),
-                    const SizedBox(height: 10),
-                    OutlinedButton(
-                      onPressed: _isLoading || widget.actions.isEmpty
-                          ? null
-                          : () => _ask(widget.actions.first),
-                      child: const Text('Retry'),
-                    ),
-                  ],
-                ),
-              )
-            else
-              _ResponseView(
-                response: _response,
-                selectedAnswerIndex: _generatedAnswerIndex,
-                submitted: _generatedSubmitted,
-                onSelectGeneratedAnswer: (index) =>
-                    setState(() => _generatedAnswerIndex = index),
-                onSubmitGeneratedAnswer: () {
-                  if (_generatedAnswerIndex == null) return;
-                  setState(() => _generatedSubmitted = true);
-                  widget.onGeneratedQuestionAnswered?.call(true);
-                },
-              ),
-            const SizedBox(height: 16),
-            SizedBox(
-              width: double.infinity,
-              child: OutlinedButton(
-                onPressed: () => Navigator.of(context).pop(),
-                child: const Text('Close'),
-              ),
-            ),
-          ],
-        ),
-      ),
+          ),
+        );
+      },
     );
   }
 
@@ -503,8 +535,8 @@ class _ResponseView extends StatelessWidget {
             ),
             if (submitted) ...[
               const SizedBox(height: 8),
-              const Text(
-                'Good effort. This generated question is only for practice and does not change your official score.',
+              Text(
+                _generatedFeedback(generatedQuestion),
               ),
             ],
           ],
@@ -515,6 +547,20 @@ class _ResponseView extends StatelessWidget {
         ],
       ),
     );
+  }
+
+  String _generatedFeedback(MuffinGeneratedQuestion question) {
+    final correctIndex = question.correctOptionIndex;
+    final selectedIndex = selectedAnswerIndex;
+    final explanation = question.explanation?.trim();
+    final correctness = correctIndex == null || selectedIndex == null
+        ? 'Good effort.'
+        : selectedIndex == correctIndex
+            ? 'Correct.'
+            : 'Not quite.';
+    final detail =
+        explanation == null || explanation.isEmpty ? '' : ' $explanation';
+    return '$correctness$detail This generated question is only for practice and does not change your official score.';
   }
 }
 
@@ -544,5 +590,59 @@ class _DefaultMuffinService implements MuffinService {
   @override
   Future<MuffinResponse> ask(MuffinRequest request) {
     return MuffinServiceFactory.create().ask(request);
+  }
+}
+
+class _DefaultMuffinWalletService implements MuffinWalletService {
+  const _DefaultMuffinWalletService();
+
+  @override
+  Stream<MuffinWallet> watchWallet() {
+    return MuffinWalletServiceFactory.create().watchWallet();
+  }
+}
+
+class _MuffinBitesPill extends StatelessWidget {
+  const _MuffinBitesPill({required this.wallet});
+
+  final MuffinWallet wallet;
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: const Color(0xFFFFE6D5),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        child: Text(
+          '🍪 ${wallet.currentBites}/${wallet.maxBites}',
+          style: const TextStyle(
+            color: Color(0xFFA45E37),
+            fontWeight: FontWeight.w800,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _CostLabel extends StatelessWidget {
+  const _CostLabel({required this.label});
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Flexible(child: Text(label)),
+        const SizedBox(width: 8),
+        const Text('🍪1'),
+      ],
+    );
   }
 }

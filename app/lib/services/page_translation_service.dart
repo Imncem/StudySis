@@ -1,3 +1,10 @@
+import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
+
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/foundation.dart';
+
 import '../models/page_translation.dart';
 
 abstract class PageTranslationService {
@@ -14,7 +21,27 @@ class PageTranslationServiceFactory {
   }
 
   static PageTranslationService create() {
-    return _override ?? const MockPageTranslationService();
+    if (_override != null) return _override!;
+    const useMock = bool.fromEnvironment(
+      'MUFFIN_USE_MOCK',
+      defaultValue: true,
+    );
+    const explicitEndpoint = String.fromEnvironment(
+      'MUFFIN_TRANSLATION_ENDPOINT',
+    );
+    const muffinEndpoint = String.fromEnvironment('MUFFIN_ENDPOINT');
+    final endpoint = explicitEndpoint.isNotEmpty
+        ? explicitEndpoint
+        : _translationEndpointFrom(muffinEndpoint);
+    if (useMock || endpoint.isEmpty) return const MockPageTranslationService();
+    return RemotePageTranslationService(endpoint: Uri.parse(endpoint));
+  }
+
+  static String _translationEndpointFrom(String muffinEndpoint) {
+    if (muffinEndpoint.isEmpty) return '';
+    final askMuffinSuffix = RegExp(r'askMuffin/?$');
+    if (!askMuffinSuffix.hasMatch(muffinEndpoint)) return '';
+    return muffinEndpoint.replaceFirst(askMuffinSuffix, 'translateMuffinPage');
   }
 }
 
@@ -78,6 +105,87 @@ class PageTranslationException implements Exception {
 
   @override
   String toString() => message;
+}
+
+class RemotePageTranslationService implements PageTranslationService {
+  RemotePageTranslationService({
+    required Uri endpoint,
+    FirebaseAuth? auth,
+    HttpClient? httpClient,
+    Duration timeout = const Duration(seconds: 25),
+  })  : _endpoint = endpoint,
+        _auth = auth,
+        _httpClient = httpClient ?? HttpClient(),
+        _timeout = timeout;
+
+  final Uri _endpoint;
+  final FirebaseAuth? _auth;
+  final HttpClient _httpClient;
+  final Duration _timeout;
+
+  @override
+  Future<PageTranslationResult> translate(
+    PageTranslationRequest request,
+  ) async {
+    final user = (_auth ?? FirebaseAuth.instance).currentUser;
+    if (user == null) {
+      throw const PageTranslationException(
+        'Muffin could not translate this page right now.',
+      );
+    }
+    final requestId = DateTime.now().microsecondsSinceEpoch.toRadixString(16);
+    final stopwatch = Stopwatch()..start();
+    if (kDebugMode) {
+      debugPrint(
+        '[StudySis][page-translation] requestId=$requestId '
+        'pageId=${request.content.pageId} pageType=${request.content.pageType} '
+        'fields=${request.content.fields.length}',
+      );
+    }
+    try {
+      final token = await user.getIdToken();
+      final httpRequest =
+          await _httpClient.postUrl(_endpoint).timeout(_timeout);
+      httpRequest.headers
+        ..contentType = ContentType.json
+        ..set(HttpHeaders.authorizationHeader, 'Bearer $token');
+      httpRequest.write(jsonEncode(request.toJson()));
+      final response = await httpRequest.close().timeout(_timeout);
+      final body = await utf8.decodeStream(response).timeout(_timeout);
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        throw const PageTranslationException(
+          'Muffin could not translate this page right now.',
+        );
+      }
+      final decoded = jsonDecode(body);
+      if (decoded is! Map<String, dynamic>) {
+        throw const FormatException('Invalid page translation response.');
+      }
+      final result = PageTranslationResult.fromJson(decoded);
+      if (kDebugMode) {
+        debugPrint(
+          '[StudySis][page-translation] requestId=$requestId '
+          'durationMs=${stopwatch.elapsedMilliseconds} '
+          'fields=${result.fields.length}',
+        );
+      }
+      return result;
+    } on TimeoutException {
+      throw const PageTranslationException(
+        'Muffin could not translate this page right now.',
+      );
+    } catch (error, stackTrace) {
+      if (kDebugMode) {
+        debugPrint(
+          '[StudySis][page-translation] requestId=$requestId failed: $error',
+        );
+        debugPrint('[StudySis][page-translation] stackTrace=$stackTrace');
+      }
+      throw const PageTranslationException(
+        'Muffin could not translate this page right now.',
+      );
+    }
+  }
 }
 
 String normalizePageTranslationText(String text) {

@@ -139,6 +139,8 @@ class MockMuffinService implements MuffinService {
           generatedQuestion: MuffinGeneratedQuestion(
             question: 'Which sequence adds the same amount each time?',
             options: ['2, 4, 6, 8', '1, 2, 4, 8', '9, 7, 4, 0', '3, 3, 6, 9'],
+            correctOptionIndex: 0,
+            explanation: '2, 4, 6, 8 adds 2 each time.',
             difficulty: 'easy',
             topic: 'patterns',
             generatedByMuffin: true,
@@ -376,6 +378,9 @@ class RemoteMuffinService implements MuffinService {
         message: 'Muffin could not respond right now.',
       );
     }
+    final requestId = DateTime.now().microsecondsSinceEpoch.toRadixString(16);
+    final stopwatch = Stopwatch()..start();
+    _logRemoteRequest(requestId, request);
     try {
       final token = await user.getIdToken();
       final httpRequest =
@@ -387,16 +392,42 @@ class RemoteMuffinService implements MuffinService {
       final response = await httpRequest.close().timeout(_timeout);
       final body = await utf8.decodeStream(response).timeout(_timeout);
       if (response.statusCode < 200 || response.statusCode >= 300) {
+        if (kDebugMode) {
+          debugPrint(
+            '[StudySis][muffin] requestId=$requestId failed category=http_${response.statusCode}',
+          );
+        }
         return const MuffinResponse(
           responseType: MuffinResponseType.error,
           message:
               'Muffin could not respond right now. Your learning progress is safe. Please try again.',
         );
       }
-      return MuffinResponse.fromJson(jsonDecode(body) as Map<String, dynamic>);
+      final decoded = jsonDecode(body);
+      if (decoded is! Map<String, dynamic>) {
+        throw const FormatException('Invalid Muffin response.');
+      }
+      final muffinResponse = MuffinResponse.fromJson(decoded);
+      if (kDebugMode) {
+        debugPrint(
+          '[StudySis][muffin] requestId=$requestId success '
+          'durationMs=${stopwatch.elapsedMilliseconds} '
+          'responseType=${muffinResponse.responseType.name}',
+        );
+      }
+      return muffinResponse;
+    } on TimeoutException {
+      if (kDebugMode) {
+        debugPrint('[StudySis][muffin] requestId=$requestId failed timeout');
+      }
+      return const MuffinResponse(
+        responseType: MuffinResponseType.error,
+        message:
+            'Muffin is taking a little longer than usual. Please try again.',
+      );
     } catch (error, stackTrace) {
       if (kDebugMode) {
-        debugPrint('[StudySis][muffin] request failed: $error');
+        debugPrint('[StudySis][muffin] requestId=$requestId failed: $error');
         debugPrint('[StudySis][muffin] stackTrace=$stackTrace');
       }
       return const MuffinResponse(
@@ -404,6 +435,39 @@ class RemoteMuffinService implements MuffinService {
         message:
             'Muffin could not respond right now. Your learning progress is safe. Please try again.',
       );
+    }
+  }
+
+  void _logRemoteRequest(String requestId, MuffinRequest request) {
+    if (!kDebugMode) return;
+    final context = request.context;
+    final fields = <String>[
+      if (context.lessonHeading?.trim().isNotEmpty == true)
+        'lessonHeading="${context.lessonHeading}"',
+      if (context.lessonBody?.trim().isNotEmpty == true)
+        'lessonBody="${context.lessonBody}"',
+      if (context.currentQuestion?.trim().isNotEmpty == true)
+        'currentQuestion="${context.currentQuestion}"',
+      if (context.originalScreenContent?.trim().isNotEmpty == true)
+        'originalScreenContent="${context.originalScreenContent}"',
+    ];
+    final payload = context.toJson();
+    final prohibited = [
+      'correctOptionIndex',
+      'correctAnswer',
+      'answer',
+      'explanation',
+    ].where(payload.containsKey).join(',');
+    debugPrint(
+      '[StudySis][muffin] MUFFIN REQUEST requestId=$requestId '
+      'mode=${request.mode.name} action=${request.action.name} '
+      'contextKey=${context.contextKey} subject=${context.subjectId} '
+      'chapter=${context.chapterId} questionId=${context.questionId} '
+      'cardId=${context.cardId} language=${context.displayedLanguage} '
+      'fieldCount=${payload.length} prohibitedAnswerData=${prohibited.isNotEmpty}',
+    );
+    for (final field in fields) {
+      debugPrint('[StudySis][muffin] requestId=$requestId $field');
     }
   }
 }

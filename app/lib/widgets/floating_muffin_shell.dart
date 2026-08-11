@@ -3,9 +3,11 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/muffin.dart';
+import '../models/muffin_wallet.dart';
 import '../models/page_translation.dart';
 import '../screens/muffin_screen.dart';
 import '../services/muffin_context_registry.dart';
+import '../services/muffin_wallet_service.dart';
 import 'muffin_assist_sheet.dart';
 import 'page_translation_scope.dart';
 
@@ -15,13 +17,15 @@ class FloatingMuffinShell extends StatefulWidget {
     this.enabled = true,
     this.navigatorKey,
     this.translationController,
+    MuffinWalletService? walletService,
     super.key,
-  });
+  }) : walletService = walletService ?? const _DefaultMuffinWalletService();
 
   final Widget child;
   final bool enabled;
   final GlobalKey<NavigatorState>? navigatorKey;
   final PageTranslationController? translationController;
+  final MuffinWalletService walletService;
 
   @override
   State<FloatingMuffinShell> createState() => _FloatingMuffinShellState();
@@ -41,6 +45,7 @@ class _FloatingMuffinShellState extends State<FloatingMuffinShell> {
   double _pointerMovement = 0;
   bool _pointerDragging = false;
   bool _sheetOpen = false;
+  MuffinWallet _latestWallet = MuffinWallet.full;
 
   @override
   void initState() {
@@ -81,50 +86,69 @@ class _FloatingMuffinShellState extends State<FloatingMuffinShell> {
         final left = (_dragLeft ?? edgeLeft)
             .clamp(_margin, constraints.maxWidth - _size - _margin)
             .toDouble();
-        return Stack(
-          children: [
-            widget.child,
-            if (!keyboardOpen && !_sheetOpen)
-              Positioned(
-                key: const ValueKey('floating-muffin-positioned'),
-                top: top,
-                left: left,
-                child: Semantics(
-                  container: true,
-                  button: true,
-                  label: 'Open Muffin learning assistant',
-                  onTap: _handleTap,
-                  child: GestureDetector(
-                    behavior: HitTestBehavior.opaque,
-                    onTap: _handleTap,
-                    onPanStart: (_) => _startPointerGesture(left),
-                    onPanUpdate: (details) => _movePointerGesture(
-                      details.delta,
-                      left: left,
-                      top: top,
-                      minTop: minTop,
-                      maxTop: maxTop,
-                      maxLeft: constraints.maxWidth - _size - _margin,
-                    ),
-                    onPanEnd: (_) => _endPointerGesture(constraints.maxWidth),
-                    onPanCancel: _cancelPointerGesture,
-                    child: Material(
-                      color: const Color(0xFFFFE6D5),
-                      shape: const CircleBorder(),
-                      elevation: 4,
-                      child: const SizedBox(
-                        width: _size,
-                        height: _size,
-                        child: Icon(
-                          Icons.psychology_rounded,
-                          color: Color(0xFFA45E37),
+        return StreamBuilder<MuffinWallet>(
+          stream: widget.walletService.watchWallet(),
+          initialData: MuffinWallet.full,
+          builder: (context, snapshot) {
+            final wallet = snapshot.data ?? MuffinWallet.full;
+            _latestWallet = wallet;
+            return Stack(
+              children: [
+                widget.child,
+                if (!keyboardOpen && !_sheetOpen)
+                  Positioned(
+                    key: const ValueKey('floating-muffin-positioned'),
+                    top: top,
+                    left: left,
+                    child: Semantics(
+                      container: true,
+                      button: true,
+                      label: 'Open Muffin learning assistant',
+                      onTap: _handleTap,
+                      child: GestureDetector(
+                        behavior: HitTestBehavior.opaque,
+                        onTap: _handleTap,
+                        onPanStart: (_) => _startPointerGesture(left),
+                        onPanUpdate: (details) => _movePointerGesture(
+                          details.delta,
+                          left: left,
+                          top: top,
+                          minTop: minTop,
+                          maxTop: maxTop,
+                          maxLeft: constraints.maxWidth - _size - _margin,
+                        ),
+                        onPanEnd: (_) =>
+                            _endPointerGesture(constraints.maxWidth),
+                        onPanCancel: _cancelPointerGesture,
+                        child: Stack(
+                          clipBehavior: Clip.none,
+                          children: [
+                            Material(
+                              color: const Color(0xFFFFE6D5),
+                              shape: const CircleBorder(),
+                              elevation: 4,
+                              child: const SizedBox(
+                                width: _size,
+                                height: _size,
+                                child: Icon(
+                                  Icons.psychology_rounded,
+                                  color: Color(0xFFA45E37),
+                                ),
+                              ),
+                            ),
+                            Positioned(
+                              right: -4,
+                              top: -5,
+                              child: _MuffinBitesBadge(wallet: wallet),
+                            ),
+                          ],
                         ),
                       ),
                     ),
                   ),
-                ),
-              ),
-          ],
+              ],
+            );
+          },
         );
       },
     );
@@ -227,6 +251,7 @@ class _FloatingMuffinShellState extends State<FloatingMuffinShell> {
         builder: (_) => _FloatingMuffinMenu(
           current: current,
           translationController: widget.translationController,
+          wallet: _latestWallet,
         ),
       );
       if (action == null || !navigatorContext.mounted) return;
@@ -263,6 +288,7 @@ class _FloatingMuffinShellState extends State<FloatingMuffinShell> {
         context: current.context,
         actions: current.actions,
         initialAction: action,
+        walletService: widget.walletService,
       ),
     );
   }
@@ -341,10 +367,12 @@ class _FloatingMuffinShellState extends State<FloatingMuffinShell> {
 class _FloatingMuffinMenu extends StatelessWidget {
   const _FloatingMuffinMenu({
     required this.current,
+    required this.wallet,
     this.translationController,
   });
 
   final MuffinScreenContext current;
+  final MuffinWallet wallet;
   final PageTranslationController? translationController;
 
   @override
@@ -357,17 +385,38 @@ class _FloatingMuffinMenu extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Muffin', style: Theme.of(context).textTheme.titleLarge),
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    'Muffin',
+                    style: Theme.of(context).textTheme.titleLarge,
+                  ),
+                ),
+                _MuffinBitesChip(wallet: wallet),
+              ],
+            ),
             const SizedBox(height: 4),
             Text(current.subtitle),
+            if (!wallet.hasBites || wallet.isDailyLimitReached) ...[
+              const SizedBox(height: 8),
+              Text(
+                wallet.isDailyLimitReached
+                    ? wallet.dailyRestText(DateTime.now())
+                    : wallet.cooldownText(DateTime.now()),
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+            ],
             const SizedBox(height: 16),
             SizedBox(
               width: double.infinity,
               child: FilledButton.icon(
-                onPressed: () => Navigator.of(context, rootNavigator: true)
-                    .pop(pageTranslationAction),
+                onPressed: _canSpend(wallet)
+                    ? () => Navigator.of(context, rootNavigator: true)
+                        .pop(pageTranslationAction)
+                    : null,
                 icon: const Icon(Icons.translate_rounded),
-                label: Text(pageTranslationAction.label),
+                label: _CostLabel(label: pageTranslationAction.label),
               ),
             ),
             const SizedBox(height: 12),
@@ -376,9 +425,11 @@ class _FloatingMuffinMenu extends StatelessWidget {
               SizedBox(
                 width: double.infinity,
                 child: OutlinedButton(
-                  onPressed: () =>
-                      Navigator.of(context, rootNavigator: true).pop(action),
-                  child: Text(action.label),
+                  onPressed: _canSpend(wallet)
+                      ? () =>
+                          Navigator.of(context, rootNavigator: true).pop(action)
+                      : null,
+                  child: _CostLabel(label: action.label),
                 ),
               ),
               const SizedBox(height: 8),
@@ -406,5 +457,92 @@ class _FloatingMuffinMenu extends StatelessWidget {
       _ => 'Translate this page',
     };
     return MuffinActionConfig(action: MuffinAction.translate, label: label);
+  }
+
+  bool _canSpend(MuffinWallet wallet) {
+    return wallet.currentBites > 0 && !wallet.isDailyLimitReached;
+  }
+}
+
+class _DefaultMuffinWalletService implements MuffinWalletService {
+  const _DefaultMuffinWalletService();
+
+  @override
+  Stream<MuffinWallet> watchWallet() {
+    return MuffinWalletServiceFactory.create().watchWallet();
+  }
+}
+
+class _MuffinBitesBadge extends StatelessWidget {
+  const _MuffinBitesBadge({required this.wallet});
+
+  final MuffinWallet wallet;
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color:
+            wallet.hasBites ? const Color(0xFF496A5A) : const Color(0xFF9B4F43),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: Colors.white, width: 2),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+        child: Text(
+          '${wallet.currentBites}',
+          style: const TextStyle(
+            color: Colors.white,
+            fontSize: 12,
+            fontWeight: FontWeight.w800,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _MuffinBitesChip extends StatelessWidget {
+  const _MuffinBitesChip({required this.wallet});
+
+  final MuffinWallet wallet;
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: const Color(0xFFFFE6D5),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        child: Text(
+          '${wallet.currentBites} Muffin Bites left',
+          style: const TextStyle(
+            color: Color(0xFFA45E37),
+            fontWeight: FontWeight.w800,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _CostLabel extends StatelessWidget {
+  const _CostLabel({required this.label});
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Flexible(child: Text(label)),
+        const SizedBox(width: 8),
+        const Text('🍪1'),
+      ],
+    );
   }
 }

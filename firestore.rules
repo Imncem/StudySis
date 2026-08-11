@@ -223,6 +223,11 @@ service cloud.firestore {
         && request.resource.data.dailyTargetMinutes <= 240
         && request.resource.data.status in ['active', 'paused', 'inactive'];
       allow create, delete: if false;
+
+      match /muffin/state {
+        allow read: if true;
+        allow write: if false;
+      }
     }
 
     match /student_progress/{uid}/chapters/{chapterProgressId} {

@@ -3,12 +3,37 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:studysis/models/muffin.dart';
+import 'package:studysis/models/muffin_wallet.dart';
 import 'package:studysis/services/muffin_context_registry.dart';
 import 'package:studysis/services/muffin_service.dart';
+import 'package:studysis/services/muffin_wallet_service.dart';
 import 'package:studysis/theme/app_theme.dart';
 import 'package:studysis/widgets/muffin_assist_sheet.dart';
 
 void main() {
+  testWidgets('shows Muffin Bites header and action cost indicator',
+      (tester) async {
+    _setLargeSurface(tester);
+    await tester.pumpWidget(_sheetApp(
+      MockMuffinService(),
+      wallet: const MuffinWallet(
+        maxBites: 5,
+        currentBites: 2,
+        regenIntervalMinutes: 60,
+        dailyUsedRequests: 0,
+        dailySoftLimit: 17,
+        dailyHardLimit: 20,
+        status: 'active',
+      ),
+    ));
+    await tester.tap(find.text('Open Muffin'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('🍪 2/5'), findsOneWidget);
+    expect(find.text('Give me a small hint'), findsOneWidget);
+    expect(find.text('🍪1'), findsOneWidget);
+  });
+
   testWidgets('shows loading state and prevents duplicate requests',
       (tester) async {
     _setLargeSurface(tester);
@@ -353,6 +378,7 @@ Widget _sheetApp(
   MuffinService service, {
   MuffinMode mode = MuffinMode.quiz,
   MuffinContext? muffinContext,
+  MuffinWallet wallet = MuffinWallet.full,
   List<MuffinActionConfig> actions = const [
     MuffinActionConfig(
       action: MuffinAction.smallHint,
@@ -377,6 +403,7 @@ Widget _sheetApp(
                   mode: mode,
                   context: muffinContext ?? MuffinContext(mode: mode),
                   service: service,
+                  walletService: StaticMuffinWalletService(wallet),
                   actions: actions,
                 ),
               );

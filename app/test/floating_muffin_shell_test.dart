@@ -2,8 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:studysis/models/muffin.dart';
+import 'package:studysis/models/muffin_wallet.dart';
 import 'package:studysis/models/page_translation.dart';
 import 'package:studysis/services/muffin_context_registry.dart';
+import 'package:studysis/services/muffin_wallet_service.dart';
 import 'package:studysis/widgets/floating_muffin_shell.dart';
 import 'package:studysis/widgets/muffin_assist_sheet.dart';
 import 'package:studysis/widgets/page_translation_scope.dart';
@@ -42,6 +44,65 @@ void main() {
     expect(find.text('Ask Muffin'), findsOneWidget);
     expect(find.text('What should I revise?'), findsOneWidget);
     expect(find.text('Create a quick practice question'), findsOneWidget);
+    expect(find.text('5 Muffin Bites left'), findsOneWidget);
+    expect(find.text('🍪1'), findsWidgets);
+  });
+
+  testWidgets('floating Muffin shows wallet badge', (tester) async {
+    await tester.pumpWidget(_app(
+      enabled: true,
+      wallet: const MuffinWallet(
+        maxBites: 5,
+        currentBites: 3,
+        regenIntervalMinutes: 60,
+        dailyUsedRequests: 0,
+        dailySoftLimit: 17,
+        dailyHardLimit: 20,
+        status: 'active',
+      ),
+    ));
+    await tester.pumpAndSettle();
+
+    expect(find.text('3'), findsOneWidget);
+  });
+
+  testWidgets('empty Muffin wallet disables paid menu actions', (tester) async {
+    await tester.pumpWidget(_app(
+      enabled: true,
+      wallet: MuffinWallet.empty,
+    ));
+    await tester.pumpAndSettle();
+
+    await _tapMuffin(tester);
+
+    expect(find.textContaining('Muffin is recharging'), findsOneWidget);
+    final button = tester.widget<OutlinedButton>(
+      find.widgetWithText(OutlinedButton, 'What should I revise?'),
+    );
+    expect(button.onPressed, isNull);
+  });
+
+  testWidgets('daily budget message uses wallet provider reset timestamp',
+      (tester) async {
+    await tester.pumpWidget(_app(
+      enabled: true,
+      wallet: MuffinWallet(
+        maxBites: 5,
+        currentBites: 5,
+        regenIntervalMinutes: 60,
+        dailyUsedRequests: 0,
+        dailySoftLimit: 17,
+        dailyHardLimit: 20,
+        status: 'daily_limit',
+        nextProviderResetAt: DateTime.now().add(const Duration(minutes: 90)),
+      ),
+    ));
+    await tester.pumpAndSettle();
+
+    await _tapMuffin(tester);
+
+    expect(find.textContaining('finished helping for today'), findsOneWidget);
+    expect(find.textContaining('available in'), findsOneWidget);
   });
 
   testWidgets('tapping floating Muffin on Learn opens Learn actions',
@@ -338,6 +399,7 @@ Widget _app({
   bool withInput = false,
   PageTranslationController? controller,
   EdgeInsets viewInsets = EdgeInsets.zero,
+  MuffinWallet wallet = MuffinWallet.full,
 }) {
   final navigatorKey = GlobalKey<NavigatorState>();
   final translationController = controller ?? PageTranslationController();
@@ -362,6 +424,7 @@ Widget _app({
       child: FloatingMuffinShell(
         navigatorKey: navigatorKey,
         translationController: translationController,
+        walletService: StaticMuffinWalletService(wallet),
         enabled: enabled,
         child: child ?? const SizedBox.shrink(),
       ),
