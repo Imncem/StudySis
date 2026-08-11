@@ -81,6 +81,20 @@ service cloud.firestore {
         && data.updatedAt is timestamp;
     }
 
+    function validSavedFlashcard() {
+      let data = request.resource.data;
+      return data.keys().hasOnly([
+          'subjectId', 'chapterId', 'cardId', 'savedAt'
+        ])
+        && data.subjectId is string
+        && data.subjectId.size() > 0
+        && data.chapterId is string
+        && data.chapterId.size() > 0
+        && data.cardId is string
+        && data.cardId.size() > 0
+        && data.savedAt is timestamp;
+    }
+
     function validChapter() {
       let data = request.resource.data;
       return data.keys().hasOnly([
@@ -237,6 +251,15 @@ service cloud.firestore {
         && request.auth.uid == uid
         && validChapterProgress(uid);
       allow delete: if false;
+    }
+
+    match /student_progress/{uid}/saved_flashcards/{savedFlashcardId} {
+      allow read: if isDashboardAdmin()
+        || (isSignedIn() && request.auth.uid == uid);
+      allow create, update: if isSignedIn()
+        && request.auth.uid == uid
+        && validSavedFlashcard();
+      allow delete: if isSignedIn() && request.auth.uid == uid;
     }
 
     // `form2` is the current curriculum catalog ID. Future catalogs can use

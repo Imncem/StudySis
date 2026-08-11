@@ -48,7 +48,8 @@ void main() {
     expect(find.text('🍪1'), findsWidgets);
   });
 
-  testWidgets('floating Muffin shows wallet badge', (tester) async {
+  testWidgets('floating Muffin has no Bite badge and uses dog identity',
+      (tester) async {
     await tester.pumpWidget(_app(
       enabled: true,
       wallet: const MuffinWallet(
@@ -63,7 +64,8 @@ void main() {
     ));
     await tester.pumpAndSettle();
 
-    expect(find.text('3'), findsOneWidget);
+    expect(find.text('3'), findsNothing);
+    expect(find.bySemanticsLabel('Muffin dog mascot'), findsOneWidget);
   });
 
   testWidgets('empty Muffin wallet disables paid menu actions', (tester) async {
@@ -235,7 +237,7 @@ void main() {
     await tester.pumpWidget(_app(enabled: true));
     await tester.pumpAndSettle();
 
-    final button = find.byIcon(Icons.psychology_rounded);
+    final button = find.bySemanticsLabel('Open Muffin learning assistant');
     await tester.drag(button, const Offset(-220, -120));
     await tester.pumpAndSettle();
 
@@ -249,7 +251,7 @@ void main() {
     await tester.pumpWidget(_app(enabled: true));
     await tester.pumpAndSettle();
 
-    final button = find.byIcon(Icons.psychology_rounded);
+    final button = find.bySemanticsLabel('Open Muffin learning assistant');
     final gesture = await tester.startGesture(tester.getCenter(button));
     await gesture.moveBy(const Offset(3, 4));
     await gesture.up();
@@ -309,7 +311,7 @@ void main() {
     await tester.pumpWidget(_app(enabled: true));
     await tester.pumpAndSettle();
 
-    final button = find.byIcon(Icons.psychology_rounded);
+    final button = find.bySemanticsLabel('Open Muffin learning assistant');
     await tester.drag(button, const Offset(-180, 0));
     await tester.pumpAndSettle();
     await _tapMuffin(tester);
@@ -322,7 +324,7 @@ void main() {
     await tester.pumpWidget(_app(enabled: true));
     await tester.pumpAndSettle();
 
-    final button = find.byIcon(Icons.psychology_rounded);
+    final button = find.bySemanticsLabel('Open Muffin learning assistant');
     await tester.tap(button);
     await tester.tap(button, warnIfMissed: false);
     await tester.pumpAndSettle();
@@ -372,7 +374,7 @@ void main() {
 }
 
 Future<void> _tapMuffin(WidgetTester tester) async {
-  await tester.tap(find.byIcon(Icons.psychology_rounded));
+  await tester.tap(find.bySemanticsLabel('Open Muffin learning assistant'));
   await tester.pumpAndSettle();
 }
 

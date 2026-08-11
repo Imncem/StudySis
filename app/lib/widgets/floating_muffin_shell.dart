@@ -8,6 +8,7 @@ import '../models/page_translation.dart';
 import '../screens/muffin_screen.dart';
 import '../services/muffin_context_registry.dart';
 import '../services/muffin_wallet_service.dart';
+import 'muffin_mascot_icon.dart';
 import 'muffin_assist_sheet.dart';
 import 'page_translation_scope.dart';
 
@@ -120,28 +121,20 @@ class _FloatingMuffinShellState extends State<FloatingMuffinShell> {
                         onPanEnd: (_) =>
                             _endPointerGesture(constraints.maxWidth),
                         onPanCancel: _cancelPointerGesture,
-                        child: Stack(
-                          clipBehavior: Clip.none,
-                          children: [
-                            Material(
-                              color: const Color(0xFFFFE6D5),
-                              shape: const CircleBorder(),
-                              elevation: 4,
-                              child: const SizedBox(
-                                width: _size,
-                                height: _size,
-                                child: Icon(
-                                  Icons.psychology_rounded,
-                                  color: Color(0xFFA45E37),
-                                ),
+                        child: Material(
+                          color: const Color(0xFFFFE6D5),
+                          shape: const CircleBorder(),
+                          elevation: 4,
+                          child: const SizedBox(
+                            width: _size,
+                            height: _size,
+                            child: Center(
+                              child: MuffinMascotIcon(
+                                size: 30,
+                                semanticLabel: 'Muffin dog mascot',
                               ),
                             ),
-                            Positioned(
-                              right: -4,
-                              top: -5,
-                              child: _MuffinBitesBadge(wallet: wallet),
-                            ),
-                          ],
+                          ),
                         ),
                       ),
                     ),
@@ -470,35 +463,6 @@ class _DefaultMuffinWalletService implements MuffinWalletService {
   @override
   Stream<MuffinWallet> watchWallet() {
     return MuffinWalletServiceFactory.create().watchWallet();
-  }
-}
-
-class _MuffinBitesBadge extends StatelessWidget {
-  const _MuffinBitesBadge({required this.wallet});
-
-  final MuffinWallet wallet;
-
-  @override
-  Widget build(BuildContext context) {
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color:
-            wallet.hasBites ? const Color(0xFF496A5A) : const Color(0xFF9B4F43),
-        borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: Colors.white, width: 2),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
-        child: Text(
-          '${wallet.currentBites}',
-          style: const TextStyle(
-            color: Colors.white,
-            fontSize: 12,
-            fontWeight: FontWeight.w800,
-          ),
-        ),
-      ),
-    );
   }
 }
 

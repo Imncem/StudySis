@@ -16,6 +16,39 @@ class LearningRepository {
 
   final FirebaseFirestore _firestore;
 
+  Future<String> getSubjectName(String subjectId) async {
+    final snapshot =
+        await _firestore.doc(ContentPaths.subject(subjectId)).get();
+    return (snapshot.data()?['displayName'] ?? subjectId).toString();
+  }
+
+  Future<Chapter?> getChapter({
+    required String subjectId,
+    required String chapterId,
+  }) async {
+    final snapshot = await _firestore
+        .doc('${ContentPaths.chapters(subjectId)}/$chapterId')
+        .get();
+    final data = snapshot.data();
+    if (!snapshot.exists || data == null) return null;
+    final chapter = Chapter.fromMap(snapshot.id, data);
+    return chapter.isActive ? chapter : null;
+  }
+
+  Future<Flashcard?> getFlashcard({
+    required String subjectId,
+    required String chapterId,
+    required String cardId,
+  }) async {
+    final snapshot = await _firestore
+        .doc('${ContentPaths.flashcardCards(subjectId, chapterId)}/$cardId')
+        .get();
+    final data = snapshot.data();
+    if (!snapshot.exists || data == null) return null;
+    final card = Flashcard.fromMap(snapshot.id, data);
+    return card.isActive ? card : null;
+  }
+
   Future<List<Chapter>> getActiveChapters(String subjectId) async {
     final chapterSnapshot = await _firestore
         .collection(ContentPaths.chapters(subjectId))

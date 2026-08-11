@@ -4,9 +4,11 @@ import '../models/chapter.dart';
 import '../models/flashcard.dart';
 import '../models/muffin.dart';
 import '../models/page_translation.dart';
+import '../models/saved_flashcard.dart';
 import '../repositories/learning_repository.dart';
 import '../services/muffin_context_registry.dart';
 import '../services/muffin_service.dart';
+import '../services/saved_flashcard_service.dart';
 import '../widgets/muffin_assist_sheet.dart';
 import '../widgets/page_translation_scope.dart';
 
@@ -19,6 +21,7 @@ class FlashcardScreen extends StatefulWidget {
     this.onCardCompleted,
     this.repository,
     this.muffinService,
+    this.savedFlashcardService,
     super.key,
   });
 
@@ -29,6 +32,7 @@ class FlashcardScreen extends StatefulWidget {
   final ValueChanged<String>? onCardCompleted;
   final LearningRepository? repository;
   final MuffinService? muffinService;
+  final SavedFlashcardService? savedFlashcardService;
 
   @override
   State<FlashcardScreen> createState() => _FlashcardScreenState();
@@ -36,11 +40,11 @@ class FlashcardScreen extends StatefulWidget {
 
 class _FlashcardScreenState extends State<FlashcardScreen> {
   late final LearningRepository _repository;
+  late final SavedFlashcardService _savedFlashcardService;
   late Future<List<Flashcard>> _cards;
   final _verticalController = PageController();
   final _translationOwner = Object();
   final Set<String> _completedCards = {};
-  final Set<String> _bookmarkedCards = {};
   final Set<String> _revealedCards = {};
   int _currentIndex = 0;
 
@@ -48,6 +52,8 @@ class _FlashcardScreenState extends State<FlashcardScreen> {
   void initState() {
     super.initState();
     _repository = widget.repository ?? LearningRepository();
+    _savedFlashcardService =
+        widget.savedFlashcardService ?? SavedFlashcardServiceFactory.create();
     _cards = _repository.getActiveFlashcards(
       widget.chapter.id,
       subjectId: widget.subjectId,
@@ -135,47 +141,63 @@ class _FlashcardScreenState extends State<FlashcardScreen> {
                 ],
               ),
             );
-            return Column(
-              children: [
-                const Padding(
-                  padding: EdgeInsets.fromLTRB(16, 8, 16, 0),
-                  child: PageTranslationBanner(),
-                ),
-                _FlashcardHeader(
-                  subjectName: widget.subjectName,
-                  chapterTitle: widget.chapter.title,
-                  current: safeIndex + 1,
-                  total: cards.length,
-                  onBack: () => Navigator.of(context).pop(),
-                ),
-                Expanded(
-                  child: PageView.builder(
-                    controller: _verticalController,
-                    itemCount: cards.length,
-                    onPageChanged: (index) {
-                      _resetVisibleCardContext();
-                      setState(() => _currentIndex = index);
-                    },
-                    scrollDirection: Axis.vertical,
-                    itemBuilder: (context, index) {
-                      final card = cards[index];
-                      return _FlashcardPage(
-                        card: card,
-                        isBookmarked: _bookmarkedCards.contains(card.id),
-                        isCompleted: _completedCards.contains(card.id),
-                        onBookmark: () => _bookmark(card),
-                        onComplete: () => _complete(card),
-                        isAnswerVisible: _revealedCards.contains(card.id),
-                        onSideChanged: (showingAnswer) {
-                          if (!showingAnswer) return;
+            return StreamBuilder<List<SavedFlashcardRef>>(
+              stream: _savedFlashcardService.watchSavedFlashcards(),
+              initialData: const <SavedFlashcardRef>[],
+              builder: (context, savedSnapshot) {
+                final bookmarkedCards = savedSnapshot.data
+                        ?.where((ref) =>
+                            ref.subjectId == widget.subjectId &&
+                            ref.chapterId == widget.chapter.id)
+                        .map((ref) => ref.cardId)
+                        .toSet() ??
+                    const <String>{};
+                return Column(
+                  children: [
+                    const Padding(
+                      padding: EdgeInsets.fromLTRB(16, 8, 16, 0),
+                      child: PageTranslationBanner(),
+                    ),
+                    _FlashcardHeader(
+                      subjectName: widget.subjectName,
+                      chapterTitle: widget.chapter.title,
+                      current: safeIndex + 1,
+                      total: cards.length,
+                      onBack: () => Navigator.of(context).pop(),
+                    ),
+                    Expanded(
+                      child: PageView.builder(
+                        controller: _verticalController,
+                        itemCount: cards.length,
+                        onPageChanged: (index) {
                           _resetVisibleCardContext();
-                          setState(() => _revealedCards.add(card.id));
+                          setState(() => _currentIndex = index);
                         },
-                      );
-                    },
-                  ),
-                ),
-              ],
+                        scrollDirection: Axis.vertical,
+                        itemBuilder: (context, index) {
+                          final card = cards[index];
+                          return _FlashcardPage(
+                            card: card,
+                            isBookmarked: bookmarkedCards.contains(card.id),
+                            isCompleted: _completedCards.contains(card.id),
+                            onBookmark: () => _bookmark(
+                              card,
+                              isSaved: bookmarkedCards.contains(card.id),
+                            ),
+                            onComplete: () => _complete(card),
+                            isAnswerVisible: _revealedCards.contains(card.id),
+                            onSideChanged: (showingAnswer) {
+                              if (!showingAnswer) return;
+                              _resetVisibleCardContext();
+                              setState(() => _revealedCards.add(card.id));
+                            },
+                          );
+                        },
+                      ),
+                    ),
+                  ],
+                );
+              },
             );
           },
         ),
@@ -254,16 +276,27 @@ class _FlashcardScreenState extends State<FlashcardScreen> {
     _showMessage('Got it');
   }
 
-  void _bookmark(Flashcard card) {
-    final wasSaved = _bookmarkedCards.contains(card.id);
-    setState(() {
-      if (wasSaved) {
-        _bookmarkedCards.remove(card.id);
+  Future<void> _bookmark(Flashcard card, {required bool isSaved}) async {
+    try {
+      if (isSaved) {
+        await _savedFlashcardService.unsaveFlashcard(
+          subjectId: widget.subjectId,
+          chapterId: widget.chapter.id,
+          cardId: card.id,
+        );
       } else {
-        _bookmarkedCards.add(card.id);
+        await _savedFlashcardService.saveFlashcard(
+          subjectId: widget.subjectId,
+          chapterId: widget.chapter.id,
+          cardId: card.id,
+        );
       }
-    });
-    _showMessage(wasSaved ? 'Removed from review' : 'Saved for review');
+      if (!mounted) return;
+      _showMessage(isSaved ? 'Removed from review' : 'Saved for review');
+    } catch (_) {
+      if (!mounted) return;
+      _showMessage('Saved flashcards could not be updated.');
+    }
   }
 
   void _showMessage(String message) {

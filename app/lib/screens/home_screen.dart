@@ -1,35 +1,62 @@
 import 'package:flutter/material.dart';
 
 import '../models/learning_content.dart';
+import '../models/muffin_wallet.dart';
 import '../models/page_translation.dart';
+import '../models/saved_flashcard.dart';
 import '../models/student.dart';
 import '../models/subject.dart';
 import '../repositories/learning_repository.dart';
 import '../services/firestore_service.dart';
 import '../services/muffin_context_registry.dart';
+import '../services/muffin_wallet_service.dart';
+import '../services/saved_flashcard_service.dart';
 import '../widgets/info_chip.dart';
+import '../widgets/muffin_mascot_icon.dart';
 import '../widgets/page_translation_scope.dart';
 import '../widgets/subject_card.dart';
 import 'progress_screen.dart';
+import 'saved_flashcards_screen.dart';
 import 'subject_screen.dart';
 
 class HomeScreen extends StatefulWidget {
-  const HomeScreen({super.key});
+  const HomeScreen({
+    this.firestoreService,
+    this.learningRepository,
+    this.walletService,
+    this.savedFlashcardService,
+    this.studentStream,
+    this.subjectsStream,
+    super.key,
+  });
+
+  final FirestoreService? firestoreService;
+  final LearningRepository? learningRepository;
+  final MuffinWalletService? walletService;
+  final SavedFlashcardService? savedFlashcardService;
+  final Stream<Student>? studentStream;
+  final Stream<List<Subject>>? subjectsStream;
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  final _service = FirestoreService();
-  final _learningRepository = LearningRepository();
   final _translationOwner = Object();
+  late final LearningRepository _learningRepository;
+  late final MuffinWalletService _walletService;
+  late final SavedFlashcardService _savedFlashcardService;
   late Future<LearningContent?> _nextContent;
   bool _isOpeningModule = false;
 
   @override
   void initState() {
     super.initState();
+    _learningRepository = widget.learningRepository ?? LearningRepository();
+    _walletService =
+        widget.walletService ?? MuffinWalletServiceFactory.create();
+    _savedFlashcardService =
+        widget.savedFlashcardService ?? SavedFlashcardServiceFactory.create();
     MuffinContextRegistry.instance.resetToHome();
     _nextContent = _learningRepository.getFirstAvailableContent();
   }
@@ -136,6 +163,16 @@ class _HomeScreenState extends State<HomeScreen> {
               text: 'See your saved learning progress.',
             ),
             PageTranslationField(
+              id: 'muffinBitesTitle',
+              type: 'heading',
+              text: 'Muffin Bites',
+            ),
+            PageTranslationField(
+              id: 'savedFlashcardsTitle',
+              type: 'heading',
+              text: 'Saved Flashcards',
+            ),
+            PageTranslationField(
               id: 'subjects',
               type: 'heading',
               text: 'Subjects',
@@ -151,7 +188,8 @@ class _HomeScreenState extends State<HomeScreen> {
     return Scaffold(
       body: SafeArea(
         child: StreamBuilder<Student>(
-          stream: _service.watchQidah(),
+          stream: widget.studentStream ??
+              (widget.firestoreService ?? FirestoreService()).watchQidah(),
           builder: (context, studentSnapshot) {
             if (studentSnapshot.hasError) {
               return _ErrorState(message: studentSnapshot.error.toString());
@@ -220,6 +258,13 @@ class _HomeScreenState extends State<HomeScreen> {
                       );
                     },
                   ),
+                  const SizedBox(height: 14),
+                  _MuffinBitesDashboardCard(walletService: _walletService),
+                  const SizedBox(height: 14),
+                  _SavedFlashcardsDashboardSection(
+                    savedFlashcardService: _savedFlashcardService,
+                    learningRepository: _learningRepository,
+                  ),
                   const SizedBox(height: 28),
                   Text(
                     PageTranslationScope.text(context, 'subjects', 'Subjects'),
@@ -227,7 +272,9 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                   const SizedBox(height: 12),
                   StreamBuilder<List<Subject>>(
-                    stream: _service.watchSubjects(),
+                    stream: widget.subjectsStream ??
+                        (widget.firestoreService ?? FirestoreService())
+                            .watchSubjects(),
                     builder: (context, subjectSnapshot) {
                       if (subjectSnapshot.hasError) {
                         return _InlineError(
@@ -335,6 +382,215 @@ class _ProgressEntryCard extends StatelessWidget {
       ),
     );
   }
+}
+
+class _MuffinBitesDashboardCard extends StatelessWidget {
+  const _MuffinBitesDashboardCard({required this.walletService});
+
+  final MuffinWalletService walletService;
+
+  @override
+  Widget build(BuildContext context) {
+    return StreamBuilder<MuffinWallet>(
+      stream: walletService.watchWallet(),
+      initialData: MuffinWallet.full,
+      builder: (context, snapshot) {
+        final wallet = snapshot.data ?? MuffinWallet.full;
+        final status = _statusText(wallet);
+        return Card(
+          child: Padding(
+            padding: const EdgeInsets.all(20),
+            child: Row(
+              children: [
+                const MuffinMascotIcon(),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        PageTranslationScope.text(
+                          context,
+                          'muffinBitesTitle',
+                          'Muffin Bites',
+                        ),
+                        style: const TextStyle(fontWeight: FontWeight.w700),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        '\u{1F36A} ${wallet.currentBites} / ${wallet.maxBites}',
+                        style: Theme.of(context).textTheme.titleMedium,
+                      ),
+                      const SizedBox(height: 3),
+                      Text(status),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  String _statusText(MuffinWallet wallet) {
+    final now = DateTime.now();
+    if (wallet.isDailyLimitReached) {
+      return 'Muffin is resting for today. More help will be available after the daily reset.';
+    }
+    if (!wallet.hasBites) {
+      return 'Muffin is recharging. ${wallet.cooldownText(now)}';
+    }
+    if (wallet.currentBites < wallet.maxBites) {
+      return wallet.cooldownText(now);
+    }
+    return 'Muffin is ready to help!';
+  }
+}
+
+class _SavedFlashcardsDashboardSection extends StatelessWidget {
+  const _SavedFlashcardsDashboardSection({
+    required this.savedFlashcardService,
+    required this.learningRepository,
+  });
+
+  final SavedFlashcardService savedFlashcardService;
+  final LearningRepository learningRepository;
+
+  @override
+  Widget build(BuildContext context) {
+    return StreamBuilder<List<SavedFlashcardRef>>(
+      stream: savedFlashcardService.watchSavedFlashcards(),
+      initialData: const <SavedFlashcardRef>[],
+      builder: (context, snapshot) {
+        final refs = snapshot.data ?? const <SavedFlashcardRef>[];
+        return Card(
+          child: InkWell(
+            borderRadius: BorderRadius.circular(24),
+            onTap: () {
+              Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) => SavedFlashcardsScreen(
+                    learningRepository: learningRepository,
+                    savedFlashcardService: savedFlashcardService,
+                  ),
+                ),
+              );
+            },
+            child: Padding(
+              padding: const EdgeInsets.all(20),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          PageTranslationScope.text(
+                            context,
+                            'savedFlashcardsTitle',
+                            'Saved Flashcards',
+                          ),
+                          style: const TextStyle(fontWeight: FontWeight.w700),
+                        ),
+                      ),
+                      const Text(
+                        'View all',
+                        style: TextStyle(fontWeight: FontWeight.w700),
+                      ),
+                      const Icon(Icons.chevron_right_rounded),
+                    ],
+                  ),
+                  const SizedBox(height: 14),
+                  Row(
+                    children: [
+                      const Icon(
+                        Icons.bookmark_rounded,
+                        color: Color(0xFFA45E37),
+                      ),
+                      const SizedBox(width: 8),
+                      Text('${refs.length} saved flashcards'),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  if (refs.isEmpty)
+                    const Text(
+                      "Save useful cards while studying and they'll appear here.",
+                    )
+                  else
+                    _SavedFlashcardPreview(
+                      ref: refs.first,
+                      learningRepository: learningRepository,
+                    ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _SavedFlashcardPreview extends StatelessWidget {
+  const _SavedFlashcardPreview({
+    required this.ref,
+    required this.learningRepository,
+  });
+
+  final SavedFlashcardRef ref;
+  final LearningRepository learningRepository;
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<_SavedFlashcardPreviewData>(
+      future: _load(),
+      builder: (context, snapshot) {
+        final data = snapshot.data;
+        if (data == null) {
+          return const Text('Saved flashcards are ready to review.');
+        }
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              data.chapterTitle,
+              style: const TextStyle(fontWeight: FontWeight.w600),
+            ),
+            const SizedBox(height: 2),
+            Text('${data.subjectName} - ${data.chapterLabel}'),
+          ],
+        );
+      },
+    );
+  }
+
+  Future<_SavedFlashcardPreviewData> _load() async {
+    final subjectName = await learningRepository.getSubjectName(ref.subjectId);
+    final chapter = await learningRepository.getChapter(
+      subjectId: ref.subjectId,
+      chapterId: ref.chapterId,
+    );
+    return _SavedFlashcardPreviewData(
+      subjectName: subjectName,
+      chapterTitle: chapter?.title ?? 'Saved flashcard',
+      chapterLabel:
+          chapter == null ? ref.chapterId : 'Chapter ${chapter.chapterNumber}',
+    );
+  }
+}
+
+class _SavedFlashcardPreviewData {
+  const _SavedFlashcardPreviewData({
+    required this.subjectName,
+    required this.chapterTitle,
+    required this.chapterLabel,
+  });
+
+  final String subjectName;
+  final String chapterTitle;
+  final String chapterLabel;
 }
 
 class _ContinueCard extends StatelessWidget {

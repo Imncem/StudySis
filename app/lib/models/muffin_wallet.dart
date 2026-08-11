@@ -50,7 +50,7 @@ class MuffinWallet {
   bool get hasBites => currentBites > 0;
 
   Duration? cooldownRemaining(DateTime now) {
-    if (currentBites > 0) return null;
+    if (currentBites >= maxBites) return null;
     final anchor = lastRegenAt;
     if (anchor == null) return Duration(minutes: regenIntervalMinutes);
     final elapsed = now.difference(anchor);
