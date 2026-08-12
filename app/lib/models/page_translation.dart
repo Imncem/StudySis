@@ -100,7 +100,10 @@ class PageTranslationResult {
 
   factory PageTranslationResult.fromJson(Map<String, dynamic> data) {
     final fields = <String, String>{};
-    for (final field in data['fields'] as List<dynamic>? ?? const []) {
+    final responseFields = data['fields'] as List<dynamic>? ??
+        data['translations'] as List<dynamic>? ??
+        const [];
+    for (final field in responseFields) {
       if (field is! Map) continue;
       final id = field['id']?.toString();
       final translatedText = field['translatedText']?.toString();

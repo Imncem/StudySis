@@ -404,12 +404,10 @@ class _FloatingMuffinMenu extends StatelessWidget {
             SizedBox(
               width: double.infinity,
               child: FilledButton.icon(
-                onPressed: _canSpend(wallet)
-                    ? () => Navigator.of(context, rootNavigator: true)
-                        .pop(pageTranslationAction)
-                    : null,
+                onPressed: () => Navigator.of(context, rootNavigator: true)
+                    .pop(pageTranslationAction),
                 icon: const Icon(Icons.translate_rounded),
-                label: _CostLabel(label: pageTranslationAction.label),
+                label: Text(pageTranslationAction.label),
               ),
             ),
             const SizedBox(height: 12),

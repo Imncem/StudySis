@@ -45,7 +45,7 @@ void main() {
     expect(find.text('What should I revise?'), findsOneWidget);
     expect(find.text('Create a quick practice question'), findsOneWidget);
     expect(find.text('5 Muffin Bites left'), findsOneWidget);
-    expect(find.text('🍪1'), findsWidgets);
+    expect(find.text('🍪1'), findsNWidgets(3));
   });
 
   testWidgets('floating Muffin has no Bite badge and uses dog identity',
@@ -69,15 +69,22 @@ void main() {
   });
 
   testWidgets('empty Muffin wallet disables paid menu actions', (tester) async {
+    final controller = PageTranslationController();
     await tester.pumpWidget(_app(
       enabled: true,
       wallet: MuffinWallet.empty,
+      controller: controller,
     ));
     await tester.pumpAndSettle();
 
     await _tapMuffin(tester);
 
     expect(find.textContaining('Muffin is recharging'), findsOneWidget);
+    await tester.tap(find.text('Terjemah halaman ke Bahasa Melayu'));
+    await tester.pumpAndSettle();
+    expect(controller.state.isTranslated, isTrue);
+
+    await _tapMuffin(tester);
     final button = tester.widget<OutlinedButton>(
       find.widgetWithText(OutlinedButton, 'What should I revise?'),
     );

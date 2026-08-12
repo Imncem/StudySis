@@ -326,6 +326,69 @@ void main() {
     expect(controller.text('option_b', '20'), '20');
   });
 
+  test('real-device quiz pattern maps stable ids and preserves numeric options',
+      () async {
+    const questionId = 'oUk3WOGFR0V1mlbLsObl';
+    const question = 'Apakah nombor seterusnya dalam jujukan berikut?\n'
+        '4, 8, 12, 16, ...';
+    final controller = PageTranslationController(
+      service: _CountingTranslationService({
+        'quizTitle': 'Chapter 1 Quiz',
+        'questionProgress': 'Question 1',
+        'question_$questionId':
+            'What is the next number in the following sequence?\n'
+                '4, 8, 12, 16, ...',
+      }),
+    );
+    controller.setContent(
+      const TranslatablePageContent(
+        pageType: 'quiz',
+        pageId: 'quiz_math_chapter-01_$questionId',
+        sourceLanguage: TranslationLanguage.malay,
+        fields: [
+          PageTranslationField(
+            id: 'quizTitle',
+            type: 'heading',
+            text: 'Chapter 1 Quiz',
+          ),
+          PageTranslationField(
+            id: 'questionProgress',
+            type: 'label',
+            text: 'Question 1',
+          ),
+          PageTranslationField(
+            id: 'question_$questionId',
+            type: 'question',
+            text: question,
+          ),
+          PageTranslationField(id: 'option_a', type: 'option', text: '18'),
+          PageTranslationField(id: 'option_b', type: 'option', text: '20'),
+          PageTranslationField(id: 'option_c', type: 'option', text: '22'),
+          PageTranslationField(id: 'option_d', type: 'option', text: '24'),
+        ],
+      ),
+    );
+
+    await controller.translateCurrentPage(
+      targetLanguage: TranslationLanguage.english,
+    );
+
+    final result = controller.state.translatedContent;
+    expect(controller.state.status, PageTranslationStatus.translated);
+    expect(result?.totalFieldCount, 7);
+    expect(result?.fields.length, 7);
+    expect(result?.translatedFieldCount, 1);
+    expect(result?.unchangedFieldCount, 6);
+    expect(result?.failedFieldCount, 0);
+    expect(
+      controller.text('question_$questionId', question),
+      'What is the next number in the following sequence?\n'
+      '4, 8, 12, 16, ...',
+    );
+    expect(controller.text('quizTitle', 'Chapter 1 Quiz'), 'Chapter 1 Quiz');
+    expect(controller.text('option_d', '24'), '24');
+  });
+
   test('learn heading variants translate and restore from original', () async {
     final controller = PageTranslationController();
     controller.setContent(

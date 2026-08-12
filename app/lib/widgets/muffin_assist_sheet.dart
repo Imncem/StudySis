@@ -337,19 +337,22 @@ class _MuffinAssistSheetState extends State<MuffinAssistSheet> {
                     _MuffinBitesPill(wallet: wallet),
                   ],
                 ),
-                if (wallet.currentBites == 1) ...[
+                if (wallet.isDailyLimitReached) ...[
+                  const SizedBox(height: 8),
+                  Text(
+                    wallet.dailyRestText(DateTime.now()),
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                ] else if (wallet.currentBites == 1) ...[
                   const SizedBox(height: 8),
                   Text(
                     'Muffin is getting a little tired.',
                     style: Theme.of(context).textTheme.bodySmall,
                   ),
-                ],
-                if (blocked) ...[
+                ] else if (wallet.currentBites == 0) ...[
                   const SizedBox(height: 8),
                   Text(
-                    wallet.isDailyLimitReached
-                        ? wallet.dailyRestText(DateTime.now())
-                        : wallet.cooldownText(DateTime.now()),
+                    'Muffin is recharging.',
                     style: Theme.of(context).textTheme.bodySmall,
                   ),
                 ],
@@ -362,7 +365,9 @@ class _MuffinAssistSheetState extends State<MuffinAssistSheet> {
                         width: double.infinity,
                         child: OutlinedButton(
                           onPressed:
-                              _isLoading || blocked ? null : () => _ask(action),
+                              _isLoading || (_isPaidAction(action) && blocked)
+                                  ? null
+                                  : () => _ask(action),
                           child: _loadingAction == action.action
                               ? const SizedBox(
                                   height: 18,
@@ -370,7 +375,10 @@ class _MuffinAssistSheetState extends State<MuffinAssistSheet> {
                                   child:
                                       CircularProgressIndicator(strokeWidth: 2),
                                 )
-                              : _CostLabel(label: _labelForAction(action)),
+                              : _ActionLabel(
+                                  label: _labelForAction(action),
+                                  showCost: _isPaidAction(action),
+                                ),
                         ),
                       ),
                     ),
@@ -438,6 +446,10 @@ class _MuffinAssistSheetState extends State<MuffinAssistSheet> {
             'Bahasa Melayu';
     return _languageCode(target) ==
         _languageCode(_nextResponseTranslationTarget());
+  }
+
+  bool _isPaidAction(MuffinActionConfig action) {
+    return action.action != MuffinAction.translate;
   }
 
   String _nextResponseTranslationTarget() {
@@ -628,10 +640,11 @@ class _MuffinBitesPill extends StatelessWidget {
   }
 }
 
-class _CostLabel extends StatelessWidget {
-  const _CostLabel({required this.label});
+class _ActionLabel extends StatelessWidget {
+  const _ActionLabel({required this.label, required this.showCost});
 
   final String label;
+  final bool showCost;
 
   @override
   Widget build(BuildContext context) {
@@ -640,8 +653,10 @@ class _CostLabel extends StatelessWidget {
       mainAxisSize: MainAxisSize.min,
       children: [
         Flexible(child: Text(label)),
-        const SizedBox(width: 8),
-        const Text('🍪1'),
+        if (showCost) ...[
+          const SizedBox(width: 8),
+          const Text('🍪1'),
+        ],
       ],
     );
   }

@@ -435,15 +435,14 @@ class _MuffinBitesDashboardCard extends StatelessWidget {
   }
 
   String _statusText(MuffinWallet wallet) {
-    final now = DateTime.now();
     if (wallet.isDailyLimitReached) {
       return 'Muffin is resting for today. More help will be available after the daily reset.';
     }
     if (!wallet.hasBites) {
-      return 'Muffin is recharging. ${wallet.cooldownText(now)}';
+      return 'Muffin is recharging. Check back a little later.';
     }
-    if (wallet.currentBites < wallet.maxBites) {
-      return wallet.cooldownText(now);
+    if (wallet.currentBites == 1) {
+      return 'Muffin is getting a little tired.';
     }
     return 'Muffin is ready to help!';
   }

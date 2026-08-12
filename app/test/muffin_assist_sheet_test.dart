@@ -93,8 +93,8 @@ void main() {
     _setLargeSurface(tester);
     await tester.pumpWidget(_sheetApp(
       MockMuffinService(),
-      actions: const [
-        MuffinActionConfig(
+      actions: [
+        const MuffinActionConfig(
           action: MuffinAction.anotherExample,
           label: 'Show another example',
         ),
@@ -116,6 +116,71 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.textContaining('menambah 2'), findsOneWidget);
+  });
+
+  testWidgets('response translation is free and remains enabled at zero Bites',
+      (tester) async {
+    _setLargeSurface(tester);
+    final wallet = _WalletController(MuffinWallet.full);
+    await tester.pumpWidget(_sheetApp(
+      MockMuffinService(),
+      walletService: wallet,
+      actions: const [
+        MuffinActionConfig(
+          action: MuffinAction.anotherExample,
+          label: 'Show another example',
+        ),
+        MuffinActionConfig(
+          action: MuffinAction.translate,
+          label: 'Translate to Bahasa Melayu',
+          contextOverride: _toMalay,
+        ),
+      ],
+      mode: MuffinMode.learn,
+    ));
+    await tester.tap(find.text('Open Muffin'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Show another example'));
+    await tester.pumpAndSettle();
+
+    wallet.add(MuffinWallet.empty);
+    await tester.pumpAndSettle();
+
+    final translateButton = tester.widget<OutlinedButton>(
+      find.widgetWithText(
+        OutlinedButton,
+        'Translate this response to Bahasa Melayu',
+      ),
+    );
+    final paidButton = tester.widget<OutlinedButton>(
+      find.widgetWithText(OutlinedButton, 'Show another example'),
+    );
+
+    expect(translateButton.onPressed, isNotNull);
+    expect(paidButton.onPressed, isNull);
+  });
+
+  testWidgets('assist sheet displays regenerated effective Bite value',
+      (tester) async {
+    _setLargeSurface(tester);
+    await tester.pumpWidget(_sheetApp(
+      MockMuffinService(),
+      wallet: MuffinWallet(
+        maxBites: 5,
+        currentBites: 0,
+        regenIntervalMinutes: 60,
+        lastRegenAt: DateTime.now().subtract(const Duration(hours: 3)),
+        dailyUsedRequests: 0,
+        dailySoftLimit: 17,
+        dailyHardLimit: 20,
+        status: 'recharging',
+      ),
+    ));
+    await tester.tap(find.text('Open Muffin'));
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('3/5'), findsOneWidget);
+    expect(find.text('Muffin is recharging.'), findsNothing);
   });
 
   testWidgets('keeps current example identity while translating both ways',
@@ -379,6 +444,7 @@ Widget _sheetApp(
   MuffinMode mode = MuffinMode.quiz,
   MuffinContext? muffinContext,
   MuffinWallet wallet = MuffinWallet.full,
+  MuffinWalletService? walletService,
   List<MuffinActionConfig> actions = const [
     MuffinActionConfig(
       action: MuffinAction.smallHint,
@@ -403,7 +469,8 @@ Widget _sheetApp(
                   mode: mode,
                   context: muffinContext ?? MuffinContext(mode: mode),
                   service: service,
-                  walletService: StaticMuffinWalletService(wallet),
+                  walletService:
+                      walletService ?? StaticMuffinWalletService(wallet),
                   actions: actions,
                 ),
               );
@@ -446,5 +513,23 @@ class _QueuedMuffinService implements MuffinService {
   @override
   Future<MuffinResponse> ask(MuffinRequest request) async {
     return responses.removeAt(0);
+  }
+}
+
+class _WalletController implements MuffinWalletService {
+  _WalletController(this._current);
+
+  MuffinWallet _current;
+  final _controller = StreamController<MuffinWallet>.broadcast();
+
+  void add(MuffinWallet wallet) {
+    _current = wallet;
+    _controller.add(wallet);
+  }
+
+  @override
+  Stream<MuffinWallet> watchWallet() async* {
+    yield _current;
+    yield* _controller.stream;
   }
 }

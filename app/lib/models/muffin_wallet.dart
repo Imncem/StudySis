@@ -49,6 +49,65 @@ class MuffinWallet {
       status == 'daily_limit' || dailyUsedRequests >= dailySoftLimit;
   bool get hasBites => currentBites > 0;
 
+  MuffinWallet copyWith({
+    int? maxBites,
+    int? currentBites,
+    int? regenIntervalMinutes,
+    DateTime? lastRegenAt,
+    String? dailyResetDate,
+    int? dailyUsedRequests,
+    int? dailySoftLimit,
+    int? dailyHardLimit,
+    String? status,
+    DateTime? nextProviderResetAt,
+  }) {
+    return MuffinWallet(
+      maxBites: maxBites ?? this.maxBites,
+      currentBites: currentBites ?? this.currentBites,
+      regenIntervalMinutes: regenIntervalMinutes ?? this.regenIntervalMinutes,
+      lastRegenAt: lastRegenAt ?? this.lastRegenAt,
+      dailyResetDate: dailyResetDate ?? this.dailyResetDate,
+      dailyUsedRequests: dailyUsedRequests ?? this.dailyUsedRequests,
+      dailySoftLimit: dailySoftLimit ?? this.dailySoftLimit,
+      dailyHardLimit: dailyHardLimit ?? this.dailyHardLimit,
+      status: status ?? this.status,
+      nextProviderResetAt: nextProviderResetAt ?? this.nextProviderResetAt,
+    );
+  }
+
+  MuffinWallet effectiveAt(DateTime now) {
+    if (currentBites >= maxBites) {
+      return copyWith(
+        currentBites: maxBites,
+        lastRegenAt: now,
+        status: isDailyLimitReached ? status : 'active',
+      );
+    }
+    final anchor = lastRegenAt;
+    if (anchor == null) return this;
+    final elapsed = now.difference(anchor);
+    if (elapsed.isNegative) return this;
+    final interval = Duration(minutes: regenIntervalMinutes);
+    if (interval.inMilliseconds <= 0) return this;
+    final regenerated = elapsed.inMilliseconds ~/ interval.inMilliseconds;
+    if (regenerated <= 0) return this;
+    final nextBites = (currentBites + regenerated).clamp(0, maxBites);
+    final nextAnchor = nextBites >= maxBites
+        ? now
+        : anchor.add(Duration(
+            milliseconds: regenerated * interval.inMilliseconds,
+          ));
+    return copyWith(
+      currentBites: nextBites,
+      lastRegenAt: nextAnchor,
+      status: isDailyLimitReached
+          ? status
+          : nextBites > 0
+              ? 'active'
+              : status,
+    );
+  }
+
   Duration? cooldownRemaining(DateTime now) {
     if (currentBites >= maxBites) return null;
     final anchor = lastRegenAt;

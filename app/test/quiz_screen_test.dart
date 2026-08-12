@@ -3,12 +3,14 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:studysis/models/chapter.dart';
+import 'package:studysis/models/page_translation.dart';
 import 'package:studysis/models/quiz_muffin_context.dart';
 import 'package:studysis/models/quiz_question.dart';
 import 'package:studysis/screens/quiz_screen.dart';
 import 'package:studysis/services/muffin_guidance_policy.dart';
 import 'package:studysis/services/muffin_context_registry.dart';
 import 'package:studysis/theme/app_theme.dart';
+import 'package:studysis/widgets/page_translation_scope.dart';
 
 void main() {
   testWidgets('shows loading state while quiz loads', (tester) async {
@@ -66,6 +68,34 @@ void main() {
         'Guide me through the question',
       ]),
     );
+  });
+
+  testWidgets('Malay quiz content registers Malay source language',
+      (tester) async {
+    final controller = PageTranslationController();
+    await tester.pumpWidget(_quizApp(
+      Future.value([
+        const QuizQuestion(
+          id: 'oUk3WOGFR0V1mlbLsObl',
+          question:
+              'Apakah nombor seterusnya dalam jujukan berikut?\n4, 8, 12, 16, ...',
+          options: ['18', '20', '22', '24'],
+          correctOptionIndex: 1,
+          explanation: 'The sequence adds 4.',
+          difficulty: 'easy',
+          order: 1,
+          status: 'active',
+        ),
+      ]),
+      translationController: controller,
+    ));
+    await tester.pumpAndSettle();
+
+    expect(
+      controller.state.originalContent?.sourceLanguage,
+      TranslationLanguage.malay,
+    );
+    expect(controller.state.originalContent?.fields.length, 7);
   });
 
   testWidgets('retains and allows changing a selected answer', (tester) async {
@@ -227,25 +257,34 @@ void main() {
   });
 }
 
-Widget _quizApp(Future<List<QuizQuestion>> questionsFuture) {
+Widget _quizApp(
+  Future<List<QuizQuestion>> questionsFuture, {
+  PageTranslationController? translationController,
+}) {
+  final screen = QuizScreen(
+    chapter: const Chapter(
+      id: 'chapter-1',
+      chapterNumber: 1,
+      title: 'Patterns and Sequences',
+      textbookChapterTitle: 'Patterns and Sequences',
+      learningObjectives: [],
+      estimatedMinutes: 30,
+      status: 'active',
+      order: 1,
+    ),
+    subjectId: 'math',
+    subjectTitle: 'Mathematics',
+    title: 'Chapter 1 Quiz',
+    questionsFuture: questionsFuture,
+  );
   return MaterialApp(
     theme: AppTheme.light,
-    home: QuizScreen(
-      chapter: const Chapter(
-        id: 'chapter-1',
-        chapterNumber: 1,
-        title: 'Patterns and Sequences',
-        textbookChapterTitle: 'Patterns and Sequences',
-        learningObjectives: [],
-        estimatedMinutes: 30,
-        status: 'active',
-        order: 1,
-      ),
-      subjectId: 'math',
-      subjectTitle: 'Mathematics',
-      title: 'Chapter 1 Quiz',
-      questionsFuture: questionsFuture,
-    ),
+    home: translationController == null
+        ? screen
+        : PageTranslationScope(
+            controller: translationController,
+            child: screen,
+          ),
   );
 }
 

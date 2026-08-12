@@ -23,6 +23,7 @@ const {
     geminiProfileForMuffin,
     geminiProfileForPageTranslation,
     geminiThinkingLevelForAction,
+    isFreeTranslationRequest,
     walletFromData,
     cooldownMinutes,
     budgetBlockedResponse,
@@ -129,6 +130,83 @@ test('normalization rejects fake-prefixed provider fields', () => {
     { id: 'option_a', translatedText: 'Number' },
   ]);
   assert.equal(result.failedFieldCount, 1);
+});
+
+test('quiz page translation normalizes exact stable IDs and preserves numeric options', () => {
+  const questionId = 'oUk3WOGFR0V1mlbLsObl';
+  const request = {
+    pageType: 'quiz',
+    pageId: `quiz_math_chapter-01_${questionId}`,
+    sourceLanguage: 'ms',
+    targetLanguage: 'en',
+    fields: [
+      { id: 'quizTitle', type: 'heading', text: 'Chapter 1 Quiz' },
+      { id: 'questionProgress', type: 'label', text: 'Question 1' },
+      {
+        id: `question_${questionId}`,
+        type: 'question',
+        text: 'Apakah nombor seterusnya dalam jujukan berikut?\n4, 8, 12, 16, ...',
+      },
+      { id: 'option_a', type: 'option', text: '18' },
+      { id: 'option_b', type: 'option', text: '20' },
+      { id: 'option_c', type: 'option', text: '22' },
+      { id: 'option_d', type: 'option', text: '24' },
+    ],
+  };
+
+  const result = normalizePageTranslationJson(
+    {
+      fields: [
+        { id: 'quizTitle', translatedText: 'Chapter 1 Quiz' },
+        { id: 'questionProgress', translatedText: 'Question 1' },
+        {
+          id: `question_${questionId}`,
+          translatedText:
+            'What is the next number in the following sequence?\n4, 8, 12, 16, ...',
+        },
+      ],
+    },
+    request,
+  );
+
+  assert.equal(result.totalFieldCount, 7);
+  assert.equal(result.fields.length, 7);
+  assert.equal(result.translatedFieldCount, 1);
+  assert.equal(result.unchangedFieldCount, 6);
+  assert.equal(result.failedFieldCount, 0);
+  assert.deepEqual(
+    result.fields.map((field) => field.id),
+    [
+      'quizTitle',
+      'questionProgress',
+      `question_${questionId}`,
+      'option_a',
+      'option_b',
+      'option_c',
+      'option_d',
+    ],
+  );
+});
+
+test('page translation parser accepts translations alias defensively', () => {
+  const result = normalizePageTranslationJson(
+    {
+      translations: [
+        { id: 'body', translatedText: 'What is a pattern?' },
+      ],
+    },
+    {
+      pageType: 'learn',
+      pageId: 'learn_math_chapter-01',
+      sourceLanguage: 'ms',
+      targetLanguage: 'en',
+      fields: [{ id: 'body', type: 'paragraph', text: 'Apakah itu pola?' }],
+    },
+  );
+
+  assert.equal(result.fields[0].id, 'body');
+  assert.equal(result.fields[0].translatedText, 'What is a pattern?');
+  assert.equal(result.failedFieldCount, 0);
 });
 
 test('normal Muffin response schema is accepted', () => {
@@ -240,6 +318,69 @@ test('Muffin wallet regenerates elapsed Bites and caps at 5', () => {
   assert.equal(wallet.dailyUsedRequests, 4);
 });
 
+test('Muffin wallet regeneration uses elapsed time thresholds', () => {
+  const anchor = new Date('2026-08-11T18:20:00.000Z');
+  const data = {
+    currentBites: 0,
+    maxBites: 5,
+    regenIntervalMinutes: 60,
+    lastRegenAt: { toDate: () => anchor },
+  };
+
+  assert.equal(
+    walletFromData(data, new Date('2026-08-11T19:19:00.000Z')).currentBites,
+    0,
+  );
+  assert.equal(
+    walletFromData(data, new Date('2026-08-11T19:20:00.000Z')).currentBites,
+    1,
+  );
+  assert.equal(
+    walletFromData(data, new Date('2026-08-11T21:20:00.000Z')).currentBites,
+    3,
+  );
+});
+
+test('Muffin wallet preserves partial elapsed recharge anchor', () => {
+  const wallet = walletFromData({
+    currentBites: 0,
+    maxBites: 5,
+    regenIntervalMinutes: 60,
+    lastRegenAt: {
+      toDate: () => new Date('2026-08-11T18:20:00.000Z'),
+    },
+  }, new Date('2026-08-11T21:55:00.000Z'));
+
+  assert.equal(wallet.currentBites, 3);
+  assert.equal(wallet.lastRegenAt.toISOString(), '2026-08-11T21:20:00.000Z');
+  assert.equal(cooldownMinutes(wallet, new Date('2026-08-11T21:55:00.000Z')), 25);
+});
+
+test('Muffin wallet caps regeneration and prevents banked excess', () => {
+  const full = walletFromData({
+    currentBites: 0,
+    maxBites: 5,
+    regenIntervalMinutes: 60,
+    lastRegenAt: {
+      toDate: () => new Date('2026-08-11T08:00:00.000Z'),
+    },
+  }, new Date('2026-08-11T18:00:00.000Z'));
+
+  assert.equal(full.currentBites, 5);
+  assert.equal(full.lastRegenAt.toISOString(), '2026-08-11T18:00:00.000Z');
+
+  const afterSpend = walletFromData({
+    currentBites: 4,
+    maxBites: 5,
+    regenIntervalMinutes: 60,
+    lastRegenAt: {
+      toDate: () => full.lastRegenAt,
+    },
+  }, new Date('2026-08-11T18:01:00.000Z'));
+
+  assert.equal(afterSpend.currentBites, 4);
+});
+
 test('Muffin wallet daily usage resets by date', () => {
   const wallet = walletFromData({
     currentBites: 2,
@@ -283,6 +424,12 @@ test('Muffin cache keys are stable and separate endpoints', () => {
     providerCacheKey('askMuffin', request),
     providerCacheKey('translateMuffinPage', request),
   );
+});
+
+test('Muffin response translation is a free student Bite action', () => {
+  assert.equal(isFreeTranslationRequest({ action: 'translate' }), true);
+  assert.equal(isFreeTranslationRequest({ action: 'smallHint' }), false);
+  assert.equal(isFreeTranslationRequest({}), false);
 });
 
 test('provider day key follows America Los Angeles instead of UTC', () => {
@@ -606,6 +753,50 @@ test('Page translation uses MINIMAL nested thinkingConfig', async () => {
   assert.equal(capturedBody.generationConfig.thinkingLevel, undefined);
   assert.equal(capturedBody.generationConfig.responseMimeType, 'application/json');
   assert.equal(capturedBody.generationConfig.responseSchema.type, 'OBJECT');
+  global.fetch = originalFetch;
+});
+
+test('Page translation treats zero normalized fields as structured failure', async () => {
+  const originalFetch = global.fetch;
+  global.fetch = async () => ({
+    ok: true,
+    json: async () => ({
+      candidates: [
+        {
+          finishReason: 'STOP',
+          content: {
+            parts: [
+              {
+                text: '{"success":true,"sourceLanguage":"ms","targetLanguage":"en","fields":[]}',
+              },
+            ],
+          },
+        },
+      ],
+    }),
+  });
+
+  const result = await translatePageWithProvider({
+    requestId: 'empty-translation-result-test',
+    provider: 'gemini',
+    openAiApiKey: '',
+    openAiEndpoint: '',
+    openAiModel: '',
+    geminiApiKey: 'test',
+    geminiModel: 'gemini-3.5-flash',
+    request: {
+      pageType: 'learn',
+      pageId: 'learn_math_chapter-01',
+      sourceLanguage: 'ms',
+      targetLanguage: 'en',
+      fields: [
+        { id: 'body', type: 'paragraph', text: 'Apakah itu pola?' },
+      ],
+    },
+  });
+
+  assert.equal(result.success, false);
+  assert.equal(result.resultSource, 'empty_translation_result');
   global.fetch = originalFetch;
 });
 
@@ -970,6 +1161,52 @@ test('Gemini success reserves one provider attempt', async () => {
   assert.equal(reservedAttempts.length, 1);
   assert.equal(reservedAttempts[0].truncationRetry, false);
   assert.equal(result.parsedPayload.message, 'One call worked.');
+  global.fetch = originalFetch;
+});
+
+test('Gemini response translation still reserves provider attempt', async () => {
+  const originalFetch = global.fetch;
+  let fetchCount = 0;
+  const reservedAttempts = [];
+  global.fetch = async () => {
+    fetchCount += 1;
+    return {
+      ok: true,
+      json: async () => ({
+        candidates: [
+          {
+            finishReason: 'STOP',
+            content: {
+              parts: [
+                {
+                  text: '{"success":true,"responseType":"translation","message":"Translated.","detectedLanguage":"en","translatedText":"Terjemahan."}',
+                },
+              ],
+            },
+          },
+        ],
+      }),
+    };
+  };
+
+  const result = await callGeminiProvider({
+    requestId: 'free-translation-provider-attempt-test',
+    apiKey: 'test',
+    model: 'gemini-3.5-flash',
+    instructions: '',
+    input: '',
+    schema: standardMuffinProviderSchema('translate').gemini,
+    maxTokens: 2048,
+    retryMaxTokens: 4096,
+    thinkingLevel: 'MINIMAL',
+    beforeGeminiAttempt: async (attempt) => reservedAttempts.push(attempt),
+  });
+
+  assert.equal(fetchCount, 1);
+  assert.equal(reservedAttempts.length, 1);
+  assert.equal(reservedAttempts[0].truncationRetry, false);
+  assert.equal(result.parsedPayload.responseType, 'translation');
+  assert.equal(result.parsedPayload.translatedText, 'Terjemahan.');
   global.fetch = originalFetch;
 });
 

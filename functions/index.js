@@ -227,10 +227,11 @@ async function callMuffinProvider({
   try {
     const geminiProfile = geminiProfileForMuffin(request);
     const enforceBudget = selected === 'gemini' && geminiApiKey !== 'test';
+    const spendStudentBite = enforceBudget && !isFreeTranslationRequest(request);
     const cacheKey = providerCacheKey('askMuffin', request);
     const cached = enforceBudget ? await readProviderCache(cacheKey) : null;
     if (cached) return { ...cached, resultSource: 'cache' };
-    const studentReservation = enforceBudget
+    const studentReservation = spendStudentBite
       ? await reserveStudentBite({ requestId, uid })
       : { allowed: true };
     if (!studentReservation.allowed) {
@@ -263,7 +264,7 @@ async function callMuffinProvider({
         reasoning: reasoningForAction(request.action),
       });
     } catch (error) {
-      if (enforceBudget && studentReservation.reservationId) {
+      if (spendStudentBite && studentReservation.reservationId) {
         await refundStudentBite({ reservation: studentReservation });
       }
       if (enforceBudget && error.category === 'blocked_daily_limit') {
@@ -272,7 +273,7 @@ async function callMuffinProvider({
       throw error;
     }
     const normalized = normalizeProviderJson(result.parsedPayload, request);
-    if (enforceBudget && studentReservation.reservationId) {
+    if (spendStudentBite && studentReservation.reservationId) {
       await finalizeStudentBite({ reservation: studentReservation });
     }
     if (enforceBudget) {
@@ -318,20 +319,6 @@ async function translatePageWithProvider({
     const cacheKey = providerCacheKey('translateMuffinPage', request);
     const cached = enforceBudget ? await readProviderCache(cacheKey) : null;
     if (cached) return { ...cached, resultSource: 'cache' };
-    const studentReservation = enforceBudget
-      ? await reserveStudentBite({ requestId, uid })
-      : { allowed: true };
-    if (!studentReservation.allowed) {
-      return {
-        success: false,
-        message: budgetBlockedMessage(
-          studentReservation.reason,
-          studentReservation.cooldownMinutes,
-          studentReservation.nextProviderResetAt,
-        ),
-        resultSource: studentReservation.reason,
-      };
-    }
 
     let result;
     try {
@@ -352,17 +339,20 @@ async function translatePageWithProvider({
         reasoning: { effort: 'minimal' },
       });
     } catch (error) {
-      if (enforceBudget && studentReservation.reservationId) {
-        await refundStudentBite({ reservation: studentReservation });
-      }
       if (enforceBudget && error.category === 'blocked_daily_limit') {
         await updateWalletDailyLimitState(error.nextProviderResetAt);
       }
       throw error;
     }
     const normalized = normalizePageTranslationJson(result.parsedPayload, request);
-    if (enforceBudget && studentReservation.reservationId) {
-      await finalizeStudentBite({ reservation: studentReservation });
+    logPageTranslationNormalization(requestId, request, result, normalized);
+    if (
+      normalized.fields.length === 0 &&
+      request.fields.some((field) => !preserveValue(field.text))
+    ) {
+      const error = new Error('Empty page translation result.');
+      error.category = 'empty_translation_result';
+      throw error;
     }
     if (enforceBudget) {
       await writeProviderCache(cacheKey, normalized);
@@ -385,6 +375,7 @@ async function translatePageWithProvider({
     return {
       success: false,
       message: 'Muffin could not translate this page right now.',
+      ...(error.category ? { resultSource: error.category } : {}),
     };
   }
 }
@@ -450,6 +441,10 @@ function modelForLog(provider, openAiModel, geminiModel) {
 
 function outputTokensForMuffin(request) {
   return request.action === 'generateSimilarQuestion' ? 700 : 450;
+}
+
+function isFreeTranslationRequest(request) {
+  return request?.action === 'translate';
 }
 
 function geminiProfileForMuffin(request) {
@@ -1299,16 +1294,25 @@ function validatePageTranslationRequest(request) {
 }
 
 function normalizePageTranslationJson(data, request) {
-  if (!data || typeof data !== 'object' || !Array.isArray(data.fields)) {
+  if (!data || typeof data !== 'object') {
+    throwValidation('Invalid page translation schema.');
+  }
+  const providerFields = Array.isArray(data.fields)
+    ? data.fields
+    : Array.isArray(data.translations)
+      ? data.translations
+      : null;
+  if (!providerFields) {
     throwValidation('Invalid page translation schema.');
   }
   const allowedIds = new Set(request.fields.map((field) => field.id));
   const originalById = new Map(request.fields.map((field) => [field.id, field.text]));
+  const fieldById = new Map(request.fields.map((field) => [field.id, field]));
   const fields = [];
   const seenIds = new Set();
   let unchangedFieldCount = 0;
   let failedFieldCount = 0;
-  for (const field of data.fields) {
+  for (const field of providerFields) {
     const id = String(field.id || '');
     if (!allowedIds.has(id) || seenIds.has(id)) {
       failedFieldCount += 1;
@@ -1317,12 +1321,13 @@ function normalizePageTranslationJson(data, request) {
     seenIds.add(id);
     const translatedText = String(field.translatedText || '').trim();
     const originalText = String(originalById.get(id) || '').trim();
+    const requestField = fieldById.get(id);
     if (!translatedText || hasFakeTranslationPrefix(translatedText)) {
       failedFieldCount += 1;
       continue;
     }
     if (translatedText === originalText) {
-      if (preserveValue(originalText)) {
+      if (canPreservePageTranslationField(requestField, request)) {
         unchangedFieldCount += 1;
       } else {
         failedFieldCount += 1;
@@ -1331,7 +1336,18 @@ function normalizePageTranslationJson(data, request) {
     }
     fields.push({ id, translatedText });
   }
-  failedFieldCount += request.fields.length - seenIds.size;
+  for (const requestField of request.fields) {
+    if (seenIds.has(requestField.id)) continue;
+    if (canPreservePageTranslationField(requestField, request)) {
+      fields.push({
+        id: requestField.id,
+        translatedText: requestField.text,
+      });
+      unchangedFieldCount += 1;
+    } else {
+      failedFieldCount += 1;
+    }
+  }
   return {
     success: true,
     sourceLanguage: request.sourceLanguage,
@@ -1343,6 +1359,24 @@ function normalizePageTranslationJson(data, request) {
     isComplete: failedFieldCount === 0,
     fields,
   };
+}
+
+function canPreservePageTranslationField(field, request) {
+  if (!field) return false;
+  const text = String(field.text || '').trim();
+  if (preserveValue(text)) return true;
+  if (/\bQidah\b/.test(text)) return true;
+  if (request.targetLanguage === 'en' && looksEnglishUiText(text)) return true;
+  if (request.targetLanguage === 'ms' && looksMalayUiText(text)) return true;
+  return false;
+}
+
+function looksEnglishUiText(text) {
+  return /^(chapter|question|quiz|practice|flashcards?|learn)(\b|\s+\d)/i.test(text);
+}
+
+function looksMalayUiText(text) {
+  return /^(bab|soalan|kuiz|latihan|kad|belajar)(\b|\s+\d)/i.test(text);
 }
 
 function buildPageTranslationPromptParts(request) {
@@ -1695,6 +1729,36 @@ function logPageTranslationRequest(requestId, uid, request) {
   );
 }
 
+function logPageTranslationNormalization(requestId, request, providerResult, normalized) {
+  if (!isDevelopmentDiagnosticsEnabled()) return;
+  const parsedFields = Array.isArray(providerResult?.parsedPayload?.fields)
+    ? providerResult.parsedPayload.fields
+    : Array.isArray(providerResult?.parsedPayload?.translations)
+      ? providerResult.parsedPayload.translations
+      : [];
+  console.info(
+    [
+      '[StudySis][page-translation] NORMALIZED',
+      `requestId=${requestId}`,
+      `requestedFieldCount=${request.fields.length}`,
+      `provider=${providerResult?.provider || 'unknown'}`,
+      'geminiFinishReason=unavailable',
+      'rawCandidateCount=unavailable',
+      `parsedTranslationCount=${parsedFields.length}`,
+      `normalizedTranslationCount=${normalized.fields.length}`,
+      `returnedFieldIds=${normalized.fields.map((field) => field.id).join(',')}`,
+    ].join(' '),
+  );
+}
+
+function isDevelopmentDiagnosticsEnabled() {
+  return (
+    process.env.NODE_ENV === 'development' ||
+    process.env.NODE_ENV === 'test' ||
+    process.env.FUNCTIONS_EMULATOR === 'true'
+  );
+}
+
 Object.defineProperty(module.exports, '_test', {
   value: {
     validatePageTranslationRequest,
@@ -1718,6 +1782,7 @@ Object.defineProperty(module.exports, '_test', {
     geminiProfileForMuffin,
     geminiProfileForPageTranslation,
     geminiThinkingLevelForAction,
+    isFreeTranslationRequest,
     walletFromData,
     cooldownMinutes,
     budgetBlockedResponse,
@@ -1732,6 +1797,7 @@ Object.defineProperty(module.exports, '_test', {
     standardMuffinProviderSchema,
     generatedQuestionProviderSchema,
     pageTranslationProviderSchema,
+    canPreservePageTranslationField,
     resetRateLimitForTests: () => requestBuckets.clear(),
     limits,
   },

@@ -265,11 +265,24 @@ class PageTranslationController extends ChangeNotifier {
 
     for (final field in content.fields) {
       final candidate = localFields[field.id] ?? serviceFields[field.id];
-      if (candidate == null || _hasFakePrefix(candidate)) {
+      if (candidate == null) {
+        if (_canPreserveUnchanged(field.text, targetLanguage)) {
+          fields[field.id] = field.text;
+          unchanged += 1;
+        } else {
+          if (kDebugMode) {
+            debugPrint(
+              'Translation sanitizer rejected ${field.id}: missing candidate',
+            );
+          }
+          failed += 1;
+        }
+        continue;
+      }
+      if (_hasFakePrefix(candidate)) {
         if (kDebugMode) {
           debugPrint(
-            'Translation sanitizer rejected ${field.id}: '
-            '${candidate == null ? 'missing candidate' : 'fake prefix'}',
+            'Translation sanitizer rejected ${field.id}: fake prefix',
           );
         }
         failed += 1;
@@ -279,7 +292,7 @@ class PageTranslationController extends ChangeNotifier {
       final trimmedCandidate = candidate.trim();
       final trimmedOriginal = original.trim();
       if (trimmedCandidate == trimmedOriginal) {
-        if (_canPreserveUnchanged(original)) {
+        if (_canPreserveUnchanged(original, targetLanguage)) {
           fields[field.id] = original;
           unchanged += 1;
         } else {
@@ -314,11 +327,26 @@ class PageTranslationController extends ChangeNotifier {
         .hasMatch(value);
   }
 
-  bool _canPreserveUnchanged(String value) {
+  bool _canPreserveUnchanged(String value, String targetLanguage) {
     final text = value.trim();
-    return RegExp(r'^[A-D]$|^\d+(\s*/\s*\d+)?$|^\d+%$|^[\d\s,+\-*/=.xX()%]+$')
-            .hasMatch(text) ||
-        RegExp(r'\bQidah\b').hasMatch(text);
+    if (RegExp(r'^[A-D]$|^\d+(\s*/\s*\d+)?$|^\d+%$|^[\d\s,+\-*/=.xX()%]+$')
+        .hasMatch(text)) {
+      return true;
+    }
+    if (RegExp(r'\bQidah\b').hasMatch(text)) return true;
+    if (targetLanguage == TranslationLanguage.english &&
+        RegExp(r'^(chapter|question|quiz|practice|flashcards?|learn)(\b|\s+\d)',
+                caseSensitive: false)
+            .hasMatch(text)) {
+      return true;
+    }
+    if (targetLanguage == TranslationLanguage.malay &&
+        RegExp(r'^(bab|soalan|kuiz|latihan|kad|belajar)(\b|\s+\d)',
+                caseSensitive: false)
+            .hasMatch(text)) {
+      return true;
+    }
+    return false;
   }
 
   String _defaultTargetLanguage(TranslatablePageContent content) {

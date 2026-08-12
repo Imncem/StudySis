@@ -2,9 +2,12 @@ import 'package:flutter/material.dart';
 
 import '../models/chapter.dart';
 import '../models/flashcard.dart';
+import '../models/muffin.dart';
 import '../models/saved_flashcard.dart';
 import '../repositories/learning_repository.dart';
+import '../services/muffin_context_registry.dart';
 import '../services/saved_flashcard_service.dart';
+import '../widgets/muffin_assist_sheet.dart';
 
 class SavedFlashcardsScreen extends StatefulWidget {
   const SavedFlashcardsScreen({
@@ -23,7 +26,10 @@ class SavedFlashcardsScreen extends StatefulWidget {
 class _SavedFlashcardsScreenState extends State<SavedFlashcardsScreen> {
   late final LearningRepository _learningRepository;
   late final SavedFlashcardService _savedFlashcardService;
+  final _pageController = PageController();
   final Set<String> _revealed = {};
+  int _currentIndex = 0;
+  String? _registeredContextKey;
 
   @override
   void initState() {
@@ -31,6 +37,16 @@ class _SavedFlashcardsScreenState extends State<SavedFlashcardsScreen> {
     _learningRepository = widget.learningRepository ?? LearningRepository();
     _savedFlashcardService =
         widget.savedFlashcardService ?? SavedFlashcardServiceFactory.create();
+  }
+
+  @override
+  void dispose() {
+    if (MuffinContextRegistry.instance.current.value?.context.contextKey ==
+        _registeredContextKey) {
+      MuffinContextRegistry.instance.resetToHome();
+    }
+    _pageController.dispose();
+    super.dispose();
   }
 
   @override
@@ -55,14 +71,7 @@ class _SavedFlashcardsScreenState extends State<SavedFlashcardsScreen> {
               return const Center(child: CircularProgressIndicator());
             }
             final refs = snapshot.data ?? const <SavedFlashcardRef>[];
-            if (refs.isEmpty) {
-              return const _SavedFlashcardsState(
-                icon: Icons.bookmark_border_rounded,
-                title: 'No saved flashcards yet',
-                message:
-                    "Save useful cards while studying and they'll appear here.",
-              );
-            }
+            if (refs.isEmpty) return const _EmptySavedFlashcardsState();
             return FutureBuilder<List<SavedFlashcardItem>>(
               future: _resolve(refs),
               builder: (context, itemSnapshot) {
@@ -70,41 +79,60 @@ class _SavedFlashcardsScreenState extends State<SavedFlashcardsScreen> {
                   return const Center(child: CircularProgressIndicator());
                 }
                 final items = itemSnapshot.data ?? const <SavedFlashcardItem>[];
-                if (items.isEmpty) {
-                  return const _SavedFlashcardsState(
-                    icon: Icons.bookmark_border_rounded,
-                    title: 'No saved flashcards yet',
-                    message:
-                        "Save useful cards while studying and they'll appear here.",
-                  );
+                if (items.isEmpty) return const _EmptySavedFlashcardsState();
+                final safeIndex = _currentIndex.clamp(0, items.length - 1);
+                if (safeIndex != _currentIndex) {
+                  WidgetsBinding.instance.addPostFrameCallback((_) {
+                    if (mounted) setState(() => _currentIndex = safeIndex);
+                  });
                 }
-                return ListView(
-                  padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
+                _registerMuffinContext(items[safeIndex]);
+                return Column(
                   children: [
-                    for (final group in _groups(items)) ...[
-                      Padding(
-                        padding: const EdgeInsets.only(top: 10, bottom: 8),
-                        child: Text(
-                          '${group.subjectName} - ${group.chapter.title}',
-                          style: Theme.of(context).textTheme.titleMedium,
-                        ),
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(20, 8, 20, 12),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              '${items[safeIndex].subjectName} - ${items[safeIndex].chapter.title}',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: Theme.of(context).textTheme.titleMedium,
+                            ),
+                          ),
+                          Text(
+                            '${safeIndex + 1} / ${items.length}',
+                            style: const TextStyle(fontWeight: FontWeight.w700),
+                          ),
+                        ],
                       ),
-                      for (final item in group.items) ...[
-                        _SavedFlashcardCard(
-                          item: item,
-                          isRevealed: _revealed.contains(item.documentId),
-                          onToggleReveal: () {
-                            setState(() {
-                              if (!_revealed.add(item.documentId)) {
-                                _revealed.remove(item.documentId);
-                              }
-                            });
-                          },
-                          onUnsave: () => _unsave(item),
-                        ),
-                        const SizedBox(height: 10),
-                      ],
-                    ],
+                    ),
+                    Expanded(
+                      child: PageView.builder(
+                        controller: _pageController,
+                        scrollDirection: Axis.vertical,
+                        itemCount: items.length,
+                        onPageChanged: (index) {
+                          setState(() => _currentIndex = index);
+                        },
+                        itemBuilder: (context, index) {
+                          final item = items[index];
+                          return _SavedFlashcardDeckCard(
+                            item: item,
+                            isRevealed: _revealed.contains(item.documentId),
+                            onToggleReveal: () {
+                              setState(() {
+                                if (!_revealed.add(item.documentId)) {
+                                  _revealed.remove(item.documentId);
+                                }
+                              });
+                            },
+                            onUnsave: () => _unsave(item),
+                          );
+                        },
+                      ),
+                    ),
                   ],
                 );
               },
@@ -141,23 +169,6 @@ class _SavedFlashcardsScreenState extends State<SavedFlashcardsScreen> {
     return items;
   }
 
-  List<_SavedFlashcardGroup> _groups(List<SavedFlashcardItem> items) {
-    final groups = <String, _SavedFlashcardGroup>{};
-    for (final item in items) {
-      final key = '${item.ref.subjectId}_${item.ref.chapterId}';
-      groups.putIfAbsent(
-        key,
-        () => _SavedFlashcardGroup(
-          subjectName: item.subjectName,
-          chapter: item.chapter,
-          items: [],
-        ),
-      );
-      groups[key]!.items.add(item);
-    }
-    return groups.values.toList(growable: false);
-  }
-
   Future<void> _unsave(SavedFlashcardItem item) async {
     await _savedFlashcardService.unsaveFlashcard(
       subjectId: item.ref.subjectId,
@@ -166,6 +177,78 @@ class _SavedFlashcardsScreenState extends State<SavedFlashcardsScreen> {
     );
     setState(() => _revealed.remove(item.documentId));
   }
+
+  void _registerMuffinContext(SavedFlashcardItem item) {
+    final isRevealed = _revealed.contains(item.documentId);
+    final contextKey =
+        'saved_flashcard_${item.ref.subjectId}_${item.ref.chapterId}_${item.ref.cardId}_${isRevealed ? 'back' : 'front'}';
+    if (_registeredContextKey == contextKey) return;
+    _registeredContextKey = contextKey;
+    final originalContent = [
+      item.card.front,
+      if (isRevealed) item.card.back,
+      if (item.card.hint.trim().isNotEmpty) 'Hint: ${item.card.hint}',
+    ].join('\n');
+    MuffinContextRegistry.instance.set(
+      MuffinScreenContext(
+        mode: MuffinMode.learn,
+        subtitle: isRevealed
+            ? 'I can explain this saved flashcard.'
+            : 'I can help without revealing the answer.',
+        context: MuffinContext(
+          studentProfileId: 'qidah',
+          preferredLanguage: 'Mixed',
+          subjectId: item.ref.subjectId,
+          subjectTitle: item.subjectName,
+          chapterId: item.ref.chapterId,
+          chapterTitle: item.chapter.title,
+          mode: MuffinMode.learn,
+          currentScreen: 'saved_flashcards',
+          cardId: item.ref.cardId,
+          contextKey: contextKey,
+          currentQuestion: item.card.front,
+          lessonBody: isRevealed ? item.card.back : null,
+          relevantNotes: [
+            isRevealed ? 'Current side: back' : 'Current side: front'
+          ],
+          relevantFlashcards: [originalContent],
+          originalScreenContent: originalContent,
+        ),
+        actions: [
+          const MuffinActionConfig(
+            action: MuffinAction.explainSimply,
+            label: 'Explain this card',
+          ),
+          MuffinActionConfig(
+            action: MuffinAction.translate,
+            label: 'Translate this card',
+            contextOverride: _toMalay,
+          ),
+          MuffinActionConfig(
+            action: MuffinAction.translate,
+            label: 'Translate this card to English',
+            contextOverride: _toEnglish,
+          ),
+          const MuffinActionConfig(
+            action: MuffinAction.anotherExample,
+            label: 'Give another example',
+          ),
+          const MuffinActionConfig(
+            action: MuffinAction.stillConfused,
+            label: "I'm still confused",
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+MuffinContext _toMalay(MuffinContext context) {
+  return context.copyWith(targetLanguage: 'Bahasa Melayu');
+}
+
+MuffinContext _toEnglish(MuffinContext context) {
+  return context.copyWith(targetLanguage: 'English');
 }
 
 class SavedFlashcardItem {
@@ -184,20 +267,8 @@ class SavedFlashcardItem {
   String get documentId => ref.documentId;
 }
 
-class _SavedFlashcardGroup {
-  _SavedFlashcardGroup({
-    required this.subjectName,
-    required this.chapter,
-    required this.items,
-  });
-
-  final String subjectName;
-  final Chapter chapter;
-  final List<SavedFlashcardItem> items;
-}
-
-class _SavedFlashcardCard extends StatelessWidget {
-  const _SavedFlashcardCard({
+class _SavedFlashcardDeckCard extends StatelessWidget {
+  const _SavedFlashcardDeckCard({
     required this.item,
     required this.isRevealed,
     required this.onToggleReveal,
@@ -211,25 +282,34 @@ class _SavedFlashcardCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Card(
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 18),
       child: InkWell(
-        borderRadius: BorderRadius.circular(24),
+        borderRadius: BorderRadius.circular(28),
         onTap: onToggleReveal,
-        child: Padding(
-          padding: const EdgeInsets.all(18),
+        child: Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(24),
+          decoration: BoxDecoration(
+            color:
+                isRevealed ? const Color(0xFFFFF2E8) : const Color(0xFFE5EEE8),
+            borderRadius: BorderRadius.circular(28),
+          ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Row(
                 children: [
-                  const Icon(Icons.bookmark_rounded, color: Color(0xFFA45E37)),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      item.card.front,
-                      style: const TextStyle(fontWeight: FontWeight.w700),
+                  Text(
+                    isRevealed ? 'ANSWER' : 'QUESTION',
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.primary,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: 1.2,
                     ),
                   ),
+                  const Spacer(),
                   IconButton(
                     tooltip: 'Remove saved flashcard',
                     onPressed: onUnsave,
@@ -237,21 +317,69 @@ class _SavedFlashcardCard extends StatelessWidget {
                   ),
                 ],
               ),
-              const SizedBox(height: 8),
-              Text('${item.subjectName} - ${item.chapter.title}'),
-              const SizedBox(height: 10),
-              AnimatedCrossFade(
-                firstChild: const Text('Tap to reveal answer'),
-                secondChild: Text(item.card.back),
-                crossFadeState: isRevealed
-                    ? CrossFadeState.showSecond
-                    : CrossFadeState.showFirst,
-                duration: const Duration(milliseconds: 150),
+              Expanded(
+                child: Center(
+                  child: SingleChildScrollView(
+                    child: Text(
+                      isRevealed ? item.card.back : item.card.front,
+                      textAlign: TextAlign.center,
+                      style: Theme.of(context)
+                          .textTheme
+                          .headlineMedium
+                          ?.copyWith(height: 1.35),
+                    ),
+                  ),
+                ),
+              ),
+              if (!isRevealed && item.card.hint.trim().isNotEmpty) ...[
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.7),
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  child: Text('Hint: ${item.card.hint}'),
+                ),
+                const SizedBox(height: 16),
+              ],
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(
+                      isRevealed
+                          ? Icons.refresh_rounded
+                          : Icons.touch_app_rounded,
+                      size: 16),
+                  const SizedBox(width: 6),
+                  Text(
+                    isRevealed
+                        ? 'Tap to show question'
+                        : 'Tap to reveal answer',
+                    style: const TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
               ),
             ],
           ),
         ),
       ),
+    );
+  }
+}
+
+class _EmptySavedFlashcardsState extends StatelessWidget {
+  const _EmptySavedFlashcardsState();
+
+  @override
+  Widget build(BuildContext context) {
+    return const _SavedFlashcardsState(
+      icon: Icons.bookmark_border_rounded,
+      title: 'No saved flashcards yet',
+      message: "Save useful cards while studying and they'll appear here.",
     );
   }
 }
@@ -280,6 +408,11 @@ class _SavedFlashcardsState extends StatelessWidget {
             Text(title, style: Theme.of(context).textTheme.titleLarge),
             const SizedBox(height: 8),
             Text(message, textAlign: TextAlign.center),
+            const SizedBox(height: 18),
+            OutlinedButton(
+              onPressed: () => Navigator.of(context).maybePop(),
+              child: const Text('Back'),
+            ),
           ],
         ),
       ),

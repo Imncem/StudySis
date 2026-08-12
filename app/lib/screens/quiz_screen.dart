@@ -543,10 +543,9 @@ class _QuizOption extends StatelessWidget {
 
 String _detectLanguage(List<PageTranslationField> fields) {
   final text = fields.map((field) => field.text.toLowerCase()).join(' ');
-  final malaySignals =
-      RegExp(r'\b(ialah|dan|yang|dengan|contoh|nombor|pola|bab)\b')
-          .allMatches(text)
-          .length;
+  final malaySignals = RegExp(
+    r'\b(ialah|dan|yang|dengan|contoh|nombor|pola|bab|apakah|apa|jujukan|seterusnya|berikut|beza|sepunya|tetap)\b',
+  ).allMatches(text).length;
   final englishSignals =
       RegExp(r'\b(the|and|with|example|number|pattern|chapter)\b')
           .allMatches(text)
