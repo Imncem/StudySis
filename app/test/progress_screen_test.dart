@@ -3,6 +3,7 @@ import 'package:fake_cloud_firestore/fake_cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:studysis/config/content_paths.dart';
+import 'package:studysis/repositories/engagement_repository.dart';
 import 'package:studysis/repositories/learning_repository.dart';
 import 'package:studysis/repositories/student_progress_repository.dart';
 import 'package:studysis/screens/progress_screen.dart';
@@ -164,6 +165,10 @@ Widget _app({
     home: ProgressScreen(
       learningRepository: LearningRepository(firestore: firestore),
       progressRepository: StudentProgressRepository(
+        firestore: firestore,
+        uidProvider: () => uid,
+      ),
+      engagementRepository: EngagementRepository(
         firestore: firestore,
         uidProvider: () => uid,
       ),

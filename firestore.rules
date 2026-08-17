@@ -95,6 +95,51 @@ service cloud.firestore {
         && data.savedAt is timestamp;
     }
 
+    function validDateKey(value) {
+      return value is string && value.matches('^\\d{4}-\\d{2}-\\d{2}$');
+    }
+
+    function validEngagementState() {
+      let data = request.resource.data;
+      return data.keys().hasOnly([
+          'totalXp', 'level', 'currentStreak', 'longestStreak',
+          'lastQualifiedDate', 'todayDateKey', 'todayStudyPoints',
+          'dailyStudyTarget', 'todayStreakSecured', 'creditedActivities',
+          'updatedAt'
+        ])
+        && validCount(data.totalXp)
+        && data.level is int
+        && data.level >= 1
+        && validCount(data.currentStreak)
+        && validCount(data.longestStreak)
+        && data.longestStreak >= data.currentStreak
+        && (data.lastQualifiedDate == null || validDateKey(data.lastQualifiedDate))
+        && validDateKey(data.todayDateKey)
+        && validCount(data.todayStudyPoints)
+        && data.dailyStudyTarget is int
+        && data.dailyStudyTarget >= 1
+        && data.dailyStudyTarget <= 20
+        && data.todayStreakSecured is bool
+        && (!data.todayStreakSecured || data.currentStreak >= 1)
+        && (!data.keys().hasAny(['creditedActivities']) || data.creditedActivities is map)
+        && data.updatedAt is timestamp;
+    }
+
+    function validEngagementDay(dateKey) {
+      let data = request.resource.data;
+      return validDateKey(dateKey)
+        && data.keys().hasOnly([
+          'studyPoints', 'xpEarned', 'streakSecured', 'qualifiedAt',
+          'creditedActivities', 'updatedAt'
+        ])
+        && validCount(data.studyPoints)
+        && validCount(data.xpEarned)
+        && data.streakSecured is bool
+        && optionalTimestamp(data, 'qualifiedAt')
+        && data.creditedActivities is map
+        && data.updatedAt is timestamp;
+    }
+
     function validChapter() {
       let data = request.resource.data;
       return data.keys().hasOnly([
@@ -260,6 +305,25 @@ service cloud.firestore {
         && request.auth.uid == uid
         && validSavedFlashcard();
       allow delete: if isSignedIn() && request.auth.uid == uid;
+    }
+
+    match /student_progress/{uid}/engagement/{stateId} {
+      allow read: if isDashboardAdmin()
+        || (isSignedIn() && request.auth.uid == uid);
+      allow create, update: if isSignedIn()
+        && request.auth.uid == uid
+        && stateId == 'state'
+        && validEngagementState();
+      allow delete: if false;
+    }
+
+    match /student_progress/{uid}/engagement_days/{dateKey} {
+      allow read: if isDashboardAdmin()
+        || (isSignedIn() && request.auth.uid == uid);
+      allow create, update: if isSignedIn()
+        && request.auth.uid == uid
+        && validEngagementDay(dateKey);
+      allow delete: if false;
     }
 
     // `form2` is the current curriculum catalog ID. Future catalogs can use

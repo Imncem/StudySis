@@ -28,7 +28,7 @@ class QuizScreen extends StatefulWidget {
   final String title;
   final Future<List<QuizQuestion>> questionsFuture;
   final MuffinService? muffinService;
-  final ValueChanged<QuizResult>? onComplete;
+  final Future<void> Function(QuizResult result)? onComplete;
 
   @override
   State<QuizScreen> createState() => _QuizScreenState();
@@ -106,7 +106,7 @@ class _QuizScreenState extends State<QuizScreen> {
     );
     if (shouldSubmit != true) return;
     final result = QuizResult.calculate(questions, _selectedAnswers);
-    widget.onComplete?.call(result);
+    await widget.onComplete?.call(result);
     if (!mounted) return;
     setState(() {
       _result = result;

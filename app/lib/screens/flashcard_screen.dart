@@ -29,7 +29,7 @@ class FlashcardScreen extends StatefulWidget {
   final String subjectName;
   final Chapter chapter;
   final Set<String> initialCompletedCardIds;
-  final ValueChanged<String>? onCardCompleted;
+  final Future<void> Function(String cardId)? onCardCompleted;
   final LearningRepository? repository;
   final MuffinService? muffinService;
   final SavedFlashcardService? savedFlashcardService;
@@ -270,9 +270,10 @@ class _FlashcardScreenState extends State<FlashcardScreen> {
     });
   }
 
-  void _complete(Flashcard card) {
+  Future<void> _complete(Flashcard card) async {
     setState(() => _completedCards.add(card.id));
-    widget.onCardCompleted?.call(card.id);
+    await widget.onCardCompleted?.call(card.id);
+    if (!mounted) return;
     _showMessage('Got it');
   }
 

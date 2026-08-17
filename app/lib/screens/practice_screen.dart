@@ -29,7 +29,7 @@ class PracticeScreen extends StatefulWidget {
   final String? chapterId;
   final String? chapterTitle;
   final MuffinService? muffinService;
-  final ValueChanged<PracticeResult>? onComplete;
+  final Future<void> Function(PracticeResult result)? onComplete;
 
   @override
   State<PracticeScreen> createState() => _PracticeScreenState();
@@ -78,13 +78,14 @@ class _PracticeScreenState extends State<PracticeScreen> {
     });
   }
 
-  void _nextQuestion(int total) {
+  Future<void> _nextQuestion(int total) async {
     if (_questionIndex >= total - 1) {
       final result = PracticeResult(
         correctAnswers: _correctAnswers,
         totalQuestions: total,
       );
-      widget.onComplete?.call(result);
+      await widget.onComplete?.call(result);
+      if (!mounted) return;
       setState(() => _isComplete = true);
       return;
     }

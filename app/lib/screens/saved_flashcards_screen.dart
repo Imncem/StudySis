@@ -4,20 +4,24 @@ import '../models/chapter.dart';
 import '../models/flashcard.dart';
 import '../models/muffin.dart';
 import '../models/saved_flashcard.dart';
+import '../repositories/engagement_repository.dart';
 import '../repositories/learning_repository.dart';
 import '../services/muffin_context_registry.dart';
 import '../services/saved_flashcard_service.dart';
 import '../widgets/muffin_assist_sheet.dart';
+import 'streak_celebration_screen.dart';
 
 class SavedFlashcardsScreen extends StatefulWidget {
   const SavedFlashcardsScreen({
     this.learningRepository,
     this.savedFlashcardService,
+    this.engagementRepository,
     super.key,
   });
 
   final LearningRepository? learningRepository;
   final SavedFlashcardService? savedFlashcardService;
+  final EngagementRepository? engagementRepository;
 
   @override
   State<SavedFlashcardsScreen> createState() => _SavedFlashcardsScreenState();
@@ -26,8 +30,10 @@ class SavedFlashcardsScreen extends StatefulWidget {
 class _SavedFlashcardsScreenState extends State<SavedFlashcardsScreen> {
   late final LearningRepository _learningRepository;
   late final SavedFlashcardService _savedFlashcardService;
+  late final EngagementRepository _engagementRepository;
   final _pageController = PageController();
   final Set<String> _revealed = {};
+  final Set<String> _reviewedSavedCards = {};
   int _currentIndex = 0;
   String? _registeredContextKey;
 
@@ -37,6 +43,8 @@ class _SavedFlashcardsScreenState extends State<SavedFlashcardsScreen> {
     _learningRepository = widget.learningRepository ?? LearningRepository();
     _savedFlashcardService =
         widget.savedFlashcardService ?? SavedFlashcardServiceFactory.create();
+    _engagementRepository =
+        widget.engagementRepository ?? EngagementRepository();
   }
 
   @override
@@ -122,11 +130,16 @@ class _SavedFlashcardsScreenState extends State<SavedFlashcardsScreen> {
                             item: item,
                             isRevealed: _revealed.contains(item.documentId),
                             onToggleReveal: () {
+                              var shouldCredit = false;
                               setState(() {
                                 if (!_revealed.add(item.documentId)) {
                                   _revealed.remove(item.documentId);
+                                } else {
+                                  _reviewedSavedCards.add(item.documentId);
+                                  shouldCredit = true;
                                 }
                               });
+                              if (shouldCredit) _creditSavedFlashcardReview();
                             },
                             onUnsave: () => _unsave(item),
                           );
@@ -176,6 +189,26 @@ class _SavedFlashcardsScreenState extends State<SavedFlashcardsScreen> {
       cardId: item.ref.cardId,
     );
     setState(() => _revealed.remove(item.documentId));
+  }
+
+  Future<void> _creditSavedFlashcardReview() async {
+    try {
+      final result = await _engagementRepository.creditSavedFlashcardReview(
+        reviewedSavedCardIds: _reviewedSavedCards,
+      );
+      if (!mounted || !result.streakNewlySecured) return;
+      await Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (_) => StreakCelebrationScreen(
+            streakDays: result.state.currentStreak,
+            xpReward: result.xpAwarded,
+          ),
+        ),
+      );
+    } catch (error, stackTrace) {
+      debugPrint('[StudySis][engagement] saved review credit failed: $error');
+      debugPrint('[StudySis][engagement] stackTrace=$stackTrace');
+    }
   }
 
   void _registerMuffinContext(SavedFlashcardItem item) {

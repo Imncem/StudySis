@@ -31,6 +31,10 @@ const {
     providerDayInfo,
     timeZoneOffsetMs,
     providerCacheKey,
+    legacyProviderCacheKey,
+    providerCacheIdentity,
+    cacheRejectionReason,
+    muffinCacheVersion,
     standardMuffinTextFormat,
     generatedQuestionTextFormat,
     pageTranslationTextFormat,
@@ -423,6 +427,131 @@ test('Muffin cache keys are stable and separate endpoints', () => {
   assert.notEqual(
     providerCacheKey('askMuffin', request),
     providerCacheKey('translateMuffinPage', request),
+  );
+});
+
+test('Muffin quiz cache identity separates different questions', () => {
+  const q1 = {
+    mode: 'quiz',
+    action: 'guideQuestion',
+    context: {
+      mode: 'quiz',
+      currentScreen: 'quiz',
+      subjectId: 'math',
+      chapterId: 'chapter-01',
+      questionId: 'q1',
+      contextKey: 'quiz_math_chapter-01_question_q1',
+      displayedLanguage: 'ms',
+      currentQuestion: 'Apakah nombor seterusnya?\n4, 8, 12, 16',
+      answerOptions: ['18', '20', '24', '28'],
+      originalScreenContent: 'Apakah nombor seterusnya?\n4, 8, 12, 16\n18\n20\n24\n28',
+    },
+  };
+  const q5 = {
+    mode: 'quiz',
+    action: 'guideQuestion',
+    context: {
+      mode: 'quiz',
+      currentScreen: 'quiz',
+      subjectId: 'math',
+      chapterId: 'chapter-01',
+      questionId: 'dfPGkfe6XGBq0xqfF7fr',
+      contextKey: 'quiz_math_chapter-01_question_dfPGkfe6XGBq0xqfF7fr',
+      displayedLanguage: 'ms',
+      currentQuestion:
+        'Diberi jujukan:\n\n6, 10, 14, 18, ...\n\nApakah rumus bagi sebutan ke-n?',
+      answerOptions: ['2n + 4', '4n + 2', '6n - 2', '10n - 4'],
+      originalScreenContent:
+        'Diberi jujukan:\n\n6, 10, 14, 18, ...\n\nApakah rumus bagi sebutan ke-n?\n2n + 4\n4n + 2\n6n - 2\n10n - 4',
+    },
+  };
+
+  const q1Identity = providerCacheIdentity('askMuffin', q1, 'uid-1');
+  const q5Identity = providerCacheIdentity('askMuffin', q5, 'uid-1');
+
+  assert.equal(q5Identity.cacheVersion, muffinCacheVersion);
+  assert.equal(q5Identity.action, 'guideQuestion');
+  assert.equal(q5Identity.questionId, 'dfPGkfe6XGBq0xqfF7fr');
+  assert.notEqual(q1Identity.contextKey, q5Identity.contextKey);
+  assert.notEqual(q1Identity.contentHash, q5Identity.contentHash);
+  assert.notEqual(
+    providerCacheKey('askMuffin', q1, 'uid-1'),
+    providerCacheKey('askMuffin', q5, 'uid-1'),
+  );
+});
+
+test('Muffin cache rejects legacy and mismatched metadata', () => {
+  const request = {
+    mode: 'quiz',
+    action: 'guideQuestion',
+    context: {
+      subjectId: 'math',
+      chapterId: 'chapter-01',
+      questionId: 'dfPGkfe6XGBq0xqfF7fr',
+      contextKey: 'quiz_math_chapter-01_question_dfPGkfe6XGBq0xqfF7fr',
+      displayedLanguage: 'ms',
+      currentQuestion:
+        'Diberi jujukan:\n\n6, 10, 14, 18, ...\n\nApakah rumus bagi sebutan ke-n?',
+      answerOptions: ['2n + 4', '4n + 2', '6n - 2', '10n - 4'],
+    },
+  };
+  const identity = providerCacheIdentity('askMuffin', request, 'uid-1');
+
+  assert.equal(
+    cacheRejectionReason({ payload: { success: true } }, identity),
+    'version_mismatch',
+  );
+  assert.equal(
+    cacheRejectionReason({
+      cacheVersion: muffinCacheVersion,
+      metadata: { ...identity, questionId: 'q1' },
+      payload: { success: true },
+    }, identity),
+    'context_mismatch',
+  );
+  assert.equal(
+    cacheRejectionReason({
+      cacheVersion: muffinCacheVersion,
+      metadata: { ...identity, language: 'en' },
+      payload: { success: true },
+    }, identity),
+    'language_mismatch',
+  );
+  assert.equal(
+    cacheRejectionReason({
+      cacheVersion: muffinCacheVersion,
+      metadata: { ...identity, contentHash: 'old-content' },
+      payload: { success: true },
+    }, identity),
+    'content_mismatch',
+  );
+  assert.equal(
+    cacheRejectionReason({
+      cacheVersion: muffinCacheVersion,
+      metadata: identity,
+      payload: { success: true },
+    }, identity),
+    null,
+  );
+});
+
+test('Muffin cache key no longer accepts legacy unversioned key shape', () => {
+  const request = {
+    mode: 'quiz',
+    action: 'guideQuestion',
+    context: {
+      subjectId: 'math',
+      chapterId: 'chapter-01',
+      questionId: 'q1',
+      contextKey: 'quiz_math_chapter-01_question_q1',
+      displayedLanguage: 'ms',
+      currentQuestion: 'Apakah nombor seterusnya?\n4, 8, 12, 16',
+    },
+  };
+
+  assert.notEqual(
+    providerCacheKey('askMuffin', request, 'uid-1'),
+    legacyProviderCacheKey('askMuffin', request),
   );
 });
 

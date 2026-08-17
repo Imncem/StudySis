@@ -2,12 +2,15 @@ import 'package:flutter/material.dart';
 
 import '../models/chapter.dart';
 import '../models/flashcard.dart';
+import '../models/engagement.dart';
 import '../models/learning_content.dart';
 import '../models/practice_question.dart';
 import '../models/quiz_question.dart';
 import '../repositories/learning_repository.dart';
 import '../models/chapter_progress.dart';
+import '../repositories/engagement_repository.dart';
 import '../repositories/student_progress_repository.dart';
+import 'streak_celebration_screen.dart';
 import 'flashcard_screen.dart';
 import 'module_reader_screen.dart';
 import 'practice_screen.dart';
@@ -20,6 +23,7 @@ class ChapterOverviewScreen extends StatefulWidget {
     required this.chapter,
     this.repository,
     this.progressRepository,
+    this.engagementRepository,
     super.key,
   });
 
@@ -28,6 +32,7 @@ class ChapterOverviewScreen extends StatefulWidget {
   final Chapter chapter;
   final LearningRepository? repository;
   final StudentProgressRepository? progressRepository;
+  final EngagementRepository? engagementRepository;
 
   @override
   State<ChapterOverviewScreen> createState() => _ChapterOverviewScreenState();
@@ -36,6 +41,7 @@ class ChapterOverviewScreen extends StatefulWidget {
 class _ChapterOverviewScreenState extends State<ChapterOverviewScreen> {
   late final LearningRepository _repository;
   late final StudentProgressRepository _progressRepository;
+  late final EngagementRepository _engagementRepository;
   late Future<_ChapterJourneyData> _journey;
 
   @override
@@ -44,6 +50,8 @@ class _ChapterOverviewScreenState extends State<ChapterOverviewScreen> {
     _repository = widget.repository ?? LearningRepository();
     _progressRepository =
         widget.progressRepository ?? StudentProgressRepository();
+    _engagementRepository =
+        widget.engagementRepository ?? EngagementRepository();
     _journey = _loadJourney();
   }
 
@@ -99,6 +107,14 @@ class _ChapterOverviewScreenState extends State<ChapterOverviewScreen> {
       ),
       savedMessage: 'Learn progress saved.',
     );
+    if (saved) {
+      await _creditEngagement(
+        () => _engagementRepository.creditLearnCompletion(
+          subjectId: widget.subjectId,
+          chapterId: widget.chapter.id,
+        ),
+      );
+    }
     if (!saved || action != ModuleReaderExitAction.goToFlashcards || !mounted) {
       return;
     }
@@ -131,6 +147,13 @@ class _ChapterOverviewScreenState extends State<ChapterOverviewScreen> {
                 masteredCount: masteredIds.length,
                 totalCount: cards.length,
                 masteredCardIds: masteredIds.toList(),
+              ),
+            );
+            await _creditEngagement(
+              () => _engagementRepository.creditFlashcardReview(
+                subjectId: widget.subjectId,
+                chapterId: widget.chapter.id,
+                reviewedCardIds: masteredIds,
               ),
             );
           },
@@ -169,6 +192,13 @@ class _ChapterOverviewScreenState extends State<ChapterOverviewScreen> {
               ),
               savedMessage: 'Practice progress saved.',
             );
+            await _creditEngagement(
+              () => _engagementRepository.creditPracticeQuestions(
+                subjectId: widget.subjectId,
+                chapterId: widget.chapter.id,
+                completedQuestionCount: result.totalQuestions,
+              ),
+            );
           },
         ),
       ),
@@ -204,10 +234,36 @@ class _ChapterOverviewScreenState extends State<ChapterOverviewScreen> {
               ),
               savedMessage: 'Quiz progress saved.',
             );
+            await _creditEngagement(
+              () => _engagementRepository.creditQuizCompletion(
+                subjectId: widget.subjectId,
+                chapterId: widget.chapter.id,
+              ),
+            );
           },
         ),
       ),
     );
+  }
+
+  Future<void> _creditEngagement(
+    Future<EngagementCreditResult> Function() credit,
+  ) async {
+    try {
+      final result = await credit();
+      if (!mounted || !result.streakNewlySecured) return;
+      await Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (_) => StreakCelebrationScreen(
+            streakDays: result.state.currentStreak,
+            xpReward: result.xpAwarded,
+          ),
+        ),
+      );
+    } catch (error, stackTrace) {
+      debugPrint('[StudySis][engagement] credit failed: $error');
+      debugPrint('[StudySis][engagement] stackTrace=$stackTrace');
+    }
   }
 
   Future<bool> _persistProgress(

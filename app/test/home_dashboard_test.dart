@@ -8,6 +8,7 @@ import 'package:studysis/config/content_paths.dart';
 import 'package:studysis/models/muffin_wallet.dart';
 import 'package:studysis/models/student.dart';
 import 'package:studysis/models/subject.dart';
+import 'package:studysis/repositories/engagement_repository.dart';
 import 'package:studysis/repositories/learning_repository.dart';
 import 'package:studysis/screens/home_screen.dart';
 import 'package:studysis/services/muffin_context_registry.dart';
@@ -15,9 +16,9 @@ import 'package:studysis/services/muffin_wallet_service.dart';
 import 'package:studysis/services/saved_flashcard_service.dart';
 import 'package:studysis/theme/app_theme.dart';
 
-void main() {
-  const uid = 'anonymousUid123';
+const uid = 'anonymousUid123';
 
+void main() {
   testWidgets('dashboard displays and updates Muffin Bites value',
       (tester) async {
     final wallet = _WalletController(MuffinWallet.full);
@@ -43,6 +44,68 @@ void main() {
     expect(find.text('Muffin is ready to help!'), findsOneWidget);
     expect(find.textContaining('Next Bite in'), findsNothing);
     expect(find.textContaining('recharging'), findsNothing);
+  });
+
+  testWidgets('dashboard shows engagement 0/3 state', (tester) async {
+    final firestore = FakeFirebaseFirestore();
+    final engagement = EngagementRepository(
+      firestore: firestore,
+      uidProvider: () => uid,
+      nowProvider: () => DateTime.utc(2026, 8, 17, 2),
+    );
+
+    await tester.pumpWidget(_app(engagementRepository: engagement));
+    await tester.pumpAndSettle();
+    await _scrollToEngagementCard(tester);
+
+    expect(find.text("Today's Goal"), findsOneWidget);
+    expect(find.text('0 / 3'), findsOneWidget);
+    expect(find.text('Complete a learning activity to keep your streak going.'),
+        findsOneWidget);
+  });
+
+  testWidgets('dashboard shows engagement 2/3 state', (tester) async {
+    final firestore = FakeFirebaseFirestore();
+    await _seedEngagementState(firestore, studyPoints: 2, xp: 20);
+    final engagement = EngagementRepository(
+      firestore: firestore,
+      uidProvider: () => uid,
+      nowProvider: () => DateTime.utc(2026, 8, 17, 2),
+    );
+
+    await tester.pumpWidget(_app(engagementRepository: engagement));
+    await tester.pumpAndSettle();
+    await _scrollToEngagementCard(tester);
+
+    expect(find.text('2 / 3'), findsOneWidget);
+    expect(find.text("You're making progress. Keep going!"), findsOneWidget);
+    expect(find.text('Level 1'), findsOneWidget);
+    expect(find.text('20 / 100 XP'), findsOneWidget);
+  });
+
+  testWidgets('dashboard shows engagement secured state', (tester) async {
+    final firestore = FakeFirebaseFirestore();
+    await _seedEngagementState(
+      firestore,
+      studyPoints: 3,
+      xp: 240,
+      currentStreak: 6,
+      secured: true,
+    );
+    final engagement = EngagementRepository(
+      firestore: firestore,
+      uidProvider: () => uid,
+      nowProvider: () => DateTime.utc(2026, 8, 17, 2),
+    );
+
+    await tester.pumpWidget(_app(engagementRepository: engagement));
+    await tester.pumpAndSettle();
+    await _scrollToEngagementCard(tester);
+
+    expect(find.text('3 / 3'), findsOneWidget);
+    expect(find.text("Today's streak is secured!"), findsOneWidget);
+    expect(find.textContaining('6 day streak'), findsOneWidget);
+    expect(find.text('Level 2'), findsOneWidget);
   });
 
   testWidgets('dashboard shows recharge and daily-rest Bite states',
@@ -415,6 +478,7 @@ Widget _app({
   MuffinWalletService walletService = const StaticMuffinWalletService(),
   SavedFlashcardService savedFlashcardService =
       const StaticSavedFlashcardService(),
+  EngagementRepository? engagementRepository,
   LearningRepository? learningRepository,
 }) {
   return MaterialApp(
@@ -422,6 +486,12 @@ Widget _app({
     home: HomeScreen(
       walletService: walletService,
       savedFlashcardService: savedFlashcardService,
+      engagementRepository: engagementRepository ??
+          EngagementRepository(
+            firestore: FakeFirebaseFirestore(),
+            uidProvider: () => uid,
+            nowProvider: () => DateTime.utc(2026, 8, 17, 2),
+          ),
       learningRepository: learningRepository ??
           LearningRepository(
             firestore: FakeFirebaseFirestore(),
@@ -438,6 +508,27 @@ Widget _app({
       subjectsStream: Stream.value(const <Subject>[]).asBroadcastStream(),
     ),
   );
+}
+
+Future<void> _seedEngagementState(
+  FakeFirebaseFirestore firestore, {
+  required int studyPoints,
+  required int xp,
+  int currentStreak = 0,
+  bool secured = false,
+}) async {
+  await firestore.doc('student_progress/$uid/engagement/state').set({
+    'totalXp': xp,
+    'level': 1,
+    'currentStreak': currentStreak,
+    'longestStreak': currentStreak,
+    'lastQualifiedDate': secured ? '2026-08-17' : null,
+    'todayDateKey': '2026-08-17',
+    'todayStudyPoints': studyPoints,
+    'dailyStudyTarget': 3,
+    'todayStreakSecured': secured,
+    'updatedAt': Timestamp.fromDate(DateTime.utc(2026, 8, 17)),
+  });
 }
 
 Future<void> _seedCurriculum(
@@ -513,6 +604,11 @@ void _setLargeSurface(WidgetTester tester) {
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.resetPhysicalSize);
   addTearDown(tester.view.resetDevicePixelRatio);
+}
+
+Future<void> _scrollToEngagementCard(WidgetTester tester) async {
+  await tester.drag(find.byType(ListView), const Offset(0, -420));
+  await tester.pumpAndSettle();
 }
 
 class _WalletController implements MuffinWalletService {

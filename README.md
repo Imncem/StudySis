@@ -10,7 +10,7 @@ The configured Firebase project is `studysis-d2151`.
 
 ## Current Status
 
-The current branch includes work through Sprint 3.5E:
+The current branch includes work through Sprint 3.6A.2:
 
 - Content Studio for Mathematics chapters and learning modules.
 - Student learning flow for Learn, Flashcards, Practice, Quiz, Progress, saved flashcards, and Muffin.
@@ -18,6 +18,8 @@ The current branch includes work through Sprint 3.5E:
 - Context-aware Muffin assistant with real Gemini provider support.
 - Whole-page translation for dynamic learning screens.
 - Muffin Bites wallet, cooldown, daily provider budget, and real-time regeneration.
+- Wrong-question-safe Muffin response caching.
+- Study Points, permanent XP, levels, daily streaks, and upgraded streak celebration UX.
 
 Mock Muffin remains available for local Flutter development. Real Muffin uses Firebase Functions so provider API keys never enter Flutter source or client builds.
 
@@ -65,6 +67,8 @@ Student progress:
 
 ```text
 student_progress/{uid}/chapters/{subjectId}_{chapterId}
+student_progress/{uid}/engagement/state
+student_progress/{uid}/engagement_days/{YYYY-MM-DD}
 ```
 
 Muffin wallet:
@@ -107,6 +111,63 @@ Learn completion persists before navigation to Flashcards. After a successful Le
 - Overall chapter progress is at least 25%.
 
 Failed writes show a user-facing error and must not silently unlock later stages.
+
+## Study Points, XP, Levels, And Streaks
+
+Sprint 3.6A added a separate engagement system that does not replace chapter progress.
+
+Firestore paths:
+
+```text
+student_progress/{uid}/engagement/state
+student_progress/{uid}/engagement_days/{YYYY-MM-DD}
+```
+
+The daily date key uses Malaysia calendar days in `YYYY-MM-DD` format. Study Points reset per Malaysia day; XP, level, current streak, longest streak, and last qualified date persist.
+
+Daily streak target:
+
+```text
+3 Study Points per Malaysia day
+```
+
+Engagement rewards:
+
+```text
+Learn completion:              +2 Study Points, +20 XP
+Review 5 normal Flashcards:    +1 Study Point,  +10 XP
+Complete 5 Practice questions: +2 Study Points, +20 XP
+Complete Quiz:                 +3 Study Points, +40 XP
+Review 3 Saved Flashcards:     +1 Study Point,  +10 XP
+Muffin/translation/navigation:  +0 Study Points, +0 XP
+```
+
+XP levels:
+
+```text
+Level 1: 0-99 XP
+Level 2: 100-249 XP
+Level 3: 250-449 XP
+Level 4: 450-699 XP
+Level 5: 700-999 XP
+Level 6+: extends in 400 XP bands
+```
+
+Streak qualification is transaction-based. The first time a day crosses the 3-point target:
+
+- If the last qualified date was yesterday, `currentStreak` increments.
+- If the last qualified date is older or missing, `currentStreak` restarts at 1.
+- Same-day extra activity does not increment again.
+- `todayStreakSecured=true` must never persist with `currentStreak=0`.
+
+Sprint 3.6A.2 added defensive normalization and Firestore rules invariants for legacy or manually edited impossible states:
+
+```text
+longestStreak >= currentStreak
+todayStreakSecured=false OR currentStreak >= 1
+```
+
+The streak celebration screen receives the newly persisted transaction result and can show the already-awarded XP reward. It does not award XP or streaks from the Continue button.
 
 ## Muffin AI
 
@@ -408,14 +469,33 @@ Firebase SDK XML processing warnings are separate from real Android build failur
 - Added cap/no-bank behavior for full wallets.
 - Added backend and Flutter tests for regeneration thresholds and provider-day budget behavior.
 
+### Sprint 3.5F - Muffin Cache Identity And Assist Sheet Polish
+
+- Versioned provider cache identity to include mode, action, uid, page/question/card context, language, and content hash.
+- Rejected legacy or mismatched cache metadata to prevent wrong-question Muffin response reuse.
+- Preserved quiz answer safety, flashcard hidden-answer safety, stale context protection, page translation, and provider budget behavior.
+- Reset visible Muffin turn state when quiz/card context changes while the assist sheet remains open.
+- Updated the Muffin assist sheet header to use the shared Muffin mascot icon.
+
+### Sprint 3.6A-3.6A.2 - Study Points, XP, Daily Streaks, And Celebration
+
+- Added Study Points as a daily meaningful-learning target, separate from permanent XP.
+- Added XP levels and a compact Home dashboard engagement card.
+- Added Malaysia-day daily reset behavior for Study Points.
+- Added streak qualification after reaching 3 Study Points in a Malaysia calendar day.
+- Added anti-farming milestone keys for Learn, Flashcards, Practice, Quiz, and Saved Flashcards.
+- Added streak celebration screen with staged animation, one-shot confetti, Muffin mascot animation, milestone copy, optional XP reward display, haptics, and reduced-motion support.
+- Fixed persisted `currentStreak=0` after qualification by enforcing transaction/model/rules invariants.
+- Added regression tests for first streak, missed-day restart, consecutive-day increment, same-day no double increment, secured-zero normalization, celebration copy, reward display, and disposal.
+
 ## Current Test Baseline
 
-Latest validation on Sprint 3.5E:
+Latest validation on Sprint 3.6A.2:
 
 ```text
 dart format lib test - passed
-flutter analyze - passed
-flutter test - passed, 148 tests
+flutter analyze - passed, no issues
+flutter test - passed, 172 tests
 npm run lint - passed
-npm test - passed, 80 tests
+npm test - passed, 83 tests
 ```

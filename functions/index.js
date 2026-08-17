@@ -52,6 +52,8 @@ const biteMessages = {
   dailyLimit: 'Muffin has finished helping for today.',
 };
 
+const muffinCacheVersion = 2;
+
 exports.askMuffin = onRequest(
   {
     secrets: [geminiApiKey],
@@ -228,8 +230,11 @@ async function callMuffinProvider({
     const geminiProfile = geminiProfileForMuffin(request);
     const enforceBudget = selected === 'gemini' && geminiApiKey !== 'test';
     const spendStudentBite = enforceBudget && !isFreeTranslationRequest(request);
-    const cacheKey = providerCacheKey('askMuffin', request);
-    const cached = enforceBudget ? await readProviderCache(cacheKey) : null;
+    const cacheIdentity = providerCacheIdentity('askMuffin', request, uid);
+    const cacheKey = providerCacheKey('askMuffin', request, uid);
+    const cached = enforceBudget
+      ? await readProviderCache(cacheKey, cacheIdentity, requestId)
+      : null;
     if (cached) return { ...cached, resultSource: 'cache' };
     const studentReservation = spendStudentBite
       ? await reserveStudentBite({ requestId, uid })
@@ -277,7 +282,7 @@ async function callMuffinProvider({
       await finalizeStudentBite({ reservation: studentReservation });
     }
     if (enforceBudget) {
-      await writeProviderCache(cacheKey, normalized);
+      await writeProviderCache(cacheKey, normalized, cacheIdentity);
     }
     console.info(
       `[StudySis][muffin] requestId=${requestId} provider=${result.provider} model=${result.model} durationMs=${Date.now() - start} inputChars=${result.inputChars} validation=accepted`,
@@ -316,8 +321,11 @@ async function translatePageWithProvider({
     const prompt = buildPageTranslationPromptParts(request);
     const geminiProfile = geminiProfileForPageTranslation();
     const enforceBudget = selected === 'gemini' && geminiApiKey !== 'test';
-    const cacheKey = providerCacheKey('translateMuffinPage', request);
-    const cached = enforceBudget ? await readProviderCache(cacheKey) : null;
+    const cacheIdentity = providerCacheIdentity('translateMuffinPage', request, uid);
+    const cacheKey = providerCacheKey('translateMuffinPage', request, uid);
+    const cached = enforceBudget
+      ? await readProviderCache(cacheKey, cacheIdentity, requestId)
+      : null;
     if (cached) return { ...cached, resultSource: 'cache' };
 
     let result;
@@ -355,7 +363,7 @@ async function translatePageWithProvider({
       throw error;
     }
     if (enforceBudget) {
-      await writeProviderCache(cacheKey, normalized);
+      await writeProviderCache(cacheKey, normalized, cacheIdentity);
     }
     console.info(
       `[StudySis][page-translation] requestId=${requestId} provider=${result.provider} pageId=${request.pageId} model=${result.model} durationMs=${Date.now() - start} inputChars=${result.inputChars} validation=accepted`,
@@ -476,21 +484,142 @@ function geminiThinkingLevelForAction(action) {
     : 'MINIMAL';
 }
 
-function providerCacheKey(kind, request) {
+function providerCacheKey(kind, request, uid = 'shared') {
+  return crypto
+    .createHash('sha256')
+    .update(JSON.stringify(providerCacheIdentity(kind, request, uid)))
+    .digest('hex');
+}
+
+function providerCacheIdentity(kind, request, uid = 'shared') {
+  const context = request.context || {};
+  if (kind === 'translateMuffinPage') {
+    return {
+      cacheVersion: muffinCacheVersion,
+      kind,
+      uid,
+      pageType: request.pageType || '',
+      pageId: request.pageId || '',
+      sourceLanguage: request.sourceLanguage || '',
+      targetLanguage: request.targetLanguage || '',
+      contentHash: hashContent({
+        pageId: request.pageId || '',
+        pageType: request.pageType || '',
+        fields: request.fields || [],
+      }),
+    };
+  }
+  return {
+    cacheVersion: muffinCacheVersion,
+    kind,
+    uid,
+    mode: request.mode || context.mode || '',
+    action: request.action || context.currentAction || '',
+    subjectId: context.subjectId || '',
+    chapterId: context.chapterId || '',
+    questionId: context.questionId || '',
+    cardId: context.cardId || '',
+    contextKey: context.contextKey || '',
+    language: responseLanguage(context),
+    contentHash: muffinContentHash(context),
+  };
+}
+
+function legacyProviderCacheKey(kind, request) {
   return crypto
     .createHash('sha256')
     .update(JSON.stringify({ kind, request }))
     .digest('hex');
 }
 
-async function readProviderCache(cacheKey) {
-  const snapshot = await db.doc(`system/muffin_cache_${cacheKey}`).get();
-  const payload = snapshot.data()?.payload;
-  return payload && typeof payload === 'object' ? payload : null;
+function muffinContentHash(context = {}) {
+  return hashContent({
+    lessonHeading: context.lessonHeading || '',
+    lessonBody: context.lessonBody || '',
+    currentQuestion: context.currentQuestion || '',
+    answerOptions: context.answerOptions || [],
+    originalScreenContent: context.originalScreenContent || '',
+    currentMuffinContent: context.currentMuffinContent || '',
+  });
 }
 
-async function writeProviderCache(cacheKey, payload) {
+function hashContent(value) {
+  return crypto
+    .createHash('sha256')
+    .update(JSON.stringify(value))
+    .digest('hex');
+}
+
+async function readProviderCache(cacheKey, expectedIdentity, requestId) {
+  const snapshot = await db.doc(`system/muffin_cache_${cacheKey}`).get();
+  if (!snapshot.exists) {
+    logMuffinCache({ requestId, result: 'miss', cacheKey, identity: expectedIdentity });
+    return null;
+  }
+  const data = snapshot.data() || {};
+  const rejection = cacheRejectionReason(data, expectedIdentity);
+  if (rejection) {
+    logMuffinCache({
+      requestId,
+      result: 'rejected',
+      cacheKey,
+      identity: expectedIdentity,
+      reason: rejection,
+    });
+    return null;
+  }
+  const payload = data.payload;
+  if (!payload || typeof payload !== 'object') {
+    logMuffinCache({
+      requestId,
+      result: 'rejected',
+      cacheKey,
+      identity: expectedIdentity,
+      reason: 'payload_missing',
+    });
+    return null;
+  }
+  logMuffinCache({ requestId, result: 'hit', cacheKey, identity: expectedIdentity });
+  return payload;
+}
+
+function cacheRejectionReason(data, expectedIdentity) {
+  if (data.cacheVersion !== muffinCacheVersion) return 'version_mismatch';
+  const metadata = data.metadata || {};
+  const fields = [
+    'kind',
+    'uid',
+    'mode',
+    'action',
+    'subjectId',
+    'chapterId',
+    'questionId',
+    'cardId',
+    'contextKey',
+    'language',
+    'pageType',
+    'pageId',
+    'sourceLanguage',
+    'targetLanguage',
+  ];
+  for (const field of fields) {
+    if ((metadata[field] || '') !== (expectedIdentity[field] || '')) {
+      if (field === 'language' || field === 'sourceLanguage' || field === 'targetLanguage') {
+        return 'language_mismatch';
+      }
+      return 'context_mismatch';
+    }
+  }
+  if (metadata.contentHash !== expectedIdentity.contentHash) {
+    return 'content_mismatch';
+  }
+  return null;
+}
+
+async function writeProviderCache(cacheKey, payload, metadata) {
   await db.doc(`system/muffin_cache_${cacheKey}`).set({
+    cacheVersion: muffinCacheVersion,
+    metadata,
     payload,
     resultSource: 'gemini',
     createdAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -1710,8 +1839,9 @@ function newRequestId() {
 
 function logMuffinRequest(requestId, uid, request) {
   const context = request.context;
+  const identity = providerCacheIdentity('askMuffin', request, uid);
   console.info(
-    `[StudySis][muffin] MUFFIN REQUEST requestId=${requestId} uid=${uid} mode=${request.mode} action=${request.action} contextKey=${context.contextKey || ''} subject=${context.subjectId || ''} chapter=${context.chapterId || ''} questionId=${context.questionId || ''} cardId=${context.cardId || ''} language=${context.displayedLanguage || ''} prohibitedAnswerData=${hasProhibitedQuizContext(context)}`,
+    `[StudySis][muffin] MUFFIN REQUEST requestId=${requestId} uid=${uid} mode=${request.mode} action=${request.action} contextKey=${context.contextKey || ''} subject=${context.subjectId || ''} chapter=${context.chapterId || ''} questionId=${context.questionId || ''} cardId=${context.cardId || ''} language=${context.displayedLanguage || ''} contentHash=${identity.contentHash} cacheKey=${providerCacheKey('askMuffin', request, uid)} prohibitedAnswerData=${hasProhibitedQuizContext(context)}`,
   );
   console.info(
     `[StudySis][muffin] requestId=${requestId} visibleContent=${JSON.stringify({
@@ -1720,6 +1850,24 @@ function logMuffinRequest(requestId, uid, request) {
       currentQuestion: context.currentQuestion,
       originalScreenContent: context.originalScreenContent,
     })}`,
+  );
+}
+
+function logMuffinCache({ requestId, result, cacheKey, identity, reason }) {
+  if (!isDevelopmentDiagnosticsEnabled()) return;
+  console.info(
+    [
+      '[StudySis][muffin] MUFFIN CACHE',
+      `requestId=${requestId || 'unknown'}`,
+      `result=${result}`,
+      `cacheKey=${cacheKey}`,
+      `questionId=${identity?.questionId || ''}`,
+      `cardId=${identity?.cardId || ''}`,
+      `contextKey=${identity?.contextKey || identity?.pageId || ''}`,
+      `action=${identity?.action || ''}`,
+      `contentHash=${identity?.contentHash || ''}`,
+      reason ? `reason=${reason}` : '',
+    ].filter(Boolean).join(' '),
   );
 }
 
@@ -1791,6 +1939,12 @@ Object.defineProperty(module.exports, '_test', {
     providerDayInfo,
     timeZoneOffsetMs,
     providerCacheKey,
+    legacyProviderCacheKey,
+    providerCacheIdentity,
+    muffinContentHash,
+    hashContent,
+    cacheRejectionReason,
+    muffinCacheVersion,
     standardMuffinTextFormat,
     generatedQuestionTextFormat,
     pageTranslationTextFormat,

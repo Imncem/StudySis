@@ -6,6 +6,7 @@ import '../models/muffin_wallet.dart';
 import '../services/muffin_context_registry.dart';
 import '../services/muffin_service.dart';
 import '../services/muffin_wallet_service.dart';
+import 'muffin_mascot_icon.dart';
 
 class MuffinActionConfig {
   const MuffinActionConfig({
@@ -65,6 +66,7 @@ class _MuffinAssistSheetState extends State<MuffinAssistSheet> {
   @override
   void initState() {
     super.initState();
+    MuffinContextRegistry.instance.current.addListener(_handleVisibleContext);
     final initialAction = widget.initialAction;
     if (initialAction != null) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -74,19 +76,47 @@ class _MuffinAssistSheetState extends State<MuffinAssistSheet> {
   }
 
   @override
+  void dispose() {
+    MuffinContextRegistry.instance.current
+        .removeListener(_handleVisibleContext);
+    super.dispose();
+  }
+
+  @override
   void didUpdateWidget(covariant MuffinAssistSheet oldWidget) {
     super.didUpdateWidget(oldWidget);
     final oldKey =
         oldWidget.context.contextKey ?? _fallbackContextKey(oldWidget);
     if (oldKey != _contextKey) {
-      _response = null;
-      _errorMessage = null;
-      _generatedAnswerIndex = null;
-      _generatedSubmitted = false;
-      _previousMuffinResponse = null;
-      _currentTurn = null;
-      _previousTurns.clear();
+      _clearVisibleTurnState();
     }
+  }
+
+  void _handleVisibleContext() {
+    final visibleKey =
+        MuffinContextRegistry.instance.current.value?.context.contextKey;
+    if (visibleKey == null || visibleKey == _contextKey) return;
+    if (_response == null &&
+        _errorMessage == null &&
+        _currentTurn == null &&
+        !_isLoading) {
+      return;
+    }
+    if (!mounted) return;
+    setState(() {
+      _loadingAction = null;
+      _clearVisibleTurnState();
+    });
+  }
+
+  void _clearVisibleTurnState() {
+    _response = null;
+    _errorMessage = null;
+    _generatedAnswerIndex = null;
+    _generatedSubmitted = false;
+    _previousMuffinResponse = null;
+    _currentTurn = null;
+    _previousTurns.clear();
   }
 
   Future<void> _ask(MuffinActionConfig config) async {
@@ -314,9 +344,8 @@ class _MuffinAssistSheetState extends State<MuffinAssistSheet> {
                         color: const Color(0xFFE5EEE8),
                         borderRadius: BorderRadius.circular(15),
                       ),
-                      child: const Icon(
-                        Icons.psychology_rounded,
-                        color: Color(0xFF496A5A),
+                      child: const Center(
+                        child: MuffinMascotIcon(size: 30),
                       ),
                     ),
                     const SizedBox(width: 12),

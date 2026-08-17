@@ -1,11 +1,13 @@
 import 'package:flutter/material.dart';
 
+import '../models/engagement.dart';
 import '../models/learning_content.dart';
 import '../models/muffin_wallet.dart';
 import '../models/page_translation.dart';
 import '../models/saved_flashcard.dart';
 import '../models/student.dart';
 import '../models/subject.dart';
+import '../repositories/engagement_repository.dart';
 import '../repositories/learning_repository.dart';
 import '../services/firestore_service.dart';
 import '../services/muffin_context_registry.dart';
@@ -25,6 +27,7 @@ class HomeScreen extends StatefulWidget {
     this.learningRepository,
     this.walletService,
     this.savedFlashcardService,
+    this.engagementRepository,
     this.studentStream,
     this.subjectsStream,
     super.key,
@@ -34,6 +37,7 @@ class HomeScreen extends StatefulWidget {
   final LearningRepository? learningRepository;
   final MuffinWalletService? walletService;
   final SavedFlashcardService? savedFlashcardService;
+  final EngagementRepository? engagementRepository;
   final Stream<Student>? studentStream;
   final Stream<List<Subject>>? subjectsStream;
 
@@ -46,6 +50,7 @@ class _HomeScreenState extends State<HomeScreen> {
   late final LearningRepository _learningRepository;
   late final MuffinWalletService _walletService;
   late final SavedFlashcardService _savedFlashcardService;
+  late final EngagementRepository _engagementRepository;
   late Future<LearningContent?> _nextContent;
   bool _isOpeningModule = false;
 
@@ -57,6 +62,8 @@ class _HomeScreenState extends State<HomeScreen> {
         widget.walletService ?? MuffinWalletServiceFactory.create();
     _savedFlashcardService =
         widget.savedFlashcardService ?? SavedFlashcardServiceFactory.create();
+    _engagementRepository =
+        widget.engagementRepository ?? EngagementRepository();
     MuffinContextRegistry.instance.resetToHome();
     _nextContent = _learningRepository.getFirstAvailableContent();
   }
@@ -261,9 +268,14 @@ class _HomeScreenState extends State<HomeScreen> {
                   const SizedBox(height: 14),
                   _MuffinBitesDashboardCard(walletService: _walletService),
                   const SizedBox(height: 14),
+                  _EngagementDashboardCard(
+                    engagementRepository: _engagementRepository,
+                  ),
+                  const SizedBox(height: 14),
                   _SavedFlashcardsDashboardSection(
                     savedFlashcardService: _savedFlashcardService,
                     learningRepository: _learningRepository,
+                    engagementRepository: _engagementRepository,
                   ),
                   const SizedBox(height: 28),
                   Text(
@@ -384,6 +396,113 @@ class _ProgressEntryCard extends StatelessWidget {
   }
 }
 
+class _EngagementDashboardCard extends StatelessWidget {
+  const _EngagementDashboardCard({required this.engagementRepository});
+
+  final EngagementRepository engagementRepository;
+
+  @override
+  Widget build(BuildContext context) {
+    return StreamBuilder<EngagementState>(
+      stream: engagementRepository.watchState(),
+      initialData: EngagementState.initial('today'),
+      builder: (context, snapshot) {
+        final state = snapshot.data ?? EngagementState.initial('today');
+        final target = state.dailyStudyTarget;
+        final points = state.clampedTodayStudyPoints;
+        final goalProgress = target <= 0 ? 1.0 : points / target;
+        return Card(
+          child: Padding(
+            padding: const EdgeInsets.all(20),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        "Today's Goal",
+                        style: const TextStyle(fontWeight: FontWeight.w700),
+                      ),
+                    ),
+                    Text(
+                      '\u{1F525} ${state.currentStreak} day streak',
+                      style: const TextStyle(fontWeight: FontWeight.w700),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                Text(
+                  '$points / $target',
+                  style: Theme.of(context).textTheme.titleMedium,
+                ),
+                const SizedBox(height: 8),
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(99),
+                  child: LinearProgressIndicator(
+                    value: goalProgress.clamp(0, 1),
+                    minHeight: 8,
+                    backgroundColor: const Color(0xFFE2E8E3),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(_goalMessage(state)),
+                const SizedBox(height: 16),
+                Row(
+                  children: [
+                    const Text(
+                      '\u{2B50}',
+                      style: TextStyle(fontSize: 18),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Level ${state.level}',
+                            style: const TextStyle(fontWeight: FontWeight.w700),
+                          ),
+                          const SizedBox(height: 6),
+                          ClipRRect(
+                            borderRadius: BorderRadius.circular(99),
+                            child: LinearProgressIndicator(
+                              value: state.levelProgress,
+                              minHeight: 6,
+                              backgroundColor: const Color(0xFFE2E8E3),
+                              color: const Color(0xFFA45E37),
+                            ),
+                          ),
+                          const SizedBox(height: 5),
+                          Text(
+                            '${state.totalXp} / ${state.xpForNextLevel} XP',
+                            style: Theme.of(context).textTheme.bodySmall,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  String _goalMessage(EngagementState state) {
+    if (state.todayStreakSecured ||
+        state.todayStudyPoints >= state.dailyStudyTarget) {
+      return "Today's streak is secured!";
+    }
+    if (state.todayStudyPoints == 0) {
+      return 'Complete a learning activity to keep your streak going.';
+    }
+    return "You're making progress. Keep going!";
+  }
+}
+
 class _MuffinBitesDashboardCard extends StatelessWidget {
   const _MuffinBitesDashboardCard({required this.walletService});
 
@@ -452,10 +571,12 @@ class _SavedFlashcardsDashboardSection extends StatelessWidget {
   const _SavedFlashcardsDashboardSection({
     required this.savedFlashcardService,
     required this.learningRepository,
+    required this.engagementRepository,
   });
 
   final SavedFlashcardService savedFlashcardService;
   final LearningRepository learningRepository;
+  final EngagementRepository engagementRepository;
 
   @override
   Widget build(BuildContext context) {
@@ -473,6 +594,7 @@ class _SavedFlashcardsDashboardSection extends StatelessWidget {
                   builder: (_) => SavedFlashcardsScreen(
                     learningRepository: learningRepository,
                     savedFlashcardService: savedFlashcardService,
+                    engagementRepository: engagementRepository,
                   ),
                 ),
               );

@@ -357,6 +357,82 @@ void main() {
         findsOneWidget);
   });
 
+  testWidgets('clears visible turn when quiz question context changes',
+      (tester) async {
+    _setLargeSurface(tester);
+    addTearDown(MuffinContextRegistry.instance.resetToHome);
+    final service = _QueuedMuffinService([
+      const MuffinResponse(
+        responseType: MuffinResponseType.guidance,
+        message: 'Guidance for Q4 only',
+      ),
+    ]);
+    const q4Context = MuffinContext(
+      mode: MuffinMode.quiz,
+      currentScreen: 'quiz',
+      questionId: 'q4',
+      currentQuestion: 'Q4 pattern question',
+      contextKey: 'quiz_math_chapter-1_q4',
+    );
+    MuffinContextRegistry.instance.set(
+      const MuffinScreenContext(
+        mode: MuffinMode.quiz,
+        subtitle: 'Quiz',
+        context: q4Context,
+        actions: [
+          MuffinActionConfig(
+            action: MuffinAction.guideQuestion,
+            label: 'Guide me through the question',
+          ),
+        ],
+      ),
+    );
+
+    await tester.pumpWidget(_sheetApp(
+      service,
+      mode: MuffinMode.quiz,
+      muffinContext: q4Context,
+      actions: const [
+        MuffinActionConfig(
+          action: MuffinAction.guideQuestion,
+          label: 'Guide me through the question',
+        ),
+      ],
+    ));
+    await tester.tap(find.text('Open Muffin'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Guide me through the question'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Guidance for Q4 only'), findsOneWidget);
+
+    MuffinContextRegistry.instance.set(
+      const MuffinScreenContext(
+        mode: MuffinMode.quiz,
+        subtitle: 'Quiz',
+        context: MuffinContext(
+          mode: MuffinMode.quiz,
+          currentScreen: 'quiz',
+          questionId: 'dfPGkfe6XGBq0xqfF7fr',
+          currentQuestion:
+              'Diberi jujukan:\n\n6, 10, 14, 18, ...\n\nApakah rumus bagi sebutan ke-n?',
+          contextKey: 'quiz_math_chapter-1_q5',
+        ),
+        actions: [
+          MuffinActionConfig(
+            action: MuffinAction.guideQuestion,
+            label: 'Guide me through the question',
+          ),
+        ],
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Guidance for Q4 only'), findsNothing);
+    expect(find.text('Choose how Muffin can help with this part.'),
+        findsOneWidget);
+  });
+
   testWidgets('discards stale response after visible flashcard changes',
       (tester) async {
     _setLargeSurface(tester);
