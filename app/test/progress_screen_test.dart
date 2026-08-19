@@ -6,6 +6,7 @@ import 'package:studysis/config/content_paths.dart';
 import 'package:studysis/repositories/engagement_repository.dart';
 import 'package:studysis/repositories/learning_repository.dart';
 import 'package:studysis/repositories/student_progress_repository.dart';
+import 'package:studysis/repositories/study_pet_repository.dart';
 import 'package:studysis/screens/progress_screen.dart';
 import 'package:studysis/theme/app_theme.dart';
 
@@ -169,6 +170,10 @@ Widget _app({
         uidProvider: () => uid,
       ),
       engagementRepository: EngagementRepository(
+        firestore: firestore,
+        uidProvider: () => uid,
+      ),
+      petRepository: StudyPetRepository(
         firestore: firestore,
         uidProvider: () => uid,
       ),

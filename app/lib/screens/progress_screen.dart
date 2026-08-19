@@ -7,6 +7,7 @@ import '../models/progress_summary.dart';
 import '../repositories/engagement_repository.dart';
 import '../repositories/learning_repository.dart';
 import '../repositories/student_progress_repository.dart';
+import '../repositories/study_pet_repository.dart';
 import 'chapter_overview_screen.dart';
 import 'subject_screen.dart';
 import '../models/subject.dart';
@@ -16,12 +17,14 @@ class ProgressScreen extends StatefulWidget {
     this.learningRepository,
     this.progressRepository,
     this.engagementRepository,
+    this.petRepository,
     super.key,
   });
 
   final LearningRepository? learningRepository;
   final StudentProgressRepository? progressRepository;
   final EngagementRepository? engagementRepository;
+  final StudyPetRepository? petRepository;
 
   @override
   State<ProgressScreen> createState() => _ProgressScreenState();
@@ -31,6 +34,7 @@ class _ProgressScreenState extends State<ProgressScreen> {
   late final LearningRepository _learningRepository;
   late final StudentProgressRepository _progressRepository;
   late final EngagementRepository _engagementRepository;
+  late final StudyPetRepository _petRepository;
   late Future<List<Chapter>> _mathChapters;
 
   @override
@@ -41,6 +45,7 @@ class _ProgressScreenState extends State<ProgressScreen> {
         widget.progressRepository ?? StudentProgressRepository();
     _engagementRepository =
         widget.engagementRepository ?? EngagementRepository();
+    _petRepository = widget.petRepository ?? StudyPetRepository();
     _mathChapters = _learningRepository
         .getActiveChapters(ContentPaths.mathematicsSubjectId);
   }
@@ -80,6 +85,7 @@ class _ProgressScreenState extends State<ProgressScreen> {
           repository: _learningRepository,
           progressRepository: _progressRepository,
           engagementRepository: _engagementRepository,
+          petRepository: _petRepository,
         ),
       ),
     );

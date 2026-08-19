@@ -142,6 +142,8 @@ class EngagementRepository {
           credited: false,
           studyPointsAwarded: 0,
           xpAwarded: 0,
+          previousTotalXp: current.totalXp,
+          previousLevel: current.level,
           state: current,
           streakNewlySecured: false,
         );
@@ -151,6 +153,8 @@ class EngagementRepository {
           credited: false,
           studyPointsAwarded: 0,
           xpAwarded: 0,
+          previousTotalXp: current.totalXp,
+          previousLevel: current.level,
           state: current,
           streakNewlySecured: false,
         );
@@ -218,6 +222,8 @@ class EngagementRepository {
         credited: true,
         studyPointsAwarded: credit.studyPoints,
         xpAwarded: credit.xp,
+        previousTotalXp: current.totalXp,
+        previousLevel: current.level,
         state: nextState,
         streakNewlySecured: streakUpdate.newlySecured,
       );
@@ -233,6 +239,8 @@ class EngagementRepository {
       credited: false,
       studyPointsAwarded: 0,
       xpAwarded: 0,
+      previousTotalXp: state.totalXp,
+      previousLevel: state.level,
       state: state,
       streakNewlySecured: false,
     );

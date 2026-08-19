@@ -2,25 +2,40 @@ import 'package:flutter/material.dart';
 
 import '../models/chapter.dart';
 import '../models/subject.dart';
+import '../repositories/engagement_repository.dart';
 import '../repositories/learning_repository.dart';
+import '../repositories/student_progress_repository.dart';
+import '../repositories/study_pet_repository.dart';
 import 'chapter_overview_screen.dart';
 
 class SubjectScreen extends StatefulWidget {
-  const SubjectScreen({required this.subject, super.key});
+  const SubjectScreen({
+    required this.subject,
+    this.repository,
+    this.progressRepository,
+    this.engagementRepository,
+    this.petRepository,
+    super.key,
+  });
 
   final Subject subject;
+  final LearningRepository? repository;
+  final StudentProgressRepository? progressRepository;
+  final EngagementRepository? engagementRepository;
+  final StudyPetRepository? petRepository;
 
   @override
   State<SubjectScreen> createState() => _SubjectScreenState();
 }
 
 class _SubjectScreenState extends State<SubjectScreen> {
-  final _repository = LearningRepository();
+  late final LearningRepository _repository;
   late Future<List<Chapter>> _chapters;
 
   @override
   void initState() {
     super.initState();
+    _repository = widget.repository ?? LearningRepository();
     _chapters = _repository.getActiveChapters(widget.subject.id);
   }
 
@@ -100,6 +115,11 @@ class _SubjectScreenState extends State<SubjectScreen> {
                                   subjectId: widget.subject.id,
                                   subjectName: widget.subject.displayName,
                                   chapter: chapter,
+                                  repository: _repository,
+                                  progressRepository: widget.progressRepository,
+                                  engagementRepository:
+                                      widget.engagementRepository,
+                                  petRepository: widget.petRepository,
                                 ),
                               ),
                             );

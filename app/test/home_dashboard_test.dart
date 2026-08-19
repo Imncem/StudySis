@@ -10,6 +10,8 @@ import 'package:studysis/models/student.dart';
 import 'package:studysis/models/subject.dart';
 import 'package:studysis/repositories/engagement_repository.dart';
 import 'package:studysis/repositories/learning_repository.dart';
+import 'package:studysis/repositories/student_progress_repository.dart';
+import 'package:studysis/repositories/study_pet_repository.dart';
 import 'package:studysis/screens/home_screen.dart';
 import 'package:studysis/services/muffin_context_registry.dart';
 import 'package:studysis/services/muffin_wallet_service.dart';
@@ -78,7 +80,8 @@ void main() {
     await _scrollToEngagementCard(tester);
 
     expect(find.text('2 / 3'), findsOneWidget);
-    expect(find.text("You're making progress. Keep going!"), findsOneWidget);
+    expect(find.text('Complete a learning activity to keep your streak going.'),
+        findsOneWidget);
     expect(find.text('Level 1'), findsOneWidget);
     expect(find.text('20 / 100 XP'), findsOneWidget);
   });
@@ -106,6 +109,205 @@ void main() {
     expect(find.text("Today's streak is secured!"), findsOneWidget);
     expect(find.textContaining('6 day streak'), findsOneWidget);
     expect(find.text('Level 2'), findsOneWidget);
+  });
+
+  testWidgets('standalone Continue card is replaced by compact My Day row',
+      (tester) async {
+    _setLargeSurface(tester);
+    final firestore = FakeFirebaseFirestore();
+    await _seedCurriculum(firestore, includeNotes: true);
+
+    await tester.pumpWidget(_app(
+      learningRepository: LearningRepository(firestore: firestore),
+    ));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Continue Learning'), findsOneWidget);
+    expect(find.text('Chapter 1 - Notes'), findsOneWidget);
+    expect(find.text('Notes - 5 min'), findsOneWidget);
+    expect(find.text('Continue'), findsNothing);
+    expect(tester.getTopLeft(find.text('Continue Learning')).dy,
+        greaterThan(tester.getTopLeft(find.text('My Day')).dy));
+    expect(tester.getTopLeft(find.text('Continue Learning')).dy,
+        lessThan(tester.getTopLeft(find.text('Subjects')).dy));
+  });
+
+  testWidgets('compact Continue Learning row still opens learning flow',
+      (tester) async {
+    _setLargeSurface(tester);
+    final firestore = FakeFirebaseFirestore();
+    await _seedCurriculum(firestore, includeNotes: true);
+    await tester.pumpWidget(_app(
+      learningRepository: LearningRepository(firestore: firestore),
+      progressRepository: StudentProgressRepository(
+        firestore: firestore,
+        uidProvider: () => uid,
+      ),
+      petRepository: _petRepo(firestore),
+      engagementRepository: _engagementRepo(firestore),
+    ));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Continue Learning'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Choose a chapter to begin the learning journey.'),
+        findsOneWidget);
+    expect(find.text('Patterns and Sequences'), findsOneWidget);
+  });
+
+  testWidgets('My Day places Subjects above Saved Flashcards', (tester) async {
+    _setLargeSurface(tester);
+    await tester.pumpWidget(_app(
+      subjectsStream: Stream.value(const [
+        Subject(
+          id: 'math',
+          displayName: 'Mathematics',
+          shortName: 'Math',
+          contentStatus: 'available',
+          iconName: 'math',
+          themeColor: '#496A5A',
+          order: 1,
+        ),
+      ]).asBroadcastStream(),
+    ));
+    await tester.pumpAndSettle();
+
+    expect(find.text('My Day'), findsOneWidget);
+    expect(find.text('Subjects'), findsOneWidget);
+    expect(find.text('Saved Flashcards'), findsOneWidget);
+    expect(tester.getTopLeft(find.text('My Day')).dy,
+        lessThan(tester.getTopLeft(find.text('Subjects')).dy));
+    expect(tester.getTopLeft(find.text('Subjects')).dy,
+        lessThan(tester.getTopLeft(find.text('Saved Flashcards')).dy));
+  });
+
+  testWidgets('Level 1 student sees locked Study Pet card', (tester) async {
+    final firestore = FakeFirebaseFirestore();
+    await _seedEngagementState(firestore, studyPoints: 0, xp: 80);
+    await tester.pumpWidget(_app(
+      engagementRepository: _engagementRepo(firestore),
+      petRepository: _petRepo(firestore),
+    ));
+    await tester.pumpAndSettle();
+    await _scrollToStudyPetCard(tester);
+
+    expect(find.text('YOUR STUDY BUDDY'), findsOneWidget);
+    expect(find.text('🔒 Study Pets'), findsOneWidget);
+    expect(find.text('⭐ 80 / 250 XP'), findsOneWidget);
+  });
+
+  testWidgets('Level 3 student with no pet can choose egg', (tester) async {
+    _setLargeSurface(tester);
+    final firestore = FakeFirebaseFirestore();
+    await _seedEngagementState(firestore, studyPoints: 3, xp: 250);
+    await tester.pumpWidget(_app(
+      engagementRepository: _engagementRepo(firestore),
+      petRepository: _petRepo(firestore),
+    ));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Maybe Later'));
+    await tester.pumpAndSettle();
+    await _scrollToStudyPetCard(tester);
+
+    expect(find.text('YOUR STUDY BUDDY'), findsNothing);
+    expect(find.textContaining('Study Pets Unlocked'), findsNothing);
+    expect(find.text('Study Pet'), findsOneWidget);
+
+    await tester.tap(find.text('Study Pet'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Choose Your Study Buddy'), findsOneWidget);
+    expect(find.text('Spark Egg'), findsOneWidget);
+  });
+
+  testWidgets('pet unlock celebration appears only once after acknowledgement',
+      (tester) async {
+    _setLargeSurface(tester);
+    final firestore = FakeFirebaseFirestore();
+    await _seedEngagementState(firestore, studyPoints: 3, xp: 270);
+    await tester.pumpWidget(_app(
+      engagementRepository: _engagementRepo(firestore),
+      petRepository: _petRepo(firestore),
+    ));
+    await tester.pumpAndSettle();
+
+    expect(find.text('🎉 NEW FEATURE UNLOCKED'), findsOneWidget);
+    await tester.tap(find.text('Maybe Later'));
+    await tester.pumpAndSettle();
+    expect(find.text('🎉 NEW FEATURE UNLOCKED'), findsNothing);
+
+    await tester.pumpWidget(_app(
+      engagementRepository: _engagementRepo(firestore),
+      petRepository: _petRepo(firestore),
+    ));
+    await tester.pumpAndSettle();
+
+    expect(find.text('🎉 NEW FEATURE UNLOCKED'), findsNothing);
+  });
+
+  testWidgets('Level 3 hides Study Pet preview but keeps bottom action',
+      (tester) async {
+    _setLargeSurface(tester);
+    final firestore = FakeFirebaseFirestore();
+    await _seedEngagementState(firestore, studyPoints: 3, xp: 390);
+    await firestore.doc('student_progress/$uid/pet/state').set({
+      'schemaVersion': 1,
+      'petUnlockAcknowledgedAt': Timestamp.fromDate(DateTime.utc(2026, 8, 17)),
+      'eggId': 'egg_spark',
+      'petId': null,
+      'stage': 'egg',
+      'selectedAt': Timestamp.fromDate(DateTime.utc(2026, 8, 17)),
+      'xpBaselineAtSelection': 290,
+      'hatchXpTarget': 100,
+      'hatchDelayHours': 24,
+      'hatchedAt': null,
+      'petName': null,
+      'updatedAt': Timestamp.fromDate(DateTime.utc(2026, 8, 17)),
+    });
+    await tester.pumpWidget(_app(
+      engagementRepository: _engagementRepo(firestore),
+      petRepository: _petRepo(firestore),
+      nowProvider: () => DateTime.utc(2026, 8, 19),
+    ));
+    await tester.pumpAndSettle();
+    await _scrollToStudyPetCard(tester);
+
+    expect(find.text('Spark Egg'), findsNothing);
+    expect(find.text('Ready to hatch!'), findsNothing);
+    expect(find.text('Study Pet'), findsOneWidget);
+
+    await firestore.doc('student_progress/$uid/pet/state').set({
+      'schemaVersion': 1,
+      'petUnlockAcknowledgedAt': Timestamp.fromDate(DateTime.utc(2026, 8, 17)),
+      'eggId': 'egg_spark',
+      'petId': 'pet_fox',
+      'stage': 'hatchling',
+      'selectedAt': Timestamp.fromDate(DateTime.utc(2026, 8, 17)),
+      'xpBaselineAtSelection': 290,
+      'hatchXpTarget': 100,
+      'hatchDelayHours': 24,
+      'hatchedAt': Timestamp.fromDate(DateTime.utc(2026, 8, 19)),
+      'petName': 'Mochi',
+      'updatedAt': Timestamp.fromDate(DateTime.utc(2026, 8, 19)),
+    });
+    await tester.pumpAndSettle();
+
+    expect(find.text('🦊 Mochi'), findsNothing);
+    expect(find.text('Hatchling. Growing with you.'), findsNothing);
+    expect(find.text('Study Pet'), findsOneWidget);
+  });
+
+  testWidgets('View Progress action still opens progress screen',
+      (tester) async {
+    _setLargeSurface(tester);
+    await tester.pumpWidget(_app());
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('View Progress'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Progress'), findsOneWidget);
   });
 
   testWidgets('dashboard shows recharge and daily-rest Bite states',
@@ -479,7 +681,11 @@ Widget _app({
   SavedFlashcardService savedFlashcardService =
       const StaticSavedFlashcardService(),
   EngagementRepository? engagementRepository,
+  StudentProgressRepository? progressRepository,
+  StudyPetRepository? petRepository,
   LearningRepository? learningRepository,
+  Stream<List<Subject>>? subjectsStream,
+  DateTime Function()? nowProvider,
 }) {
   return MaterialApp(
     theme: AppTheme.light,
@@ -488,6 +694,17 @@ Widget _app({
       savedFlashcardService: savedFlashcardService,
       engagementRepository: engagementRepository ??
           EngagementRepository(
+            firestore: FakeFirebaseFirestore(),
+            uidProvider: () => uid,
+            nowProvider: () => DateTime.utc(2026, 8, 17, 2),
+          ),
+      progressRepository: progressRepository ??
+          StudentProgressRepository(
+            firestore: FakeFirebaseFirestore(),
+            uidProvider: () => uid,
+          ),
+      petRepository: petRepository ??
+          StudyPetRepository(
             firestore: FakeFirebaseFirestore(),
             uidProvider: () => uid,
             nowProvider: () => DateTime.utc(2026, 8, 17, 2),
@@ -505,8 +722,26 @@ Widget _app({
           status: 'active',
         ),
       ).asBroadcastStream(),
-      subjectsStream: Stream.value(const <Subject>[]).asBroadcastStream(),
+      subjectsStream:
+          subjectsStream ?? Stream.value(const <Subject>[]).asBroadcastStream(),
+      nowProvider: nowProvider ?? () => DateTime.utc(2026, 8, 17, 2),
     ),
+  );
+}
+
+EngagementRepository _engagementRepo(FakeFirebaseFirestore firestore) {
+  return EngagementRepository(
+    firestore: firestore,
+    uidProvider: () => uid,
+    nowProvider: () => DateTime.utc(2026, 8, 19),
+  );
+}
+
+StudyPetRepository _petRepo(FakeFirebaseFirestore firestore) {
+  return StudyPetRepository(
+    firestore: firestore,
+    uidProvider: () => uid,
+    nowProvider: () => DateTime.utc(2026, 8, 19),
   );
 }
 
@@ -534,6 +769,7 @@ Future<void> _seedEngagementState(
 Future<void> _seedCurriculum(
   FakeFirebaseFirestore firestore, {
   bool includeExtraCards = false,
+  bool includeNotes = false,
 }) async {
   await firestore.doc(ContentPaths.subject('math')).set({
     'displayName': 'Mathematics',
@@ -566,6 +802,28 @@ Future<void> _seedCurriculum(
     'order': 1,
     'status': 'active',
   });
+  if (includeNotes) {
+    await firestore.doc(ContentPaths.module('math', 'chapter-1', 'notes')).set({
+      'title': 'Notes',
+      'type': 'notes',
+      'content': '',
+      'summary': '',
+      'estimatedMinutes': 5,
+      'difficulty': 'easy',
+      'order': 0,
+      'status': 'active',
+    });
+    await firestore
+        .collection(ContentPaths.noteSections('math', 'chapter-1', 'notes'))
+        .doc('section-1')
+        .set({
+      'heading': 'Sequences',
+      'body': 'A sequence is an ordered list.',
+      'exampleLabel': 'Example',
+      'exampleText': '2, 4, 6, 8',
+      'order': 1,
+    });
+  }
   await firestore
       .collection(ContentPaths.flashcardCards('math', 'chapter-1'))
       .doc('card-1')
@@ -608,6 +866,11 @@ void _setLargeSurface(WidgetTester tester) {
 
 Future<void> _scrollToEngagementCard(WidgetTester tester) async {
   await tester.drag(find.byType(ListView), const Offset(0, -420));
+  await tester.pumpAndSettle();
+}
+
+Future<void> _scrollToStudyPetCard(WidgetTester tester) async {
+  await tester.drag(find.byType(ListView), const Offset(0, -560));
   await tester.pumpAndSettle();
 }
 

@@ -56,6 +56,11 @@ void main() {
     expect(first.credited, isTrue);
     expect(first.studyPointsAwarded, 2);
     expect(first.xpAwarded, 20);
+    expect(first.previousTotalXp, 0);
+    expect(first.newTotalXp, 20);
+    expect(first.previousLevel, 1);
+    expect(first.newLevel, 1);
+    expect(first.levelUp, isFalse);
     expect(second.credited, isFalse);
     final state = await repository.readState();
     expect(state.todayStudyPoints, 2);
@@ -354,6 +359,34 @@ void main() {
     );
     expect(state.xpForNextLevel, 250);
     expect(state.xpIntoLevel, 140);
+  });
+
+  test('credit result reports authoritative level-up transition', () async {
+    final firestore = FakeFirebaseFirestore();
+    final repository = _repo(firestore);
+    await _seedEngagementState(
+      firestore,
+      currentStreak: 0,
+      longestStreak: 0,
+      lastQualifiedDate: null,
+      todayStudyPoints: 0,
+      todayStreakSecured: false,
+      totalXp: 90,
+    );
+
+    final result = await repository.creditPracticeQuestions(
+      subjectId: 'math',
+      chapterId: 'chapter-1',
+      completedQuestionCount: 5,
+      sessionId: 'level-up',
+    );
+
+    expect(result.credited, isTrue);
+    expect(result.previousTotalXp, 90);
+    expect(result.newTotalXp, 110);
+    expect(result.previousLevel, 1);
+    expect(result.newLevel, 2);
+    expect(result.levelUp, isTrue);
   });
 }
 

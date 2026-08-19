@@ -1,27 +1,35 @@
 import 'package:flutter/material.dart';
 
 import '../models/chapter.dart';
+import '../models/engagement.dart';
 import '../models/flashcard.dart';
 import '../models/muffin.dart';
 import '../models/saved_flashcard.dart';
+import '../models/study_pet.dart';
 import '../repositories/engagement_repository.dart';
 import '../repositories/learning_repository.dart';
+import '../repositories/study_pet_repository.dart';
 import '../services/muffin_context_registry.dart';
 import '../services/saved_flashcard_service.dart';
 import '../widgets/muffin_assist_sheet.dart';
+import '../widgets/xp_reward_overlay.dart';
+import 'level_up_screen.dart';
 import 'streak_celebration_screen.dart';
+import 'study_pet_screen.dart';
 
 class SavedFlashcardsScreen extends StatefulWidget {
   const SavedFlashcardsScreen({
     this.learningRepository,
     this.savedFlashcardService,
     this.engagementRepository,
+    this.petRepository,
     super.key,
   });
 
   final LearningRepository? learningRepository;
   final SavedFlashcardService? savedFlashcardService;
   final EngagementRepository? engagementRepository;
+  final StudyPetRepository? petRepository;
 
   @override
   State<SavedFlashcardsScreen> createState() => _SavedFlashcardsScreenState();
@@ -31,6 +39,7 @@ class _SavedFlashcardsScreenState extends State<SavedFlashcardsScreen> {
   late final LearningRepository _learningRepository;
   late final SavedFlashcardService _savedFlashcardService;
   late final EngagementRepository _engagementRepository;
+  late final StudyPetRepository _petRepository;
   final _pageController = PageController();
   final Set<String> _revealed = {};
   final Set<String> _reviewedSavedCards = {};
@@ -45,6 +54,7 @@ class _SavedFlashcardsScreenState extends State<SavedFlashcardsScreen> {
         widget.savedFlashcardService ?? SavedFlashcardServiceFactory.create();
     _engagementRepository =
         widget.engagementRepository ?? EngagementRepository();
+    _petRepository = widget.petRepository ?? StudyPetRepository();
   }
 
   @override
@@ -196,19 +206,70 @@ class _SavedFlashcardsScreenState extends State<SavedFlashcardsScreen> {
       final result = await _engagementRepository.creditSavedFlashcardReview(
         reviewedSavedCardIds: _reviewedSavedCards,
       );
-      if (!mounted || !result.streakNewlySecured) return;
-      await Navigator.of(context).push(
-        MaterialPageRoute<void>(
-          builder: (_) => StreakCelebrationScreen(
-            streakDays: result.state.currentStreak,
-            xpReward: result.xpAwarded,
-          ),
-        ),
+      if (result.xpAwarded > 0) {
+        debugPrint(
+          '[StudySis][engagement] XP AWARD '
+          'activity=saved_flashcards '
+          'awardedXp=${result.xpAwarded} '
+          'previousXp=${result.previousTotalXp} '
+          'newXp=${result.newTotalXp} '
+          'previousLevel=${result.previousLevel} '
+          'newLevel=${result.newLevel}',
+        );
+      }
+      if (!mounted) return;
+      await XpRewardOverlay.show(
+        context,
+        awardedXp: result.xpAwarded,
+        message: 'Saved cards reviewed!',
       );
+      if (!mounted) return;
+      if (result.streakNewlySecured) {
+        await Navigator.of(context).push(
+          MaterialPageRoute<void>(
+            builder: (_) => StreakCelebrationScreen(
+              streakDays: result.state.currentStreak,
+              xpReward: result.xpAwarded > 0 ? result.xpAwarded : null,
+            ),
+          ),
+        );
+      }
+      if (!mounted || !result.levelUp) return;
+      await _showLevelUp(result);
     } catch (error, stackTrace) {
       debugPrint('[StudySis][engagement] saved review credit failed: $error');
       debugPrint('[StudySis][engagement] stackTrace=$stackTrace');
     }
+  }
+
+  Future<void> _showLevelUp(EngagementCreditResult result) async {
+    final unlocksStudyPets = result.previousLevel < petUnlockLevel &&
+        result.newLevel >= petUnlockLevel;
+    final action = await Navigator.of(context).push<LevelUpAction>(
+      MaterialPageRoute<LevelUpAction>(
+        builder: (_) => LevelUpScreen(
+          newLevel: result.newLevel,
+          totalXp: result.newTotalXp,
+          unlocksStudyPets: unlocksStudyPets,
+        ),
+      ),
+    );
+    if (!mounted || !unlocksStudyPets) return;
+    try {
+      await _petRepository.acknowledgeUnlock();
+    } catch (error, stackTrace) {
+      debugPrint('[StudySis][pet] unlock acknowledgement failed: $error');
+      debugPrint('[StudySis][pet] stackTrace=$stackTrace');
+    }
+    if (!mounted || action?.wantsChoosePet != true) return;
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => StudyPetScreen(
+          engagementRepository: _engagementRepository,
+          petRepository: _petRepository,
+        ),
+      ),
+    );
   }
 
   void _registerMuffinContext(SavedFlashcardItem item) {

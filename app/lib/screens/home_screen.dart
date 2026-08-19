@@ -6,19 +6,23 @@ import '../models/muffin_wallet.dart';
 import '../models/page_translation.dart';
 import '../models/saved_flashcard.dart';
 import '../models/student.dart';
+import '../models/study_pet.dart';
 import '../models/subject.dart';
 import '../repositories/engagement_repository.dart';
 import '../repositories/learning_repository.dart';
+import '../repositories/student_progress_repository.dart';
+import '../repositories/study_pet_repository.dart';
 import '../services/firestore_service.dart';
 import '../services/muffin_context_registry.dart';
 import '../services/muffin_wallet_service.dart';
 import '../services/saved_flashcard_service.dart';
 import '../widgets/info_chip.dart';
-import '../widgets/muffin_mascot_icon.dart';
 import '../widgets/page_translation_scope.dart';
+import '../widgets/study_pet_visuals.dart';
 import '../widgets/subject_card.dart';
 import 'progress_screen.dart';
 import 'saved_flashcards_screen.dart';
+import 'study_pet_screen.dart';
 import 'subject_screen.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -28,8 +32,11 @@ class HomeScreen extends StatefulWidget {
     this.walletService,
     this.savedFlashcardService,
     this.engagementRepository,
+    this.progressRepository,
+    this.petRepository,
     this.studentStream,
     this.subjectsStream,
+    this.nowProvider,
     super.key,
   });
 
@@ -38,8 +45,11 @@ class HomeScreen extends StatefulWidget {
   final MuffinWalletService? walletService;
   final SavedFlashcardService? savedFlashcardService;
   final EngagementRepository? engagementRepository;
+  final StudentProgressRepository? progressRepository;
+  final StudyPetRepository? petRepository;
   final Stream<Student>? studentStream;
   final Stream<List<Subject>>? subjectsStream;
+  final DateTime Function()? nowProvider;
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
@@ -51,8 +61,12 @@ class _HomeScreenState extends State<HomeScreen> {
   late final MuffinWalletService _walletService;
   late final SavedFlashcardService _savedFlashcardService;
   late final EngagementRepository _engagementRepository;
+  late final StudentProgressRepository _progressRepository;
+  late final StudyPetRepository _petRepository;
   late Future<LearningContent?> _nextContent;
   bool _isOpeningModule = false;
+  bool _petUnlockPromptShowing = false;
+  bool _petUnlockPromptShownThisSession = false;
 
   @override
   void initState() {
@@ -64,6 +78,9 @@ class _HomeScreenState extends State<HomeScreen> {
         widget.savedFlashcardService ?? SavedFlashcardServiceFactory.create();
     _engagementRepository =
         widget.engagementRepository ?? EngagementRepository();
+    _progressRepository =
+        widget.progressRepository ?? StudentProgressRepository();
+    _petRepository = widget.petRepository ?? StudyPetRepository();
     MuffinContextRegistry.instance.resetToHome();
     _nextContent = _learningRepository.getFirstAvailableContent();
   }
@@ -105,6 +122,10 @@ class _HomeScreenState extends State<HomeScreen> {
               themeColor: '#496A5A',
               order: 1,
             ),
+            repository: _learningRepository,
+            progressRepository: _progressRepository,
+            engagementRepository: _engagementRepository,
+            petRepository: _petRepository,
           ),
         ),
       );
@@ -160,14 +181,9 @@ class _HomeScreenState extends State<HomeScreen> {
               text: 'Continue learning',
             ),
             PageTranslationField(
-              id: 'progressTitle',
+              id: 'myDayTitle',
               type: 'heading',
-              text: 'Progress',
-            ),
-            PageTranslationField(
-              id: 'progressDescription',
-              type: 'paragraph',
-              text: 'See your saved learning progress.',
+              text: 'My Day',
             ),
             PageTranslationField(
               id: 'muffinBitesTitle',
@@ -250,32 +266,17 @@ class _HomeScreenState extends State<HomeScreen> {
                     ],
                   ),
                   const SizedBox(height: 24),
-                  _ContinueCard(
-                    content: _nextContent,
-                    isOpening: _isOpeningModule,
-                    onContinue: _continueLearning,
-                  ),
-                  const SizedBox(height: 14),
-                  _ProgressEntryCard(
-                    onTap: () {
-                      Navigator.of(context).push(
-                        MaterialPageRoute<void>(
-                          builder: (_) => const ProgressScreen(),
-                        ),
-                      );
-                    },
-                  ),
-                  const SizedBox(height: 14),
-                  _MuffinBitesDashboardCard(walletService: _walletService),
-                  const SizedBox(height: 14),
-                  _EngagementDashboardCard(
+                  _MyDayCard(
                     engagementRepository: _engagementRepository,
-                  ),
-                  const SizedBox(height: 14),
-                  _SavedFlashcardsDashboardSection(
-                    savedFlashcardService: _savedFlashcardService,
-                    learningRepository: _learningRepository,
-                    engagementRepository: _engagementRepository,
+                    walletService: _walletService,
+                    petRepository: _petRepository,
+                    continueContent: _nextContent,
+                    isOpeningContinue: _isOpeningModule,
+                    nowProvider: widget.nowProvider,
+                    onUnlockedUnacknowledged: _showPetUnlockCelebration,
+                    onContinueLearning: _continueLearning,
+                    onOpenProgress: _openProgress,
+                    onOpenStudyPet: _openStudyPet,
                   ),
                   const SizedBox(height: 28),
                   Text(
@@ -314,8 +315,15 @@ class _HomeScreenState extends State<HomeScreen> {
                                   : () {
                                       Navigator.of(context).push(
                                         MaterialPageRoute<void>(
-                                          builder: (_) =>
-                                              SubjectScreen(subject: subject),
+                                          builder: (_) => SubjectScreen(
+                                            subject: subject,
+                                            repository: _learningRepository,
+                                            progressRepository:
+                                                _progressRepository,
+                                            engagementRepository:
+                                                _engagementRepository,
+                                            petRepository: _petRepository,
+                                          ),
                                         ),
                                       );
                                     },
@@ -326,6 +334,13 @@ class _HomeScreenState extends State<HomeScreen> {
                       );
                     },
                   ),
+                  const SizedBox(height: 14),
+                  _SavedFlashcardsDashboardSection(
+                    savedFlashcardService: _savedFlashcardService,
+                    learningRepository: _learningRepository,
+                    engagementRepository: _engagementRepository,
+                    petRepository: _petRepository,
+                  ),
                 ],
               ),
             );
@@ -334,158 +349,231 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
     );
   }
-}
 
-class _ProgressEntryCard extends StatelessWidget {
-  const _ProgressEntryCard({required this.onTap});
-
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return Card(
-      child: InkWell(
-        borderRadius: BorderRadius.circular(24),
-        onTap: onTap,
-        child: Padding(
-          padding: const EdgeInsets.all(20),
-          child: Row(
-            children: [
-              Container(
-                width: 50,
-                height: 50,
-                decoration: BoxDecoration(
-                  color: const Color(0xFFE5EEE8),
-                  borderRadius: BorderRadius.circular(18),
-                ),
-                child: const Icon(
-                  Icons.insights_rounded,
-                  color: Color(0xFF496A5A),
-                ),
-              ),
-              const SizedBox(width: 14),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      PageTranslationScope.text(
-                        context,
-                        'progressTitle',
-                        'Progress',
-                      ),
-                      style: const TextStyle(fontWeight: FontWeight.w700),
-                    ),
-                    const SizedBox(height: 3),
-                    Text(
-                      PageTranslationScope.text(
-                        context,
-                        'progressDescription',
-                        'See your saved learning progress.',
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const Icon(Icons.chevron_right_rounded),
-            ],
-          ),
+  Future<void> _openProgress() {
+    return Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => ProgressScreen(
+          learningRepository: _learningRepository,
+          progressRepository: _progressRepository,
+          engagementRepository: _engagementRepository,
+          petRepository: _petRepository,
         ),
       ),
     );
   }
+
+  Future<void> _openStudyPet() {
+    return Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => StudyPetScreen(
+          engagementRepository: _engagementRepository,
+          petRepository: _petRepository,
+          nowProvider: widget.nowProvider,
+        ),
+      ),
+    );
+  }
+
+  Future<void> _showPetUnlockCelebration() async {
+    if (_petUnlockPromptShowing || _petUnlockPromptShownThisSession) return;
+    _petUnlockPromptShowing = true;
+    _petUnlockPromptShownThisSession = true;
+    final action = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('🎉 NEW FEATURE UNLOCKED'),
+        content: const Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Study Pets',
+              style: TextStyle(fontWeight: FontWeight.w800, fontSize: 20),
+            ),
+            SizedBox(height: 10),
+            Text("You've reached Level 3!"),
+            SizedBox(height: 8),
+            Text(
+              'Choose a mystery egg and raise a Study Buddy by learning together.',
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop('later'),
+            child: const Text('Maybe Later'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop('choose'),
+            child: const Text('Choose My Egg'),
+          ),
+        ],
+      ),
+    );
+    try {
+      await _petRepository.acknowledgeUnlock();
+    } finally {
+      _petUnlockPromptShowing = false;
+    }
+    if (!mounted) return;
+    if (action == 'choose') {
+      await _openStudyPet();
+    }
+  }
 }
 
-class _EngagementDashboardCard extends StatelessWidget {
-  const _EngagementDashboardCard({required this.engagementRepository});
+class _MyDayCard extends StatelessWidget {
+  const _MyDayCard({
+    required this.engagementRepository,
+    required this.walletService,
+    required this.petRepository,
+    required this.continueContent,
+    required this.isOpeningContinue,
+    required this.onOpenProgress,
+    required this.onOpenStudyPet,
+    required this.onContinueLearning,
+    required this.onUnlockedUnacknowledged,
+    required this.nowProvider,
+  });
 
   final EngagementRepository engagementRepository;
+  final MuffinWalletService walletService;
+  final StudyPetRepository petRepository;
+  final Future<LearningContent?> continueContent;
+  final bool isOpeningContinue;
+  final VoidCallback onOpenProgress;
+  final VoidCallback onOpenStudyPet;
+  final VoidCallback onContinueLearning;
+  final VoidCallback onUnlockedUnacknowledged;
+  final DateTime Function()? nowProvider;
+
+  DateTime get _now => nowProvider?.call() ?? DateTime.now();
 
   @override
   Widget build(BuildContext context) {
     return StreamBuilder<EngagementState>(
       stream: engagementRepository.watchState(),
       initialData: EngagementState.initial('today'),
-      builder: (context, snapshot) {
-        final state = snapshot.data ?? EngagementState.initial('today');
-        final target = state.dailyStudyTarget;
-        final points = state.clampedTodayStudyPoints;
-        final goalProgress = target <= 0 ? 1.0 : points / target;
-        return Card(
-          child: Padding(
-            padding: const EdgeInsets.all(20),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        "Today's Goal",
-                        style: const TextStyle(fontWeight: FontWeight.w700),
-                      ),
-                    ),
-                    Text(
-                      '\u{1F525} ${state.currentStreak} day streak',
-                      style: const TextStyle(fontWeight: FontWeight.w700),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 10),
-                Text(
-                  '$points / $target',
-                  style: Theme.of(context).textTheme.titleMedium,
-                ),
-                const SizedBox(height: 8),
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(99),
-                  child: LinearProgressIndicator(
-                    value: goalProgress.clamp(0, 1),
-                    minHeight: 8,
-                    backgroundColor: const Color(0xFFE2E8E3),
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Text(_goalMessage(state)),
-                const SizedBox(height: 16),
-                Row(
-                  children: [
-                    const Text(
-                      '\u{2B50}',
-                      style: TextStyle(fontSize: 18),
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'Level ${state.level}',
-                            style: const TextStyle(fontWeight: FontWeight.w700),
+      builder: (context, engagementSnapshot) {
+        final engagement =
+            engagementSnapshot.data ?? EngagementState.initial('today');
+        return StreamBuilder<MuffinWallet>(
+          stream: walletService.watchWallet(),
+          initialData: MuffinWallet.full,
+          builder: (context, walletSnapshot) {
+            final wallet = walletSnapshot.data ?? MuffinWallet.full;
+            return StreamBuilder<StudyPetState>(
+              stream: petRepository.watchState(),
+              initialData: StudyPetState.empty,
+              builder: (context, petSnapshot) {
+                final pet = petSnapshot.data ?? StudyPetState.empty;
+                final petState = StudyPetViewState(
+                  engagement: engagement,
+                  pet: pet,
+                  now: _now,
+                );
+                if (petState.shouldShowUnlockCelebration) {
+                  WidgetsBinding.instance.addPostFrameCallback((_) {
+                    onUnlockedUnacknowledged();
+                  });
+                }
+                return Card(
+                  child: Padding(
+                    padding: const EdgeInsets.all(18),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          PageTranslationScope.text(
+                            context,
+                            'myDayTitle',
+                            'My Day',
                           ),
-                          const SizedBox(height: 6),
-                          ClipRRect(
-                            borderRadius: BorderRadius.circular(99),
-                            child: LinearProgressIndicator(
-                              value: state.levelProgress,
-                              minHeight: 6,
-                              backgroundColor: const Color(0xFFE2E8E3),
-                              color: const Color(0xFFA45E37),
+                          style: Theme.of(context).textTheme.titleLarge,
+                        ),
+                        const SizedBox(height: 14),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: _MyDayStatusTile(
+                                icon: Icons.local_fire_department_rounded,
+                                iconColor: Color(0xFFE26D3D),
+                                label: 'Streak',
+                                value: '${engagement.currentStreak} day streak',
+                                subtitle: engagement.todayStreakSecured
+                                    ? 'Secured today'
+                                    : 'Keep it going',
+                              ),
                             ),
-                          ),
-                          const SizedBox(height: 5),
-                          Text(
-                            '${state.totalXp} / ${state.xpForNextLevel} XP',
-                            style: Theme.of(context).textTheme.bodySmall,
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: _MyDayStatusTile(
+                                icon: Icons.cookie_rounded,
+                                iconColor: Color(0xFFA45E37),
+                                label: 'Muffin Bites',
+                                value:
+                                    '\u{1F36A} ${wallet.currentBites} / ${wallet.maxBites}',
+                                subtitle: _muffinStatusText(wallet),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 16),
+                        _MyDayProgressSection(
+                          label: "Today's Goal",
+                          value:
+                              '${engagement.clampedTodayStudyPoints} / ${engagement.dailyStudyTarget}',
+                          progress: engagement.dailyStudyTarget <= 0
+                              ? 1
+                              : engagement.clampedTodayStudyPoints /
+                                  engagement.dailyStudyTarget,
+                          message: _goalMessage(engagement),
+                        ),
+                        const SizedBox(height: 14),
+                        _MyDayProgressSection(
+                          label: 'Level ${engagement.level}',
+                          value:
+                              '${engagement.totalXp} / ${engagement.xpForNextLevel} XP',
+                          progress: engagement.levelProgress,
+                          barColor: const Color(0xFFA45E37),
+                        ),
+                        if (engagement.level < petUnlockLevel) ...[
+                          const SizedBox(height: 14),
+                          _MyDayStudyBuddyRow(
+                            state: petState,
+                            onTap: onOpenStudyPet,
                           ),
                         ],
-                      ),
+                        const SizedBox(height: 10),
+                        _MyDayContinueLearningRow(
+                          content: continueContent,
+                          isOpening: isOpeningContinue,
+                          onTap: onContinueLearning,
+                        ),
+                        const SizedBox(height: 10),
+                        Row(
+                          children: [
+                            TextButton.icon(
+                              onPressed: onOpenProgress,
+                              icon: const Icon(Icons.insights_rounded),
+                              label: const Text('View Progress'),
+                            ),
+                            const SizedBox(width: 4),
+                            TextButton.icon(
+                              onPressed: onOpenStudyPet,
+                              icon: const Icon(Icons.egg_alt_rounded),
+                              label: const Text('Study Pet'),
+                            ),
+                          ],
+                        ),
+                      ],
                     ),
-                  ],
-                ),
-              ],
-            ),
-          ),
+                  ),
+                );
+              },
+            );
+          },
         );
       },
     );
@@ -496,64 +584,10 @@ class _EngagementDashboardCard extends StatelessWidget {
         state.todayStudyPoints >= state.dailyStudyTarget) {
       return "Today's streak is secured!";
     }
-    if (state.todayStudyPoints == 0) {
-      return 'Complete a learning activity to keep your streak going.';
-    }
-    return "You're making progress. Keep going!";
-  }
-}
-
-class _MuffinBitesDashboardCard extends StatelessWidget {
-  const _MuffinBitesDashboardCard({required this.walletService});
-
-  final MuffinWalletService walletService;
-
-  @override
-  Widget build(BuildContext context) {
-    return StreamBuilder<MuffinWallet>(
-      stream: walletService.watchWallet(),
-      initialData: MuffinWallet.full,
-      builder: (context, snapshot) {
-        final wallet = snapshot.data ?? MuffinWallet.full;
-        final status = _statusText(wallet);
-        return Card(
-          child: Padding(
-            padding: const EdgeInsets.all(20),
-            child: Row(
-              children: [
-                const MuffinMascotIcon(),
-                const SizedBox(width: 14),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        PageTranslationScope.text(
-                          context,
-                          'muffinBitesTitle',
-                          'Muffin Bites',
-                        ),
-                        style: const TextStyle(fontWeight: FontWeight.w700),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        '\u{1F36A} ${wallet.currentBites} / ${wallet.maxBites}',
-                        style: Theme.of(context).textTheme.titleMedium,
-                      ),
-                      const SizedBox(height: 3),
-                      Text(status),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
-        );
-      },
-    );
+    return 'Complete a learning activity to keep your streak going.';
   }
 
-  String _statusText(MuffinWallet wallet) {
+  String _muffinStatusText(MuffinWallet wallet) {
     if (wallet.isDailyLimitReached) {
       return 'Muffin is resting for today. More help will be available after the daily reset.';
     }
@@ -567,16 +601,366 @@ class _MuffinBitesDashboardCard extends StatelessWidget {
   }
 }
 
+class _MyDayStatusTile extends StatelessWidget {
+  const _MyDayStatusTile({
+    required this.icon,
+    required this.iconColor,
+    required this.label,
+    required this.value,
+    required this.subtitle,
+  });
+
+  final IconData icon;
+  final Color iconColor;
+  final String label;
+  final String value;
+  final String subtitle;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF8F3EA),
+        borderRadius: BorderRadius.circular(18),
+      ),
+      child: Row(
+        children: [
+          Icon(icon, color: iconColor, size: 22),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+                Text(
+                  value,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontWeight: FontWeight.w800),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  subtitle,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _MyDayProgressSection extends StatelessWidget {
+  const _MyDayProgressSection({
+    required this.label,
+    required this.value,
+    required this.progress,
+    this.message,
+    this.barColor,
+  });
+
+  final String label;
+  final String value;
+  final double progress;
+  final String? message;
+  final Color? barColor;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: Text(
+                label,
+                style: const TextStyle(fontWeight: FontWeight.w800),
+              ),
+            ),
+            Text(
+              value,
+              style: const TextStyle(fontWeight: FontWeight.w800),
+            ),
+          ],
+        ),
+        const SizedBox(height: 7),
+        ClipRRect(
+          borderRadius: BorderRadius.circular(99),
+          child: LinearProgressIndicator(
+            value: progress.clamp(0, 1),
+            minHeight: 7,
+            backgroundColor: const Color(0xFFE2E8E3),
+            color: barColor,
+          ),
+        ),
+        if (message != null) ...[
+          const SizedBox(height: 6),
+          Text(message!, style: Theme.of(context).textTheme.bodySmall),
+        ],
+      ],
+    );
+  }
+}
+
+class _MyDayStudyBuddyRow extends StatelessWidget {
+  const _MyDayStudyBuddyRow({
+    required this.state,
+    required this.onTap,
+  });
+
+  final StudyPetViewState state;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final details = _details();
+    return InkWell(
+      borderRadius: BorderRadius.circular(18),
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: const Color(0xFFF1F4F0),
+          borderRadius: BorderRadius.circular(18),
+        ),
+        child: Row(
+          children: [
+            SizedBox(width: 46, child: Center(child: details.visual)),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'YOUR STUDY BUDDY',
+                    style: TextStyle(
+                      fontWeight: FontWeight.w800,
+                      fontSize: 11,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    details.title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontWeight: FontWeight.w800),
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    details.subtitle,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                  if (details.meta != null) ...[
+                    const SizedBox(height: 3),
+                    Text(
+                      details.meta!,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            fontWeight: FontWeight.w700,
+                          ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+            const SizedBox(width: 8),
+            Text(
+              details.action,
+              style: TextStyle(
+                color: Theme.of(context).colorScheme.primary,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+            const Icon(Icons.chevron_right_rounded),
+          ],
+        ),
+      ),
+    );
+  }
+
+  _StudyBuddyDetails _details() {
+    final pet = state.pet.pet;
+    final egg = state.pet.egg;
+    if (!state.isUnlocked) {
+      return _StudyBuddyDetails(
+        visual: const Icon(
+          Icons.lock_rounded,
+          color: Color(0xFF496A5A),
+          size: 30,
+        ),
+        title: '\u{1F512} Study Pets',
+        subtitle: 'Unlock at Level 3 - ${state.xpToUnlock} XP to go',
+        meta: '\u{2B50} ${state.xpTowardUnlock} / $petUnlockXp XP',
+        action: 'View',
+      );
+    }
+    if (state.pet.stage == StudyPetStage.hatchling && pet != null) {
+      return _StudyBuddyDetails(
+        visual: StudyPetAvatar(pet: pet, size: 42),
+        title: '${pet.icon} ${state.pet.petName ?? pet.displayName}',
+        subtitle: 'Hatchling. Growing with you.',
+        action: 'View',
+      );
+    }
+    if (state.pet.stage == StudyPetStage.egg && egg != null) {
+      return _StudyBuddyDetails(
+        visual: StudyEggAvatar(egg: egg, size: 42),
+        title: egg.displayName,
+        subtitle: state.readyToHatch
+            ? 'Ready to hatch!'
+            : '${state.cappedHatchXp} / ${state.pet.hatchXpTarget} XP - Growing',
+        action: 'View',
+      );
+    }
+    return _StudyBuddyDetails(
+      visual: const Icon(
+        Icons.egg_alt_rounded,
+        color: Color(0xFFA45E37),
+        size: 30,
+      ),
+      title: '\u{1F381} Study Pets Unlocked!',
+      subtitle: 'Ready! Choose your mystery egg',
+      action: 'Choose Egg',
+    );
+  }
+}
+
+class _MyDayContinueLearningRow extends StatelessWidget {
+  const _MyDayContinueLearningRow({
+    required this.content,
+    required this.isOpening,
+    required this.onTap,
+  });
+
+  final Future<LearningContent?> content;
+  final bool isOpening;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<LearningContent?>(
+      future: content,
+      builder: (context, snapshot) {
+        final learningContent = snapshot.data;
+        final hasError = snapshot.hasError;
+        final title = learningContent == null
+            ? 'Learning modules'
+            : 'Chapter ${learningContent.chapter.chapterNumber} - '
+                '${learningContent.module.title}';
+        final subtitle = snapshot.connectionState == ConnectionState.waiting
+            ? 'Finding your next module...'
+            : hasError
+                ? 'Could not check modules'
+                : learningContent == null
+                    ? 'Being prepared'
+                    : '${learningContent.module.typeLabel} - '
+                        '${learningContent.module.estimatedMinutes} min';
+        return InkWell(
+          borderRadius: BorderRadius.circular(18),
+          onTap: isOpening ? null : onTap,
+          child: Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: const Color(0xFFF1F4F0),
+              borderRadius: BorderRadius.circular(18),
+            ),
+            child: Row(
+              children: [
+                Container(
+                  width: 42,
+                  height: 42,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFE5EEE8),
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  child: const Icon(
+                    Icons.auto_stories_rounded,
+                    color: Color(0xFF496A5A),
+                    size: 22,
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Continue Learning',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w800,
+                          fontSize: 12,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(fontWeight: FontWeight.w800),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        isOpening ? 'Opening...' : subtitle,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 8),
+                const Icon(Icons.chevron_right_rounded),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _StudyBuddyDetails {
+  const _StudyBuddyDetails({
+    required this.visual,
+    required this.title,
+    required this.subtitle,
+    required this.action,
+    this.meta,
+  });
+
+  final Widget visual;
+  final String title;
+  final String subtitle;
+  final String action;
+  final String? meta;
+}
+
 class _SavedFlashcardsDashboardSection extends StatelessWidget {
   const _SavedFlashcardsDashboardSection({
     required this.savedFlashcardService,
     required this.learningRepository,
     required this.engagementRepository,
+    required this.petRepository,
   });
 
   final SavedFlashcardService savedFlashcardService;
   final LearningRepository learningRepository;
   final EngagementRepository engagementRepository;
+  final StudyPetRepository petRepository;
 
   @override
   Widget build(BuildContext context) {
@@ -595,6 +979,7 @@ class _SavedFlashcardsDashboardSection extends StatelessWidget {
                     learningRepository: learningRepository,
                     savedFlashcardService: savedFlashcardService,
                     engagementRepository: engagementRepository,
+                    petRepository: petRepository,
                   ),
                 ),
               );
@@ -712,74 +1097,6 @@ class _SavedFlashcardPreviewData {
   final String subjectName;
   final String chapterTitle;
   final String chapterLabel;
-}
-
-class _ContinueCard extends StatelessWidget {
-  const _ContinueCard({
-    required this.content,
-    required this.isOpening,
-    required this.onContinue,
-  });
-
-  final Future<LearningContent?> content;
-  final bool isOpening;
-  final VoidCallback onContinue;
-
-  @override
-  Widget build(BuildContext context) {
-    return Card(
-      color: const Color(0xFFE5EEE8),
-      child: Padding(
-        padding: const EdgeInsets.all(22),
-        child: FutureBuilder<LearningContent?>(
-          future: content,
-          builder: (context, snapshot) {
-            final learningContent = snapshot.data;
-            final hasError = snapshot.hasError;
-            return Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  PageTranslationScope.text(
-                    context,
-                    'continueTitle',
-                    'Continue learning',
-                  ),
-                  style: Theme.of(context).textTheme.titleLarge,
-                ),
-                const SizedBox(height: 8),
-                if (snapshot.connectionState == ConnectionState.waiting)
-                  const Text('Finding your next learning module...')
-                else if (learningContent == null)
-                  Text(
-                    hasError
-                        ? 'We could not check the learning modules right now.'
-                        : 'Learning modules are being prepared.',
-                  )
-                else ...[
-                  Text(
-                    'Chapter ${learningContent.chapter.chapterNumber} - '
-                    '${learningContent.module.title}',
-                    style: Theme.of(context).textTheme.titleMedium,
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    '${learningContent.module.typeLabel} - '
-                    '${learningContent.module.estimatedMinutes} min',
-                  ),
-                ],
-                const SizedBox(height: 18),
-                FilledButton(
-                  onPressed: isOpening ? null : onContinue,
-                  child: Text(isOpening ? 'Opening...' : 'Continue'),
-                ),
-              ],
-            );
-          },
-        ),
-      ),
-    );
-  }
 }
 
 class _ErrorState extends StatelessWidget {

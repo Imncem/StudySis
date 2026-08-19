@@ -140,6 +140,109 @@ service cloud.firestore {
         && data.updatedAt is timestamp;
     }
 
+    function validPetEggId(value) {
+      return value in ['egg_spark', 'egg_sprout', 'egg_starlight'];
+    }
+
+    function validPetId(value) {
+      return value in ['pet_fox', 'pet_bunny', 'pet_cat'];
+    }
+
+    function validEggPetMapping(eggId, petId) {
+      return (eggId == 'egg_spark' && petId == 'pet_fox')
+        || (eggId == 'egg_sprout' && petId == 'pet_bunny')
+        || (eggId == 'egg_starlight' && petId == 'pet_cat');
+    }
+
+    function validPetName(value) {
+      return value is string
+        && value.size() >= 2
+        && value.size() <= 15;
+    }
+
+    function petStageRank(stage) {
+      return stage == 'unselected' ? 0
+        : stage == 'egg' ? 1
+        : stage == 'hatchling' ? 2
+        : -1;
+    }
+
+    function validStudyPetState() {
+      let data = request.resource.data;
+      return data.keys().hasOnly([
+          'schemaVersion', 'petUnlockAcknowledgedAt', 'eggId', 'petId',
+          'stage', 'selectedAt', 'xpBaselineAtSelection', 'hatchXpTarget',
+          'hatchDelayHours', 'hatchedAt', 'petName', 'updatedAt'
+        ])
+        && data.schemaVersion == 1
+        && data.stage in ['unselected', 'egg', 'hatchling']
+        && optionalTimestamp(data, 'petUnlockAcknowledgedAt')
+        && data.hatchXpTarget == 100
+        && data.hatchDelayHours == 24
+        && data.updatedAt is timestamp
+        && (
+          (data.stage == 'unselected'
+            && data.eggId == null
+            && data.petId == null
+            && data.selectedAt == null
+            && data.xpBaselineAtSelection == null
+            && data.hatchedAt == null
+            && data.petName == null)
+          || (data.stage == 'egg'
+            && validPetEggId(data.eggId)
+            && data.petId == null
+            && data.selectedAt is timestamp
+            && validCount(data.xpBaselineAtSelection)
+            && data.hatchedAt == null
+            && data.petName == null)
+          || (data.stage == 'hatchling'
+            && validPetEggId(data.eggId)
+            && validPetId(data.petId)
+            && validEggPetMapping(data.eggId, data.petId)
+            && data.selectedAt is timestamp
+            && validCount(data.xpBaselineAtSelection)
+            && data.hatchedAt is timestamp
+            && validPetName(data.petName))
+        );
+    }
+
+    function validStudyPetCreate(stateId) {
+      return stateId == 'state'
+        && validStudyPetState()
+        && request.resource.data.stage in ['unselected', 'egg'];
+    }
+
+    function validStudyPetUpdate(stateId) {
+      let before = resource.data;
+      let after = request.resource.data;
+      let engagement = get(/databases/$(database)/documents/student_progress/$(request.auth.uid)/engagement/state).data;
+      return stateId == 'state'
+        && validStudyPetState()
+        && petStageRank(after.stage) >= petStageRank(before.stage)
+        && (before.stage == 'unselected'
+          || after.eggId == before.eggId)
+        && (before.stage == 'unselected'
+          || after.selectedAt == before.selectedAt)
+        && (before.stage == 'unselected'
+          || after.xpBaselineAtSelection == before.xpBaselineAtSelection)
+        && (before.stage == 'unselected'
+          || after.hatchXpTarget == before.hatchXpTarget)
+        && (before.stage == 'unselected'
+          || after.hatchDelayHours == before.hatchDelayHours)
+        && (before.stage != 'hatchling'
+          || after.petId == before.petId)
+        && (before.stage != 'hatchling'
+          || after.hatchedAt == before.hatchedAt)
+        && (before.stage != 'hatchling'
+          || after.petName == before.petName)
+        && (after.stage != 'hatchling'
+          || before.stage == 'hatchling'
+          || (before.stage == 'egg'
+            && validCount(engagement.totalXp)
+            && engagement.totalXp - before.xpBaselineAtSelection >= before.hatchXpTarget
+            && request.time >= before.selectedAt + duration.value(before.hatchDelayHours, 'h')));
+    }
+
     function validChapter() {
       let data = request.resource.data;
       return data.keys().hasOnly([
@@ -323,6 +426,18 @@ service cloud.firestore {
       allow create, update: if isSignedIn()
         && request.auth.uid == uid
         && validEngagementDay(dateKey);
+      allow delete: if false;
+    }
+
+    match /student_progress/{uid}/pet/{stateId} {
+      allow read: if isDashboardAdmin()
+        || (isSignedIn() && request.auth.uid == uid);
+      allow create: if isSignedIn()
+        && request.auth.uid == uid
+        && validStudyPetCreate(stateId);
+      allow update: if isSignedIn()
+        && request.auth.uid == uid
+        && validStudyPetUpdate(stateId);
       allow delete: if false;
     }
 

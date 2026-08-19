@@ -6,15 +6,20 @@ import '../models/engagement.dart';
 import '../models/learning_content.dart';
 import '../models/practice_question.dart';
 import '../models/quiz_question.dart';
+import '../models/study_pet.dart';
 import '../repositories/learning_repository.dart';
 import '../models/chapter_progress.dart';
 import '../repositories/engagement_repository.dart';
 import '../repositories/student_progress_repository.dart';
+import '../repositories/study_pet_repository.dart';
+import '../widgets/xp_reward_overlay.dart';
 import 'streak_celebration_screen.dart';
 import 'flashcard_screen.dart';
+import 'level_up_screen.dart';
 import 'module_reader_screen.dart';
 import 'practice_screen.dart';
 import 'quiz_screen.dart';
+import 'study_pet_screen.dart';
 
 class ChapterOverviewScreen extends StatefulWidget {
   const ChapterOverviewScreen({
@@ -24,6 +29,7 @@ class ChapterOverviewScreen extends StatefulWidget {
     this.repository,
     this.progressRepository,
     this.engagementRepository,
+    this.petRepository,
     super.key,
   });
 
@@ -33,6 +39,7 @@ class ChapterOverviewScreen extends StatefulWidget {
   final LearningRepository? repository;
   final StudentProgressRepository? progressRepository;
   final EngagementRepository? engagementRepository;
+  final StudyPetRepository? petRepository;
 
   @override
   State<ChapterOverviewScreen> createState() => _ChapterOverviewScreenState();
@@ -42,6 +49,7 @@ class _ChapterOverviewScreenState extends State<ChapterOverviewScreen> {
   late final LearningRepository _repository;
   late final StudentProgressRepository _progressRepository;
   late final EngagementRepository _engagementRepository;
+  late final StudyPetRepository _petRepository;
   late Future<_ChapterJourneyData> _journey;
 
   @override
@@ -52,6 +60,7 @@ class _ChapterOverviewScreenState extends State<ChapterOverviewScreen> {
         widget.progressRepository ?? StudentProgressRepository();
     _engagementRepository =
         widget.engagementRepository ?? EngagementRepository();
+    _petRepository = widget.petRepository ?? StudyPetRepository();
     _journey = _loadJourney();
   }
 
@@ -108,8 +117,10 @@ class _ChapterOverviewScreenState extends State<ChapterOverviewScreen> {
       savedMessage: 'Learn progress saved.',
     );
     if (saved) {
-      await _creditEngagement(
-        () => _engagementRepository.creditLearnCompletion(
+      await _handleEngagementReward(
+        activity: 'learn',
+        message: 'Lesson complete!',
+        credit: () => _engagementRepository.creditLearnCompletion(
           subjectId: widget.subjectId,
           chapterId: widget.chapter.id,
         ),
@@ -140,7 +151,7 @@ class _ChapterOverviewScreenState extends State<ChapterOverviewScreen> {
           initialCompletedCardIds: masteredIds,
           onCardCompleted: (cardId) async {
             masteredIds.add(cardId);
-            await _persistProgress(
+            final saved = await _persistProgress(
               () => _progressRepository.updateFlashcardProgress(
                 subjectId: widget.subjectId,
                 chapterId: widget.chapter.id,
@@ -149,8 +160,11 @@ class _ChapterOverviewScreenState extends State<ChapterOverviewScreen> {
                 masteredCardIds: masteredIds.toList(),
               ),
             );
-            await _creditEngagement(
-              () => _engagementRepository.creditFlashcardReview(
+            if (!saved) return;
+            await _handleEngagementReward(
+              activity: 'flashcards',
+              message: 'Flashcards reviewed!',
+              credit: () => _engagementRepository.creditFlashcardReview(
                 subjectId: widget.subjectId,
                 chapterId: widget.chapter.id,
                 reviewedCardIds: masteredIds,
@@ -184,7 +198,7 @@ class _ChapterOverviewScreenState extends State<ChapterOverviewScreen> {
           chapterTitle: widget.chapter.title,
           questionsFuture: Future.value(questions),
           onComplete: (result) async {
-            await _persistProgress(
+            final saved = await _persistProgress(
               () => _progressRepository.recordPracticeResult(
                 subjectId: widget.subjectId,
                 chapterId: widget.chapter.id,
@@ -192,8 +206,11 @@ class _ChapterOverviewScreenState extends State<ChapterOverviewScreen> {
               ),
               savedMessage: 'Practice progress saved.',
             );
-            await _creditEngagement(
-              () => _engagementRepository.creditPracticeQuestions(
+            if (!saved) return;
+            await _handleEngagementReward(
+              activity: 'practice',
+              message: 'Practice complete!',
+              credit: () => _engagementRepository.creditPracticeQuestions(
                 subjectId: widget.subjectId,
                 chapterId: widget.chapter.id,
                 completedQuestionCount: result.totalQuestions,
@@ -226,7 +243,7 @@ class _ChapterOverviewScreenState extends State<ChapterOverviewScreen> {
           title: 'Chapter ${widget.chapter.chapterNumber} Quiz',
           questionsFuture: Future.value(questions),
           onComplete: (result) async {
-            await _persistProgress(
+            final saved = await _persistProgress(
               () => _progressRepository.recordQuizResult(
                 subjectId: widget.subjectId,
                 chapterId: widget.chapter.id,
@@ -234,8 +251,11 @@ class _ChapterOverviewScreenState extends State<ChapterOverviewScreen> {
               ),
               savedMessage: 'Quiz progress saved.',
             );
-            await _creditEngagement(
-              () => _engagementRepository.creditQuizCompletion(
+            if (!saved) return;
+            await _handleEngagementReward(
+              activity: 'quiz',
+              message: 'Quiz complete!',
+              credit: () => _engagementRepository.creditQuizCompletion(
                 subjectId: widget.subjectId,
                 chapterId: widget.chapter.id,
               ),
@@ -246,24 +266,77 @@ class _ChapterOverviewScreenState extends State<ChapterOverviewScreen> {
     );
   }
 
-  Future<void> _creditEngagement(
-    Future<EngagementCreditResult> Function() credit,
-  ) async {
+  Future<void> _handleEngagementReward({
+    required String activity,
+    required String message,
+    required Future<EngagementCreditResult> Function() credit,
+  }) async {
     try {
       final result = await credit();
-      if (!mounted || !result.streakNewlySecured) return;
-      await Navigator.of(context).push(
-        MaterialPageRoute<void>(
-          builder: (_) => StreakCelebrationScreen(
-            streakDays: result.state.currentStreak,
-            xpReward: result.xpAwarded,
-          ),
-        ),
+      if (result.xpAwarded > 0) {
+        debugPrint(
+          '[StudySis][engagement] XP AWARD '
+          'activity=$activity '
+          'awardedXp=${result.xpAwarded} '
+          'previousXp=${result.previousTotalXp} '
+          'newXp=${result.newTotalXp} '
+          'previousLevel=${result.previousLevel} '
+          'newLevel=${result.newLevel}',
+        );
+      }
+      if (!mounted) return;
+      await XpRewardOverlay.show(
+        context,
+        awardedXp: result.xpAwarded,
+        message: message,
       );
+      if (!mounted) return;
+      if (result.streakNewlySecured) {
+        await Navigator.of(context).push(
+          MaterialPageRoute<void>(
+            builder: (_) => StreakCelebrationScreen(
+              streakDays: result.state.currentStreak,
+              xpReward: result.xpAwarded > 0 ? result.xpAwarded : null,
+            ),
+          ),
+        );
+      }
+      if (!mounted || !result.levelUp) return;
+      await _showLevelUp(result);
     } catch (error, stackTrace) {
       debugPrint('[StudySis][engagement] credit failed: $error');
       debugPrint('[StudySis][engagement] stackTrace=$stackTrace');
     }
+  }
+
+  Future<void> _showLevelUp(EngagementCreditResult result) async {
+    final unlocksStudyPets = result.previousLevel < petUnlockLevel &&
+        result.newLevel >= petUnlockLevel;
+    final action = await Navigator.of(context).push<LevelUpAction>(
+      MaterialPageRoute<LevelUpAction>(
+        builder: (_) => LevelUpScreen(
+          newLevel: result.newLevel,
+          totalXp: result.newTotalXp,
+          unlocksStudyPets: unlocksStudyPets,
+        ),
+      ),
+    );
+    if (!mounted || !unlocksStudyPets) return;
+    try {
+      await _petRepository.acknowledgeUnlock();
+    } catch (error, stackTrace) {
+      debugPrint('[StudySis][pet] unlock acknowledgement failed: $error');
+      debugPrint('[StudySis][pet] stackTrace=$stackTrace');
+    }
+    if (!mounted || action?.wantsChoosePet != true) return;
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => StudyPetScreen(
+          engagementRepository: _engagementRepository,
+          petRepository: _petRepository,
+        ),
+      ),
+    );
   }
 
   Future<bool> _persistProgress(

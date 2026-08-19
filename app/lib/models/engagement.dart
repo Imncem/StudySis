@@ -119,6 +119,8 @@ class EngagementCreditResult {
     required this.credited,
     required this.studyPointsAwarded,
     required this.xpAwarded,
+    required this.previousTotalXp,
+    required this.previousLevel,
     required this.state,
     required this.streakNewlySecured,
   });
@@ -126,8 +128,13 @@ class EngagementCreditResult {
   final bool credited;
   final int studyPointsAwarded;
   final int xpAwarded;
+  final int previousTotalXp;
+  final int previousLevel;
   final EngagementState state;
   final bool streakNewlySecured;
+  int get newTotalXp => state.totalXp;
+  int get newLevel => state.level;
+  bool get levelUp => newLevel > previousLevel;
 }
 
 int calculateLevel(int totalXp) {
