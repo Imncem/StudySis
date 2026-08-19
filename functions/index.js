@@ -143,6 +143,47 @@ exports.translateMuffinPage = onRequest(
   },
 );
 
+exports.getMuffinActionAvailability = onRequest(
+  {
+    timeoutSeconds: 15,
+    cors: true,
+  },
+  async (req, res) => {
+    const requestId = newRequestId();
+    if (!requirePost(req, res)) return;
+
+    const auth = await verifyFirebaseAuth(req, res, requestId, 'muffin-availability');
+    if (!auth) return;
+    if (!checkRateLimit(auth.uid, res)) return;
+
+    const validationError = validateMuffinAvailabilityRequest(req.body);
+    if (validationError) {
+      res.status(400).json({
+        success: false,
+        responseType: 'error',
+        message: validationError,
+      });
+      return;
+    }
+    const contextLimitError = validateContextLength(req.body.context);
+    if (contextLimitError) {
+      res.status(413).json({
+        success: false,
+        responseType: 'error',
+        message: contextLimitError,
+      });
+      return;
+    }
+
+    const response = await muffinActionAvailability({
+      requestId,
+      uid: auth.uid,
+      request: req.body,
+    });
+    res.status(200).json(response);
+  },
+);
+
 function requirePost(req, res) {
   if (req.method === 'POST') return true;
   res.status(405).json({
@@ -235,7 +276,26 @@ async function callMuffinProvider({
     const cached = enforceBudget
       ? await readProviderCache(cacheKey, cacheIdentity, requestId)
       : null;
-    if (cached) return { ...cached, resultSource: 'cache' };
+    if (cached) {
+      const wallet = enforceBudget ? await readStudentWallet() : null;
+      return {
+        ...cached,
+        resultSource: 'cache',
+        biteCharged: 0,
+        currentBites: wallet?.currentBites,
+      };
+    }
+    if (request.expectCached === true && spendStudentBite) {
+      const wallet = await readStudentWallet();
+      return {
+        success: false,
+        responseType: 'error',
+        message: 'Saved help is no longer available. Tap again to use 🍪1.',
+        resultSource: 'cached_help_unavailable',
+        biteCharged: 0,
+        currentBites: wallet.currentBites,
+      };
+    }
     const studentReservation = spendStudentBite
       ? await reserveStudentBite({ requestId, uid })
       : { allowed: true };
@@ -244,6 +304,7 @@ async function callMuffinProvider({
         studentReservation.reason,
         studentReservation.cooldownMinutes,
         studentReservation.nextProviderResetAt,
+        studentReservation.currentBites,
       );
     }
 
@@ -278,8 +339,9 @@ async function callMuffinProvider({
       throw error;
     }
     const normalized = normalizeProviderJson(result.parsedPayload, request);
+    let finalizedWallet = null;
     if (spendStudentBite && studentReservation.reservationId) {
-      await finalizeStudentBite({ reservation: studentReservation });
+      finalizedWallet = await finalizeStudentBite({ reservation: studentReservation });
     }
     if (enforceBudget) {
       await writeProviderCache(cacheKey, normalized, cacheIdentity);
@@ -287,13 +349,24 @@ async function callMuffinProvider({
     console.info(
       `[StudySis][muffin] requestId=${requestId} provider=${result.provider} model=${result.model} durationMs=${Date.now() - start} inputChars=${result.inputChars} validation=accepted`,
     );
-    return { ...normalized, resultSource: selected };
+    return {
+      ...normalized,
+      resultSource: selected,
+      biteCharged: spendStudentBite ? 1 : 0,
+      currentBites: finalizedWallet?.currentBites,
+    };
   } catch (error) {
     console.error(
       `[StudySis][muffin] requestId=${requestId} provider=${selected} model=${modelForLog(selected, openAiModel, geminiModel)} durationMs=${Date.now() - start} category=${error.category || 'provider_error'}`,
     );
     if (error.category === 'blocked_daily_limit') {
-      return budgetBlockedResponse('blocked_daily_limit', null, error.nextProviderResetAt);
+      const wallet = await readStudentWallet();
+      return budgetBlockedResponse(
+        'blocked_daily_limit',
+        null,
+        error.nextProviderResetAt,
+        wallet.currentBites,
+      );
     }
     return errorResponse(
       error.category === 'timeout'
@@ -453,6 +526,89 @@ function outputTokensForMuffin(request) {
 
 function isFreeTranslationRequest(request) {
   return request?.action === 'translate';
+}
+
+function isAvailabilityPreviewAction(action) {
+  return [
+    'askMuffin',
+    'explainSimply',
+    'stillConfused',
+    'smallHint',
+    'explainConcept',
+    'identifyPattern',
+    'guideQuestion',
+  ].includes(action);
+}
+
+function validateMuffinAvailabilityRequest(body) {
+  if (!body || typeof body !== 'object') {
+    return 'Request body is required.';
+  }
+  if (!Array.isArray(body.actions)) {
+    return 'Muffin actions are required.';
+  }
+  if (body.actions.length === 0 || body.actions.length > 12) {
+    return 'Muffin actions are invalid.';
+  }
+  const seen = new Set();
+  for (const action of body.actions) {
+    if (typeof action !== 'string' || seen.has(action)) {
+      return 'Muffin actions are invalid.';
+    }
+    seen.add(action);
+    const validationError = validateMuffinRequest({
+      mode: body.mode,
+      action,
+      context: body.context,
+    });
+    if (validationError) return validationError;
+  }
+  return null;
+}
+
+async function muffinActionAvailability({
+  requestId,
+  uid,
+  request,
+  readCache = readProviderCache,
+}) {
+  const actions = {};
+  const diagnostics = [];
+  for (const action of request.actions) {
+    if (!isAvailabilityPreviewAction(action)) {
+      actions[action] = {
+        cached: false,
+        biteCost: action === 'translate' ? 0 : 1,
+      };
+      diagnostics.push(`${action}=skip`);
+      continue;
+    }
+    const actionRequest = {
+      mode: request.mode,
+      action,
+      context: {
+        ...(request.context || {}),
+        currentAction: action,
+      },
+    };
+    const identity = providerCacheIdentity('askMuffin', actionRequest, uid);
+    const cacheKey = providerCacheKey('askMuffin', actionRequest, uid);
+    const cached = await readCache(cacheKey, identity, requestId);
+    actions[action] = {
+      cached: Boolean(cached),
+      biteCost: cached ? 0 : 1,
+    };
+    diagnostics.push(`${action}=${cached ? 'hit' : 'miss'}`);
+  }
+  logMuffinAvailability({
+    requestId,
+    context: request.context || {},
+    diagnostics,
+  });
+  return {
+    success: true,
+    actions,
+  };
 }
 
 function geminiProfileForMuffin(request) {
@@ -760,6 +916,7 @@ async function reserveStudentBite({ requestId, now = new Date() }) {
         allowed: false,
         reason: 'blocked_no_bites',
         cooldownMinutes: cooldownMinutes(wallet, now),
+        currentBites: wallet.currentBites,
       };
     }
 
@@ -780,14 +937,21 @@ async function reserveStudentBite({ requestId, now = new Date() }) {
 
 async function finalizeStudentBite({ reservation, now = new Date() }) {
   const walletRef = db.doc(reservation.walletRefPath);
-  await db.runTransaction(async (transaction) => {
+  return db.runTransaction(async (transaction) => {
     const walletSnapshot = await transaction.get(walletRef);
     const wallet = walletFromData(walletSnapshot.data(), now);
-    transaction.set(walletRef, walletPayload({
+    const updatedWallet = {
       ...wallet,
       dailyUsedRequests: wallet.dailyUsedRequests + 1,
-    }), { merge: true });
+    };
+    transaction.set(walletRef, walletPayload(updatedWallet), { merge: true });
+    return updatedWallet;
   });
+}
+
+async function readStudentWallet(now = new Date()) {
+  const walletSnapshot = await db.doc('students/qidah/muffin/state').get();
+  return walletFromData(walletSnapshot.data(), now);
 }
 
 async function refundStudentBite({ reservation, now = new Date() }) {
@@ -911,12 +1075,14 @@ function resetCountdownText(nextProviderResetAt, now = new Date()) {
   return minutes === 0 ? `${hours} hr` : `${hours} hr ${minutes} min`;
 }
 
-function budgetBlockedResponse(reason, cooldown, nextProviderResetAt) {
+function budgetBlockedResponse(reason, cooldown, nextProviderResetAt, currentBites) {
   return {
     success: false,
     responseType: 'error',
     message: budgetBlockedMessage(reason, cooldown, nextProviderResetAt),
     resultSource: reason,
+    biteCharged: 0,
+    currentBites,
   };
 }
 
@@ -1871,6 +2037,20 @@ function logMuffinCache({ requestId, result, cacheKey, identity, reason }) {
   );
 }
 
+function logMuffinAvailability({ requestId, context, diagnostics }) {
+  if (!isDevelopmentDiagnosticsEnabled()) return;
+  console.info(
+    [
+      '[StudySis][muffin] MUFFIN AVAILABILITY',
+      `requestId=${requestId || 'unknown'}`,
+      `contextKey=${context.contextKey || ''}`,
+      `questionId=${context.questionId || ''}`,
+      `cardId=${context.cardId || ''}`,
+      diagnostics.join(' '),
+    ].filter(Boolean).join(' '),
+  );
+}
+
 function logPageTranslationRequest(requestId, uid, request) {
   console.info(
     `[StudySis][page-translation] requestId=${requestId} uid=${uid} pageId=${request.pageId} pageType=${request.pageType} fields=${request.fields.length}`,
@@ -1919,6 +2099,9 @@ Object.defineProperty(module.exports, '_test', {
     preserveValue,
     validateContextLength,
     checkRateLimit,
+    validateMuffinAvailabilityRequest,
+    muffinActionAvailability,
+    isAvailabilityPreviewAction,
     callMuffinProvider,
     translatePageWithProvider,
     callOpenAiResponsesProvider,

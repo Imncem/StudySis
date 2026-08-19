@@ -34,6 +34,80 @@ void main() {
     expect(find.text('🍪1'), findsOneWidget);
   });
 
+  testWidgets('shows saved help as free and sends expectCached',
+      (tester) async {
+    _setLargeSurface(tester);
+    final service = _QueuedMuffinService(
+      [
+        const MuffinResponse(
+          responseType: MuffinResponseType.hint,
+          message: 'Saved hint.',
+          resultSource: 'cache',
+          biteCharged: 0,
+          currentBites: 0,
+        ),
+      ],
+      availabilityResponse: const MuffinAvailabilityResponse(
+        actions: {
+          MuffinAction.smallHint: MuffinActionAvailability(
+            cached: true,
+            biteCost: 0,
+          ),
+        },
+      ),
+    );
+    await tester.pumpWidget(_sheetApp(
+      service,
+      wallet: MuffinWallet.empty,
+    ));
+    await tester.tap(find.text('Open Muffin'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Saved · Free'), findsOneWidget);
+    final button = tester.widget<OutlinedButton>(
+      find.widgetWithText(OutlinedButton, 'Give me a small hint'),
+    );
+    expect(button.onPressed, isNotNull);
+
+    await tester.tap(find.text('Give me a small hint'));
+    await tester.pumpAndSettle();
+
+    expect(service.requests.single.expectCached, isTrue);
+    expect(find.text('Saved hint.'), findsOneWidget);
+  });
+
+  testWidgets('zero-Bite wallet blocks uncached help', (tester) async {
+    _setLargeSurface(tester);
+    await tester.pumpWidget(_sheetApp(
+      MockMuffinService(),
+      wallet: MuffinWallet.empty,
+    ));
+    await tester.tap(find.text('Open Muffin'));
+    await tester.pumpAndSettle();
+
+    final paidButton = tester.widget<OutlinedButton>(
+      find.widgetWithText(OutlinedButton, 'Give me a small hint'),
+    );
+    expect(paidButton.onPressed, isNull);
+  });
+
+  testWidgets('another example always previews as one Bite', (tester) async {
+    _setLargeSurface(tester);
+    await tester.pumpWidget(_sheetApp(
+      MockMuffinService(),
+      actions: const [
+        MuffinActionConfig(
+          action: MuffinAction.anotherExample,
+          label: 'Show another example',
+        ),
+      ],
+    ));
+    await tester.tap(find.text('Open Muffin'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Saved · Free'), findsNothing);
+  });
+
   testWidgets('shows loading state and prevents duplicate requests',
       (tester) async {
     _setLargeSurface(tester);
@@ -568,12 +642,23 @@ void _setLargeSurface(WidgetTester tester) {
 
 class _CompletingMuffinService implements MuffinService {
   final _completer = Completer<MuffinResponse>();
+  MuffinAvailabilityResponse availabilityResponse =
+      const MuffinAvailabilityResponse(actions: {});
   int requestCount = 0;
+  MuffinRequest? lastRequest;
 
   @override
   Future<MuffinResponse> ask(MuffinRequest request) {
     requestCount += 1;
+    lastRequest = request;
     return _completer.future;
+  }
+
+  @override
+  Future<MuffinAvailabilityResponse> availability(
+    MuffinAvailabilityRequest request,
+  ) async {
+    return availabilityResponse;
   }
 
   void complete(MuffinResponse response) {
@@ -582,13 +667,26 @@ class _CompletingMuffinService implements MuffinService {
 }
 
 class _QueuedMuffinService implements MuffinService {
-  _QueuedMuffinService(this.responses);
+  _QueuedMuffinService(
+    this.responses, {
+    this.availabilityResponse = const MuffinAvailabilityResponse(actions: {}),
+  });
 
   final List<MuffinResponse> responses;
+  final MuffinAvailabilityResponse availabilityResponse;
+  final List<MuffinRequest> requests = [];
 
   @override
   Future<MuffinResponse> ask(MuffinRequest request) async {
+    requests.add(request);
     return responses.removeAt(0);
+  }
+
+  @override
+  Future<MuffinAvailabilityResponse> availability(
+    MuffinAvailabilityRequest request,
+  ) async {
+    return availabilityResponse;
   }
 }
 

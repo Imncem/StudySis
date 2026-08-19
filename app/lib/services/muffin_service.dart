@@ -10,6 +10,10 @@ import 'muffin_safety_policy.dart';
 
 abstract class MuffinService {
   Future<MuffinResponse> ask(MuffinRequest request);
+
+  Future<MuffinAvailabilityResponse> availability(
+    MuffinAvailabilityRequest request,
+  );
 }
 
 class MuffinServiceFactory {
@@ -22,7 +26,25 @@ class MuffinServiceFactory {
     );
     const endpoint = String.fromEnvironment('MUFFIN_ENDPOINT');
     if (useMock || endpoint.isEmpty) return _mock;
-    return RemoteMuffinService(endpoint: Uri.parse(endpoint));
+    return RemoteMuffinService(
+      endpoint: Uri.parse(endpoint),
+      availabilityEndpoint: _availabilityEndpoint(endpoint),
+    );
+  }
+
+  static Uri _availabilityEndpoint(String endpoint) {
+    const explicit = String.fromEnvironment('MUFFIN_AVAILABILITY_ENDPOINT');
+    if (explicit.isNotEmpty) return Uri.parse(explicit);
+    final askMuffinSuffix = RegExp(r'askMuffin/?$');
+    if (askMuffinSuffix.hasMatch(endpoint)) {
+      return Uri.parse(
+        endpoint.replaceFirst(
+          askMuffinSuffix,
+          'getMuffinActionAvailability',
+        ),
+      );
+    }
+    return Uri.parse(endpoint);
   }
 }
 
@@ -32,6 +54,7 @@ class MockMuffinService implements MuffinService {
 
   final MuffinSafetyPolicy _policy;
   final Map<String, int> _exampleIndices = {};
+  final Set<String> _cachedActions = {};
 
   static const _examples = [
     _MockExample(
@@ -66,73 +89,52 @@ class MockMuffinService implements MuffinService {
     final refusal = _policy.validate(request);
     if (refusal != null) return refusal;
     await Future<void>.delayed(const Duration(milliseconds: 150));
-    switch (request.action) {
-      case MuffinAction.askMuffin:
-        return const MuffinResponse(
+    final cacheKey = _mockCacheKey(request);
+    final cached = _cachedActions.contains(cacheKey);
+    if (request.expectCached && !cached) {
+      return const MuffinResponse(
+        responseType: MuffinResponseType.error,
+        message: 'Saved help is no longer available. Tap again to use 🍪1.',
+        resultSource: 'cached_help_unavailable',
+        biteCharged: 0,
+      );
+    }
+    final response = switch (request.action) {
+      MuffinAction.askMuffin => const MuffinResponse(
           responseType: MuffinResponseType.explanation,
           message:
               'I can help with your current lesson, translation, revision, or a short practice question.',
-        );
-      case MuffinAction.explainSimply:
-        final explanation = _explanationForContext(request.context);
-        return MuffinResponse(
+        ),
+      MuffinAction.explainSimply => MuffinResponse(
           responseType: MuffinResponseType.explanation,
-          message: explanation,
+          message: _explanationForContext(request.context),
           suggestedNextAction: 'Try saying the rule aloud.',
-        );
-      case MuffinAction.translate:
-        final target = request.context.targetLanguage ??
-            request.context.preferredLanguage ??
-            'Bahasa Melayu';
-        final source = request.context.currentMuffinContent ??
-            request.context.originalScreenContent ??
-            request.context.currentQuestion ??
-            request.context.lessonBody ??
-            '';
-        final translated = target == 'English'
-            ? _englishTranslation(source)
-            : _malayTranslation(source);
-        return MuffinResponse(
-          responseType: MuffinResponseType.translation,
-          message: 'Here is a gentle $target translation.',
-          translatedText: translated,
-        );
-      case MuffinAction.anotherExample:
-        final example = _nextExample(request.context);
-        return MuffinResponse(
-          responseType: MuffinResponseType.example,
-          message: example.en,
-          suggestedNextAction: example.id,
-        );
-      case MuffinAction.stillConfused:
-        return const MuffinResponse(
+        ),
+      MuffinAction.translate => _mockTranslation(request),
+      MuffinAction.anotherExample => _mockExampleResponse(request),
+      MuffinAction.stillConfused => const MuffinResponse(
           responseType: MuffinResponseType.explanation,
           message:
               'That is okay. Let us slow down: look at one change first, then say what happened in your own words.',
-        );
-      case MuffinAction.smallHint:
-        return MuffinResponse(
+        ),
+      MuffinAction.smallHint => MuffinResponse(
           responseType: MuffinResponseType.hint,
           message: _hintForContext(request.context),
-        );
-      case MuffinAction.explainConcept:
-        return MuffinResponse(
+        ),
+      MuffinAction.explainConcept => MuffinResponse(
           responseType: MuffinResponseType.explanation,
           message: _conceptForContext(request.context),
-        );
-      case MuffinAction.identifyPattern:
-        return const MuffinResponse(
+        ),
+      MuffinAction.identifyPattern => const MuffinResponse(
           responseType: MuffinResponseType.hint,
           message:
               'Compare the numbers or terms beside each other. Is the change adding, subtracting, multiplying, or dividing?',
-        );
-      case MuffinAction.guideQuestion:
-        return MuffinResponse(
+        ),
+      MuffinAction.guideQuestion => MuffinResponse(
           responseType: MuffinResponseType.hint,
           message: _guideForContext(request.context),
-        );
-      case MuffinAction.generateSimilarQuestion:
-        return const MuffinResponse(
+        ),
+      MuffinAction.generateSimilarQuestion => const MuffinResponse(
           responseType: MuffinResponseType.generatedQuestion,
           message:
               'Generated by Muffin. Try this similar question for practice.',
@@ -145,8 +147,104 @@ class MockMuffinService implements MuffinService {
             topic: 'patterns',
             generatedByMuffin: true,
           ),
-        );
+        ),
+    };
+    if (request.action != MuffinAction.translate &&
+        request.action != MuffinAction.anotherExample) {
+      _cachedActions.add(cacheKey);
     }
+    return MuffinResponse(
+      responseType: response.responseType,
+      message: response.message,
+      detectedLanguage: response.detectedLanguage,
+      translatedText: response.translatedText,
+      generatedQuestion: response.generatedQuestion,
+      suggestedNextAction: response.suggestedNextAction,
+      resultSource: cached ? 'cache' : 'local',
+      biteCharged: cached || request.action == MuffinAction.translate ? 0 : 1,
+    );
+  }
+
+  @override
+  Future<MuffinAvailabilityResponse> availability(
+    MuffinAvailabilityRequest request,
+  ) async {
+    await Future<void>.delayed(const Duration(milliseconds: 60));
+    return MuffinAvailabilityResponse(
+      actions: {
+        for (final action in request.actions)
+          action: MuffinActionAvailability(
+            cached: _cachedActions.contains(
+              _mockCacheKey(
+                MuffinRequest(
+                  mode: request.mode,
+                  action: action,
+                  context: request.context,
+                ),
+              ),
+            ),
+            biteCost: _cachedActions.contains(
+              _mockCacheKey(
+                MuffinRequest(
+                  mode: request.mode,
+                  action: action,
+                  context: request.context,
+                ),
+              ),
+            )
+                ? 0
+                : action == MuffinAction.translate
+                    ? 0
+                    : 1,
+          ),
+      },
+    );
+  }
+
+  MuffinResponse _mockTranslation(MuffinRequest request) {
+    final target = request.context.targetLanguage ??
+        request.context.preferredLanguage ??
+        'Bahasa Melayu';
+    final source = request.context.currentMuffinContent ??
+        request.context.originalScreenContent ??
+        request.context.currentQuestion ??
+        request.context.lessonBody ??
+        '';
+    final translated = target == 'English'
+        ? _englishTranslation(source)
+        : _malayTranslation(source);
+    return MuffinResponse(
+      responseType: MuffinResponseType.translation,
+      message: 'Here is a gentle $target translation.',
+      translatedText: translated,
+    );
+  }
+
+  MuffinResponse _mockExampleResponse(MuffinRequest request) {
+    final example = _nextExample(request.context);
+    return MuffinResponse(
+      responseType: MuffinResponseType.example,
+      message: example.en,
+      suggestedNextAction: example.id,
+    );
+  }
+
+  String _mockCacheKey(MuffinRequest request) {
+    return [
+      request.mode.name,
+      request.action.name,
+      request.context.subjectId,
+      request.context.chapterId,
+      request.context.questionId,
+      request.context.cardId,
+      request.context.contextKey,
+      request.context.displayedLanguage,
+      request.context.currentQuestion,
+      request.context.lessonHeading,
+      request.context.lessonBody,
+      request.context.originalScreenContent,
+      request.context.currentMuffinContent,
+    ].whereType<String>().join('|');
   }
 
   _MockExample _nextExample(MuffinContext context) {
@@ -351,17 +449,20 @@ class _MockExample {
 class RemoteMuffinService implements MuffinService {
   RemoteMuffinService({
     required Uri endpoint,
+    required Uri availabilityEndpoint,
     FirebaseAuth? auth,
     HttpClient? httpClient,
     MuffinSafetyPolicy policy = const MuffinSafetyPolicy(),
     Duration timeout = const Duration(seconds: 20),
   })  : _endpoint = endpoint,
+        _availabilityEndpoint = availabilityEndpoint,
         _auth = auth,
         _httpClient = httpClient ?? HttpClient(),
         _policy = policy,
         _timeout = timeout;
 
   final Uri _endpoint;
+  final Uri _availabilityEndpoint;
   final FirebaseAuth? _auth;
   final HttpClient _httpClient;
   final MuffinSafetyPolicy _policy;
@@ -435,6 +536,49 @@ class RemoteMuffinService implements MuffinService {
         message:
             'Muffin could not respond right now. Your learning progress is safe. Please try again.',
       );
+    }
+  }
+
+  @override
+  Future<MuffinAvailabilityResponse> availability(
+    MuffinAvailabilityRequest request,
+  ) async {
+    final user = (_auth ?? FirebaseAuth.instance).currentUser;
+    if (user == null) {
+      return const MuffinAvailabilityResponse(actions: {});
+    }
+    final requestId = DateTime.now().microsecondsSinceEpoch.toRadixString(16);
+    try {
+      final token = await user.getIdToken();
+      final httpRequest =
+          await _httpClient.postUrl(_availabilityEndpoint).timeout(_timeout);
+      httpRequest.headers
+        ..contentType = ContentType.json
+        ..set(HttpHeaders.authorizationHeader, 'Bearer $token');
+      httpRequest.write(jsonEncode(request.toJson()));
+      final response = await httpRequest.close().timeout(_timeout);
+      final body = await utf8.decodeStream(response).timeout(_timeout);
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        if (kDebugMode) {
+          debugPrint(
+            '[StudySis][muffin] availability requestId=$requestId failed category=http_${response.statusCode}',
+          );
+        }
+        return const MuffinAvailabilityResponse(actions: {});
+      }
+      final decoded = jsonDecode(body);
+      if (decoded is! Map<String, dynamic>) {
+        throw const FormatException('Invalid Muffin availability response.');
+      }
+      return MuffinAvailabilityResponse.fromJson(decoded);
+    } catch (error, stackTrace) {
+      if (kDebugMode) {
+        debugPrint(
+          '[StudySis][muffin] availability requestId=$requestId failed: $error',
+        );
+        debugPrint('[StudySis][muffin] availability stackTrace=$stackTrace');
+      }
+      return const MuffinAvailabilityResponse(actions: {});
     }
   }
 

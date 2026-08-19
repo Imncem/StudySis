@@ -59,14 +59,25 @@ class _MuffinAssistSheetState extends State<MuffinAssistSheet> {
   MuffinTurn? _currentTurn;
   final List<MuffinTurn> _previousTurns = [];
   final Map<String, int> _exampleCounts = {};
+  late MuffinMode _activeMode;
+  late MuffinContext _activeContext;
+  late List<MuffinActionConfig> _activeActions;
+  Map<MuffinAction, MuffinActionAvailability> _availability = {};
+  bool _availabilityLoading = false;
+  int _availabilitySerial = 0;
+  int? _walletBitesOverride;
 
   bool get _isLoading => _loadingAction != null;
-  String get _contextKey => widget.context.contextKey ?? _fallbackContextKey();
+  String get _contextKey => _activeContext.contextKey ?? _fallbackContextKey();
 
   @override
   void initState() {
     super.initState();
+    _activeMode = widget.mode;
+    _activeContext = widget.context;
+    _activeActions = widget.actions;
     MuffinContextRegistry.instance.current.addListener(_handleVisibleContext);
+    _refreshAvailability();
     final initialAction = widget.initialAction;
     if (initialAction != null) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -87,26 +98,49 @@ class _MuffinAssistSheetState extends State<MuffinAssistSheet> {
     super.didUpdateWidget(oldWidget);
     final oldKey =
         oldWidget.context.contextKey ?? _fallbackContextKey(oldWidget);
+    final oldActions =
+        oldWidget.actions.map((action) => action.action).join('|');
+    final newActions = widget.actions.map((action) => action.action).join('|');
+    _activeMode = widget.mode;
+    _activeContext = widget.context;
+    _activeActions = widget.actions;
     if (oldKey != _contextKey) {
       _clearVisibleTurnState();
+    }
+    if (oldKey != _contextKey || oldActions != newActions) {
+      _refreshAvailability();
     }
   }
 
   void _handleVisibleContext() {
-    final visibleKey =
-        MuffinContextRegistry.instance.current.value?.context.contextKey;
+    final visible = MuffinContextRegistry.instance.current.value;
+    final visibleKey = visible?.context.contextKey;
     if (visibleKey == null || visibleKey == _contextKey) return;
     if (_response == null &&
         _errorMessage == null &&
         _currentTurn == null &&
         !_isLoading) {
+      if (visible != null) {
+        setState(() {
+          _activeMode = visible.mode;
+          _activeContext = visible.context;
+          _activeActions = visible.actions;
+        });
+        _refreshAvailability();
+      }
       return;
     }
     if (!mounted) return;
     setState(() {
       _loadingAction = null;
+      if (visible != null) {
+        _activeMode = visible.mode;
+        _activeContext = visible.context;
+        _activeActions = visible.actions;
+      }
       _clearVisibleTurnState();
     });
+    _refreshAvailability();
   }
 
   void _clearVisibleTurnState() {
@@ -117,6 +151,36 @@ class _MuffinAssistSheetState extends State<MuffinAssistSheet> {
     _previousMuffinResponse = null;
     _currentTurn = null;
     _previousTurns.clear();
+  }
+
+  Future<void> _refreshAvailability() async {
+    final actions =
+        _activeActions.map((action) => action.action).toSet().toList();
+    if (actions.isEmpty) return;
+    final serial = ++_availabilitySerial;
+    final contextKey = _contextKey;
+    setState(() {
+      _availabilityLoading = true;
+      _availability = {};
+    });
+    final response = await widget.service.availability(
+      MuffinAvailabilityRequest(
+        mode: _activeMode,
+        context: _activeContext.copyWith(contextKey: contextKey),
+        actions: actions,
+      ),
+    );
+    if (!mounted || serial != _availabilitySerial) return;
+    if (!_isStillVisibleContext(contextKey)) {
+      setState(() => _availabilityLoading = false);
+      return;
+    }
+    setState(() {
+      _availability = Map<MuffinAction, MuffinActionAvailability>.of(
+        response.actions,
+      );
+      _availabilityLoading = false;
+    });
   }
 
   Future<void> _ask(MuffinActionConfig config) async {
@@ -131,8 +195,8 @@ class _MuffinAssistSheetState extends State<MuffinAssistSheet> {
       _generatedAnswerIndex = null;
       _generatedSubmitted = false;
     });
-    final contextOverride = config.contextOverride?.call(widget.context);
-    final requestContext = (contextOverride ?? widget.context).copyWith(
+    final contextOverride = config.contextOverride?.call(_activeContext);
+    final requestContext = (contextOverride ?? _activeContext).copyWith(
       contextKey: _contextKey,
       currentMuffinContent: _currentTurn?.sourceText,
       previousMuffinResponse: _previousMuffinResponse,
@@ -143,9 +207,10 @@ class _MuffinAssistSheetState extends State<MuffinAssistSheet> {
           .toList(growable: false),
     );
     final request = MuffinRequest(
-      mode: widget.mode,
+      mode: _activeMode,
       action: config.action,
       context: requestContext,
+      expectCached: _isSavedFree(config),
     );
     _logRequestContext(requestContext);
     final response = await widget.service.ask(request);
@@ -159,13 +224,29 @@ class _MuffinAssistSheetState extends State<MuffinAssistSheet> {
       setState(() => _loadingAction = null);
       return;
     }
+    var shouldRefreshAvailability = false;
     setState(() {
       _loadingAction = null;
+      _walletBitesOverride = response.currentBites ?? _walletBitesOverride;
       if (response.responseType == MuffinResponseType.error) {
         _errorMessage = response.message;
+        if (response.resultSource == 'cached_help_unavailable') {
+          _availability = {..._availability}..remove(config.action);
+          shouldRefreshAvailability = true;
+        }
       } else {
         _response = response;
         _previousMuffinResponse = response.message;
+        if (_canPreviewSaved(config.action) &&
+            response.resultSource != 'cached_help_unavailable') {
+          _availability = {
+            ..._availability,
+            config.action: const MuffinActionAvailability(
+              cached: true,
+              biteCost: 0,
+            ),
+          };
+        }
         final turn = _turnFromResponse(response);
         if (turn != null) {
           _currentTurn = turn;
@@ -174,13 +255,16 @@ class _MuffinAssistSheetState extends State<MuffinAssistSheet> {
         }
       }
     });
+    if (shouldRefreshAvailability) {
+      _refreshAvailability();
+    }
   }
 
   void _logRequestContext(MuffinContext requestContext) {
     if (!kDebugMode || requestContext.currentScreen != 'quiz') return;
-    debugPrint('Visible quiz question: ${widget.context.questionId}');
+    debugPrint('Visible quiz question: ${_activeContext.questionId}');
     debugPrint('Muffin request question: ${requestContext.questionId}');
-    assert(requestContext.questionId == widget.context.questionId);
+    assert(requestContext.questionId == _activeContext.questionId);
   }
 
   bool _isStillVisibleContext(String? requestContextKey) {
@@ -193,9 +277,9 @@ class _MuffinAssistSheetState extends State<MuffinAssistSheet> {
   Future<void> _translateCurrentTurn(MuffinActionConfig config) async {
     final turn = _currentTurn;
     if (turn == null || _isLoading) return;
-    final contextOverride = config.contextOverride?.call(widget.context);
-    final target = (contextOverride ?? widget.context).targetLanguage ??
-        widget.context.targetLanguage ??
+    final contextOverride = config.contextOverride?.call(_activeContext);
+    final target = (contextOverride ?? _activeContext).targetLanguage ??
+        _activeContext.targetLanguage ??
         'Bahasa Melayu';
     final targetCode = _languageCode(target);
     if (kDebugMode) {
@@ -216,9 +300,9 @@ class _MuffinAssistSheetState extends State<MuffinAssistSheet> {
     });
     final response = await widget.service.ask(
       MuffinRequest(
-        mode: widget.mode,
+        mode: _activeMode,
         action: MuffinAction.translate,
-        context: widget.context.copyWith(
+        context: _activeContext.copyWith(
           targetLanguage: target,
           contextKey: _contextKey,
           currentMuffinContent: turn.sourceText,
@@ -239,6 +323,7 @@ class _MuffinAssistSheetState extends State<MuffinAssistSheet> {
     }
     setState(() {
       _loadingAction = null;
+      _walletBitesOverride = response.currentBites ?? _walletBitesOverride;
       if (response.responseType == MuffinResponseType.error) {
         _errorMessage = response.message;
         return;
@@ -305,7 +390,16 @@ class _MuffinAssistSheetState extends State<MuffinAssistSheet> {
   }
 
   String _fallbackContextKey([MuffinAssistSheet? widgetOverride]) {
-    final source = widgetOverride ?? widget;
+    if (widgetOverride == null) {
+      return [
+        _activeContext.currentScreen ?? _activeMode.name,
+        _activeContext.subjectId,
+        _activeContext.chapterId,
+        _activeContext.lessonHeading,
+        _activeContext.currentQuestion,
+      ].whereType<String>().join('_');
+    }
+    final source = widgetOverride;
     return [
       source.context.currentScreen ?? source.mode.name,
       source.context.subjectId,
@@ -321,8 +415,10 @@ class _MuffinAssistSheetState extends State<MuffinAssistSheet> {
       stream: widget.walletService.watchWallet(),
       initialData: MuffinWallet.full,
       builder: (context, snapshot) {
-        final wallet = snapshot.data ?? MuffinWallet.full;
-        final blocked = !wallet.hasBites || wallet.isDailyLimitReached;
+        final sourceWallet = snapshot.data ?? MuffinWallet.full;
+        final wallet = _walletBitesOverride == null
+            ? sourceWallet
+            : sourceWallet.copyWith(currentBites: _walletBitesOverride);
         return SafeArea(
           child: SingleChildScrollView(
             padding: EdgeInsets.fromLTRB(
@@ -385,8 +481,13 @@ class _MuffinAssistSheetState extends State<MuffinAssistSheet> {
                     style: Theme.of(context).textTheme.bodySmall,
                   ),
                 ],
+                const SizedBox(height: 8),
+                Text(
+                  'A Bite is only used when Muffin creates new help. Saved help is free to revisit.',
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
                 const SizedBox(height: 18),
-                for (final action in widget.actions)
+                for (final action in _activeActions)
                   if (_shouldShowAction(action))
                     Padding(
                       padding: const EdgeInsets.only(bottom: 10),
@@ -394,7 +495,7 @@ class _MuffinAssistSheetState extends State<MuffinAssistSheet> {
                         width: double.infinity,
                         child: OutlinedButton(
                           onPressed:
-                              _isLoading || (_isPaidAction(action) && blocked)
+                              _isLoading || _isActionBlocked(action, wallet)
                                   ? null
                                   : () => _ask(action),
                           child: _loadingAction == action.action
@@ -404,9 +505,10 @@ class _MuffinAssistSheetState extends State<MuffinAssistSheet> {
                                   child:
                                       CircularProgressIndicator(strokeWidth: 2),
                                 )
-                              : _ActionLabel(
+                              : _ActionCostLabel(
                                   label: _labelForAction(action),
-                                  showCost: _isPaidAction(action),
+                                  costLabel: _costLabelForAction(action),
+                                  isLoading: _isCostLoading(action),
                                 ),
                         ),
                       ),
@@ -422,7 +524,7 @@ class _MuffinAssistSheetState extends State<MuffinAssistSheet> {
                         OutlinedButton(
                           onPressed: _isLoading || widget.actions.isEmpty
                               ? null
-                              : () => _ask(widget.actions.first),
+                              : () => _ask(_activeActions.first),
                           child: const Text('Retry'),
                         ),
                       ],
@@ -470,15 +572,58 @@ class _MuffinAssistSheetState extends State<MuffinAssistSheet> {
     if (action.action != MuffinAction.translate) return true;
     if (_currentTurn == null) return false;
     final target =
-        action.contextOverride?.call(widget.context).targetLanguage ??
-            widget.context.targetLanguage ??
+        action.contextOverride?.call(_activeContext).targetLanguage ??
+            _activeContext.targetLanguage ??
             'Bahasa Melayu';
     return _languageCode(target) ==
         _languageCode(_nextResponseTranslationTarget());
   }
 
-  bool _isPaidAction(MuffinActionConfig action) {
-    return action.action != MuffinAction.translate;
+  bool _isActionBlocked(MuffinActionConfig action, MuffinWallet wallet) {
+    if (_isFreeAction(action.action) || _isSavedFree(action)) return false;
+    return !wallet.hasBites || wallet.isDailyLimitReached;
+  }
+
+  bool _isFreeAction(MuffinAction action) {
+    return action == MuffinAction.translate;
+  }
+
+  bool _isSavedFree(MuffinActionConfig action) {
+    return _canPreviewSaved(action.action) &&
+        _availability[action.action]?.cached == true;
+  }
+
+  bool _canPreviewSaved(MuffinAction action) {
+    return switch (action) {
+      MuffinAction.askMuffin ||
+      MuffinAction.explainSimply ||
+      MuffinAction.stillConfused ||
+      MuffinAction.smallHint ||
+      MuffinAction.explainConcept ||
+      MuffinAction.identifyPattern ||
+      MuffinAction.guideQuestion =>
+        true,
+      MuffinAction.translate ||
+      MuffinAction.anotherExample ||
+      MuffinAction.generateSimilarQuestion =>
+        false,
+    };
+  }
+
+  bool _isCostLoading(MuffinActionConfig action) {
+    return !_isFreeAction(action.action) &&
+        _canPreviewSaved(action.action) &&
+        _availabilityLoading &&
+        !_availability.containsKey(action.action);
+  }
+
+  String? _costLabelForAction(MuffinActionConfig action) {
+    if (_isFreeAction(action.action)) return null;
+    final availability = _availability[action.action];
+    if (_canPreviewSaved(action.action) && availability?.cached == true) {
+      return 'Saved · Free';
+    }
+    return '🍪1';
   }
 
   String _nextResponseTranslationTarget() {
@@ -632,6 +777,13 @@ class _DefaultMuffinService implements MuffinService {
   Future<MuffinResponse> ask(MuffinRequest request) {
     return MuffinServiceFactory.create().ask(request);
   }
+
+  @override
+  Future<MuffinAvailabilityResponse> availability(
+    MuffinAvailabilityRequest request,
+  ) {
+    return MuffinServiceFactory.create().availability(request);
+  }
 }
 
 class _DefaultMuffinWalletService implements MuffinWalletService {
@@ -669,6 +821,7 @@ class _MuffinBitesPill extends StatelessWidget {
   }
 }
 
+// ignore: unused_element
 class _ActionLabel extends StatelessWidget {
   const _ActionLabel({required this.label, required this.showCost});
 
@@ -685,6 +838,40 @@ class _ActionLabel extends StatelessWidget {
         if (showCost) ...[
           const SizedBox(width: 8),
           const Text('🍪1'),
+        ],
+      ],
+    );
+  }
+}
+
+class _ActionCostLabel extends StatelessWidget {
+  const _ActionCostLabel({
+    required this.label,
+    required this.costLabel,
+    required this.isLoading,
+  });
+
+  final String label;
+  final String? costLabel;
+  final bool isLoading;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Flexible(child: Text(label)),
+        if (isLoading) ...[
+          const SizedBox(width: 8),
+          const SizedBox(
+            width: 14,
+            height: 14,
+            child: CircularProgressIndicator(strokeWidth: 2),
+          ),
+        ] else if (costLabel != null) ...[
+          const SizedBox(width: 8),
+          Text(costLabel!),
         ],
       ],
     );

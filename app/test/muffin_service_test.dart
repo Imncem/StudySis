@@ -107,6 +107,49 @@ void main() {
     expect(context['contextKey'], 'quiz_math_chapter-1_question_q2');
   });
 
+  test('cached request serialization includes expectCached flag', () {
+    final request = const MuffinRequest(
+      mode: MuffinMode.quiz,
+      action: MuffinAction.smallHint,
+      expectCached: true,
+      context: MuffinContext(
+        mode: MuffinMode.quiz,
+        contextKey: 'quiz_math_chapter-1_q1',
+      ),
+    ).toJson();
+
+    expect(request['expectCached'], true);
+  });
+
+  test('availability response parses cached and Bite cost metadata', () {
+    final response = MuffinAvailabilityResponse.fromJson({
+      'success': true,
+      'actions': {
+        'smallHint': {'cached': true, 'biteCost': 0},
+        'anotherExample': {'cached': false, 'biteCost': 1},
+      },
+    });
+
+    expect(response.actions[MuffinAction.smallHint]!.cached, isTrue);
+    expect(response.actions[MuffinAction.smallHint]!.biteCost, 0);
+    expect(response.actions[MuffinAction.anotherExample]!.cached, isFalse);
+    expect(response.actions[MuffinAction.anotherExample]!.biteCost, 1);
+  });
+
+  test('Muffin response parses Bite metadata', () {
+    final response = MuffinResponse.fromJson({
+      'responseType': 'hint',
+      'message': 'Try one step.',
+      'resultSource': 'cache',
+      'biteCharged': 0,
+      'currentBites': 2,
+    });
+
+    expect(response.resultSource, 'cache');
+    expect(response.biteCharged, 0);
+    expect(response.currentBites, 2);
+  });
+
   test('safe context truncates long note content', () {
     final context = MuffinContext(
       mode: MuffinMode.learn,

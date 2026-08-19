@@ -12,6 +12,9 @@ const {
     hasFakeTranslationPrefix,
     validateContextLength,
     checkRateLimit,
+    validateMuffinAvailabilityRequest,
+    muffinActionAvailability,
+    isAvailabilityPreviewAction,
     callMuffinProvider,
     translatePageWithProvider,
     callOpenAiResponsesProvider,
@@ -190,6 +193,68 @@ test('quiz page translation normalizes exact stable IDs and preserves numeric op
       'option_d',
     ],
   );
+});
+
+test('Muffin availability request validates supported action batch', () => {
+  const error = validateMuffinAvailabilityRequest({
+    mode: 'quiz',
+    context: {
+      mode: 'quiz',
+      currentQuestion: 'What comes next?',
+      contextKey: 'quiz_math_chapter-1_q1',
+    },
+    actions: ['smallHint', 'guideQuestion', 'translate'],
+  });
+
+  assert.equal(error, null);
+});
+
+test('Muffin availability checks deterministic cached actions without provider calls', async () => {
+  const request = {
+    mode: 'quiz',
+    context: {
+      mode: 'quiz',
+      currentScreen: 'quiz',
+      currentQuestion: 'What comes next?',
+      questionId: 'q1',
+      contextKey: 'quiz_math_chapter-1_q1',
+    },
+    actions: ['smallHint', 'guideQuestion', 'anotherExample', 'translate'],
+  };
+  const cachedIdentity = providerCacheIdentity(
+    'askMuffin',
+    {
+      mode: request.mode,
+      action: 'smallHint',
+      context: { ...request.context, currentAction: 'smallHint' },
+    },
+    'student-1',
+  );
+  const readCalls = [];
+
+  const result = await muffinActionAvailability({
+    requestId: 'availability-test',
+    uid: 'student-1',
+    request,
+    readCache: async (cacheKey, identity) => {
+      readCalls.push({ cacheKey, identity });
+      return JSON.stringify(identity) === JSON.stringify(cachedIdentity)
+        ? { message: 'cached hint' }
+        : null;
+    },
+  });
+
+  assert.equal(result.success, true);
+  assert.deepEqual(result.actions.smallHint, { cached: true, biteCost: 0 });
+  assert.deepEqual(result.actions.guideQuestion, { cached: false, biteCost: 1 });
+  assert.deepEqual(result.actions.anotherExample, { cached: false, biteCost: 1 });
+  assert.deepEqual(result.actions.translate, { cached: false, biteCost: 0 });
+  assert.equal(readCalls.length, 2);
+});
+
+test('anotherExample is not treated as a saved/free availability action', () => {
+  assert.equal(isAvailabilityPreviewAction('anotherExample'), false);
+  assert.equal(isAvailabilityPreviewAction('smallHint'), true);
 });
 
 test('page translation parser accepts translations alias defensively', () => {

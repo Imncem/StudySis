@@ -234,19 +234,87 @@ class MuffinRequest {
     required this.mode,
     required this.action,
     required this.context,
+    this.expectCached = false,
   });
 
   final MuffinMode mode;
   final MuffinAction action;
   final MuffinContext context;
+  final bool expectCached;
 
   Map<String, Object?> toJson() {
     return {
       'mode': mode.name,
       'action': action.name,
       'context': context.toJson(),
+      if (expectCached) 'expectCached': true,
     };
   }
+}
+
+class MuffinAvailabilityRequest {
+  const MuffinAvailabilityRequest({
+    required this.mode,
+    required this.context,
+    required this.actions,
+  });
+
+  final MuffinMode mode;
+  final MuffinContext context;
+  final List<MuffinAction> actions;
+
+  Map<String, Object?> toJson() {
+    return {
+      'mode': mode.name,
+      'context': context.toJson(),
+      'actions': actions.map((action) => action.name).toList(growable: false),
+    };
+  }
+}
+
+class MuffinActionAvailability {
+  const MuffinActionAvailability({
+    required this.cached,
+    required this.biteCost,
+  });
+
+  final bool cached;
+  final int biteCost;
+
+  factory MuffinActionAvailability.fromJson(Map<String, dynamic> data) {
+    return MuffinActionAvailability(
+      cached: data['cached'] == true,
+      biteCost: (data['biteCost'] as num?)?.toInt() ?? 1,
+    );
+  }
+}
+
+class MuffinAvailabilityResponse {
+  const MuffinAvailabilityResponse({required this.actions});
+
+  final Map<MuffinAction, MuffinActionAvailability> actions;
+
+  factory MuffinAvailabilityResponse.fromJson(Map<String, dynamic> data) {
+    final rawActions = data['actions'];
+    final parsed = <MuffinAction, MuffinActionAvailability>{};
+    if (rawActions is Map<String, dynamic>) {
+      for (final entry in rawActions.entries) {
+        final action = _actionByName(entry.key);
+        final value = entry.value;
+        if (action != null && value is Map<String, dynamic>) {
+          parsed[action] = MuffinActionAvailability.fromJson(value);
+        }
+      }
+    }
+    return MuffinAvailabilityResponse(actions: parsed);
+  }
+}
+
+MuffinAction? _actionByName(String name) {
+  for (final action in MuffinAction.values) {
+    if (action.name == name) return action;
+  }
+  return null;
 }
 
 class MuffinGeneratedQuestion {
@@ -303,6 +371,9 @@ class MuffinResponse {
     this.translatedText,
     this.generatedQuestion,
     this.suggestedNextAction,
+    this.resultSource,
+    this.biteCharged,
+    this.currentBites,
   });
 
   final MuffinResponseType responseType;
@@ -311,6 +382,9 @@ class MuffinResponse {
   final String? translatedText;
   final MuffinGeneratedQuestion? generatedQuestion;
   final String? suggestedNextAction;
+  final String? resultSource;
+  final int? biteCharged;
+  final int? currentBites;
 
   factory MuffinResponse.fromJson(Map<String, dynamic> data) {
     final typeName = (data['responseType'] ?? 'error').toString();
@@ -327,6 +401,9 @@ class MuffinResponse {
           ? MuffinGeneratedQuestion.fromJson(generatedQuestion)
           : null,
       suggestedNextAction: data['suggestedNextAction']?.toString(),
+      resultSource: data['resultSource']?.toString(),
+      biteCharged: (data['biteCharged'] as num?)?.toInt(),
+      currentBites: (data['currentBites'] as num?)?.toInt(),
     );
   }
 
@@ -341,6 +418,9 @@ class MuffinResponse {
         'generatedQuestion': generatedQuestion!.toJson(),
       if (suggestedNextAction != null)
         'suggestedNextAction': suggestedNextAction,
+      if (resultSource != null) 'resultSource': resultSource,
+      if (biteCharged != null) 'biteCharged': biteCharged,
+      if (currentBites != null) 'currentBites': currentBites,
     };
   }
 }
