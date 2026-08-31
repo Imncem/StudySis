@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
 import '../models/engagement.dart';
+import '../models/pet_cosmetic.dart';
 
 class EngagementRepository {
   EngagementRepository({
@@ -124,12 +125,15 @@ class EngagementRepository {
     final yesterday = previousMalaysiaDateKey(today);
     final stateRef = _stateRef(uid);
     final dayRef = _dayRef(uid, today);
+    final economyRef = _economyRef(uid);
 
     return _firestore.runTransaction((transaction) async {
       final stateSnapshot = await transaction.get(stateRef);
       final daySnapshot = await transaction.get(dayRef);
+      final economySnapshot = await transaction.get(economyRef);
       final stateData = stateSnapshot.data();
       final dayData = daySnapshot.data() ?? <String, dynamic>{};
+      final economy = PetEconomyState.fromMap(economySnapshot.data());
       final current = EngagementState.fromMap(
         stateData,
         todayDateKey: today,
@@ -142,6 +146,7 @@ class EngagementRepository {
           credited: false,
           studyPointsAwarded: 0,
           xpAwarded: 0,
+          pawCoinsAwarded: 0,
           previousTotalXp: current.totalXp,
           previousLevel: current.level,
           state: current,
@@ -153,6 +158,7 @@ class EngagementRepository {
           credited: false,
           studyPointsAwarded: 0,
           xpAwarded: 0,
+          pawCoinsAwarded: 0,
           previousTotalXp: current.totalXp,
           previousLevel: current.level,
           state: current,
@@ -187,6 +193,11 @@ class EngagementRepository {
         ...lifetimeCredited,
         if (credit.lifetimeCredit) credit.activityKey: true,
       };
+      final coinAward = pawCoinRewardForActivityKey(credit.activityKey);
+      final nextCoinActivities = {
+        ...economy.creditedCoinActivities,
+        if (coinAward > 0) credit.activityKey: true,
+      };
 
       transaction.set(
           stateRef,
@@ -218,10 +229,34 @@ class EngagementRepository {
           },
           SetOptions(merge: true));
 
+      if (coinAward > 0) {
+        transaction.set(
+            economyRef,
+            {
+              'schemaVersion': 1,
+              'pawCoins': economy.pawCoins + coinAward,
+              'lifetimePawCoinsEarned':
+                  economy.lifetimePawCoinsEarned + coinAward,
+              'totalPawCoinsSpent': economy.totalPawCoinsSpent,
+              'creditedCoinActivities': nextCoinActivities,
+              'ownedCosmeticIds': economy.ownedCosmeticIds.toList()..sort(),
+              'equippedCosmetics': economy.equippedCosmeticIds,
+              'lastPurchasedItemId': economy.lastPurchasedItemId,
+              'lastPurchasedAt': economy.lastPurchasedAt == null
+                  ? null
+                  : Timestamp.fromDate(economy.lastPurchasedAt!),
+              'updatedAt': FieldValue.serverTimestamp(),
+            },
+            SetOptions(merge: true));
+      } else if (!economySnapshot.exists) {
+        transaction.set(economyRef, defaultPetEconomyPayload());
+      }
+
       return EngagementCreditResult(
         credited: true,
         studyPointsAwarded: credit.studyPoints,
         xpAwarded: credit.xp,
+        pawCoinsAwarded: coinAward,
         previousTotalXp: current.totalXp,
         previousLevel: current.level,
         state: nextState,
@@ -239,6 +274,7 @@ class EngagementRepository {
       credited: false,
       studyPointsAwarded: 0,
       xpAwarded: 0,
+      pawCoinsAwarded: 0,
       previousTotalXp: state.totalXp,
       previousLevel: state.level,
       state: state,
@@ -252,6 +288,10 @@ class EngagementRepository {
 
   DocumentReference<Map<String, dynamic>> _dayRef(String uid, String dateKey) {
     return _firestore.doc('student_progress/$uid/engagement_days/$dateKey');
+  }
+
+  DocumentReference<Map<String, dynamic>> _economyRef(String uid) {
+    return _firestore.doc('student_progress/$uid/pet_economy/state');
   }
 
   String get _uid {

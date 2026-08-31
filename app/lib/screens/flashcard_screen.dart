@@ -25,6 +25,8 @@ class FlashcardScreen extends StatefulWidget {
     super.key,
   });
 
+  static const routeName = 'flashcards';
+
   final String subjectId;
   final String subjectName;
   final Chapter chapter;

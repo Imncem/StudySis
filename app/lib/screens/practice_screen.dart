@@ -22,6 +22,8 @@ class PracticeScreen extends StatefulWidget {
     super.key,
   });
 
+  static const routeName = 'practice';
+
   final String title;
   final Future<List<PracticeQuestion>> questionsFuture;
   final String subjectId;

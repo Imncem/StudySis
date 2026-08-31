@@ -1,9 +1,9 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io';
 
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
+import 'package:http/http.dart' as http;
 
 import '../models/muffin.dart';
 import 'muffin_safety_policy.dart';
@@ -451,20 +451,23 @@ class RemoteMuffinService implements MuffinService {
     required Uri endpoint,
     required Uri availabilityEndpoint,
     FirebaseAuth? auth,
-    HttpClient? httpClient,
+    http.Client? httpClient,
+    Future<String?> Function()? idTokenProvider,
     MuffinSafetyPolicy policy = const MuffinSafetyPolicy(),
     Duration timeout = const Duration(seconds: 20),
   })  : _endpoint = endpoint,
         _availabilityEndpoint = availabilityEndpoint,
         _auth = auth,
-        _httpClient = httpClient ?? HttpClient(),
+        _httpClient = httpClient ?? http.Client(),
+        _idTokenProvider = idTokenProvider,
         _policy = policy,
         _timeout = timeout;
 
   final Uri _endpoint;
   final Uri _availabilityEndpoint;
   final FirebaseAuth? _auth;
-  final HttpClient _httpClient;
+  final http.Client _httpClient;
+  final Future<String?> Function()? _idTokenProvider;
   final MuffinSafetyPolicy _policy;
   final Duration _timeout;
 
@@ -472,8 +475,8 @@ class RemoteMuffinService implements MuffinService {
   Future<MuffinResponse> ask(MuffinRequest request) async {
     final refusal = _policy.validate(request);
     if (refusal != null) return refusal;
-    final user = (_auth ?? FirebaseAuth.instance).currentUser;
-    if (user == null) {
+    final token = await _getIdToken();
+    if (token == null || token.isEmpty) {
       return const MuffinResponse(
         responseType: MuffinResponseType.error,
         message: 'Muffin could not respond right now.',
@@ -483,15 +486,16 @@ class RemoteMuffinService implements MuffinService {
     final stopwatch = Stopwatch()..start();
     _logRemoteRequest(requestId, request);
     try {
-      final token = await user.getIdToken();
-      final httpRequest =
-          await _httpClient.postUrl(_endpoint).timeout(_timeout);
-      httpRequest.headers
-        ..contentType = ContentType.json
-        ..set(HttpHeaders.authorizationHeader, 'Bearer $token');
-      httpRequest.write(jsonEncode(request.toJson()));
-      final response = await httpRequest.close().timeout(_timeout);
-      final body = await utf8.decodeStream(response).timeout(_timeout);
+      final response = await _httpClient
+          .post(
+            _endpoint,
+            headers: {
+              'content-type': 'application/json',
+              'authorization': 'Bearer $token',
+            },
+            body: jsonEncode(request.toJson()),
+          )
+          .timeout(_timeout);
       if (response.statusCode < 200 || response.statusCode >= 300) {
         if (kDebugMode) {
           debugPrint(
@@ -504,7 +508,7 @@ class RemoteMuffinService implements MuffinService {
               'Muffin could not respond right now. Your learning progress is safe. Please try again.',
         );
       }
-      final decoded = jsonDecode(body);
+      final decoded = jsonDecode(response.body);
       if (decoded is! Map<String, dynamic>) {
         throw const FormatException('Invalid Muffin response.');
       }
@@ -543,21 +547,22 @@ class RemoteMuffinService implements MuffinService {
   Future<MuffinAvailabilityResponse> availability(
     MuffinAvailabilityRequest request,
   ) async {
-    final user = (_auth ?? FirebaseAuth.instance).currentUser;
-    if (user == null) {
+    final token = await _getIdToken();
+    if (token == null || token.isEmpty) {
       return const MuffinAvailabilityResponse(actions: {});
     }
     final requestId = DateTime.now().microsecondsSinceEpoch.toRadixString(16);
     try {
-      final token = await user.getIdToken();
-      final httpRequest =
-          await _httpClient.postUrl(_availabilityEndpoint).timeout(_timeout);
-      httpRequest.headers
-        ..contentType = ContentType.json
-        ..set(HttpHeaders.authorizationHeader, 'Bearer $token');
-      httpRequest.write(jsonEncode(request.toJson()));
-      final response = await httpRequest.close().timeout(_timeout);
-      final body = await utf8.decodeStream(response).timeout(_timeout);
+      final response = await _httpClient
+          .post(
+            _availabilityEndpoint,
+            headers: {
+              'content-type': 'application/json',
+              'authorization': 'Bearer $token',
+            },
+            body: jsonEncode(request.toJson()),
+          )
+          .timeout(_timeout);
       if (response.statusCode < 200 || response.statusCode >= 300) {
         if (kDebugMode) {
           debugPrint(
@@ -566,7 +571,7 @@ class RemoteMuffinService implements MuffinService {
         }
         return const MuffinAvailabilityResponse(actions: {});
       }
-      final decoded = jsonDecode(body);
+      final decoded = jsonDecode(response.body);
       if (decoded is! Map<String, dynamic>) {
         throw const FormatException('Invalid Muffin availability response.');
       }
@@ -580,6 +585,13 @@ class RemoteMuffinService implements MuffinService {
       }
       return const MuffinAvailabilityResponse(actions: {});
     }
+  }
+
+  Future<String?> _getIdToken() {
+    final provider = _idTokenProvider;
+    if (provider != null) return provider();
+    final user = (_auth ?? FirebaseAuth.instance).currentUser;
+    return user?.getIdToken() ?? Future<String?>.value();
   }
 
   void _logRemoteRequest(String requestId, MuffinRequest request) {

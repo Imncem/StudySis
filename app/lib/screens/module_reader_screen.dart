@@ -6,6 +6,7 @@ import '../models/note_section.dart';
 import '../models/page_translation.dart';
 import '../services/muffin_context_registry.dart';
 import '../services/muffin_service.dart';
+import '../theme/app_theme.dart';
 import '../widgets/muffin_assist_sheet.dart';
 import '../widgets/page_translation_scope.dart';
 
@@ -17,6 +18,8 @@ class ModuleReaderScreen extends StatelessWidget {
     this.muffinService,
     super.key,
   });
+
+  static const routeName = 'learn';
 
   final LearningContent learningContent;
   final MuffinService? muffinService;
@@ -48,6 +51,12 @@ class ModuleReaderScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final chapter = learningContent.chapter;
     final module = learningContent.module;
+    final subjectTheme = StudySisSubjectTheme.forSubject(
+      id: learningContent.subjectName,
+      displayName: learningContent.subjectName,
+    );
+    final accent = subjectTheme.accent(context);
+    final soft = subjectTheme.softSurface(context);
     _registerTranslationContent(context);
     if (learningContent.noteSections.isNotEmpty) {
       MuffinContextRegistry.instance.set(
@@ -100,47 +109,75 @@ class ModuleReaderScreen extends StatelessWidget {
           padding: const EdgeInsets.fromLTRB(20, 12, 20, 40),
           children: [
             const PageTranslationBanner(),
-            Text(
-              PageTranslationScope.text(
+            Container(
+              padding: const EdgeInsets.all(20),
+              decoration: StudySisDecorations.playfulCard(
                 context,
-                'subjectName',
-                learningContent.subjectName.toUpperCase(),
+                subjectTheme,
+                radius: 26,
               ),
-              style: TextStyle(
-                color: Theme.of(context).colorScheme.primary,
-                fontSize: 12,
-                fontWeight: FontWeight.w700,
-                letterSpacing: 1.2,
-              ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              PageTranslationScope.text(
-                context,
-                'chapterTitle',
-                'Chapter ${chapter.chapterNumber}: ${chapter.title}',
-              ),
-              style: Theme.of(context).textTheme.titleMedium,
-            ),
-            const SizedBox(height: 18),
-            Text(
-                PageTranslationScope.text(context, 'moduleTitle', module.title),
-                style: Theme.of(context).textTheme.headlineMedium),
-            const SizedBox(height: 14),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                _ReaderChip(
-                  label: PageTranslationScope.text(
-                    context,
-                    'moduleType',
-                    module.typeLabel,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    PageTranslationScope.text(
+                      context,
+                      'subjectName',
+                      learningContent.subjectName.toUpperCase(),
+                    ),
+                    style: TextStyle(
+                      color: accent,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: 1.2,
+                    ),
                   ),
-                ),
-                _ReaderChip(label: '${module.estimatedMinutes} min'),
-                _ReaderChip(label: _titleCase(module.difficulty)),
-              ],
+                  const SizedBox(height: 8),
+                  Text(
+                    PageTranslationScope.text(
+                      context,
+                      'chapterTitle',
+                      'Chapter ${chapter.chapterNumber}: ${chapter.title}',
+                    ),
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
+                  const SizedBox(height: 18),
+                  Text(
+                    PageTranslationScope.text(
+                      context,
+                      'moduleTitle',
+                      module.title,
+                    ),
+                    style: Theme.of(context).textTheme.headlineMedium,
+                  ),
+                  const SizedBox(height: 14),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      _ReaderChip(
+                        label: PageTranslationScope.text(
+                          context,
+                          'moduleType',
+                          module.typeLabel,
+                        ),
+                        accent: accent,
+                        surface: soft,
+                      ),
+                      _ReaderChip(
+                        label: '${module.estimatedMinutes} min',
+                        accent: accent,
+                        surface: soft,
+                      ),
+                      _ReaderChip(
+                        label: _titleCase(module.difficulty),
+                        accent: accent,
+                        surface: soft,
+                      ),
+                    ],
+                  ),
+                ],
+              ),
             ),
             const SizedBox(height: 24),
             if (learningContent.noteSections.isEmpty)
@@ -187,7 +224,7 @@ class ModuleReaderScreen extends StatelessWidget {
                             width: double.infinity,
                             padding: const EdgeInsets.all(16),
                             decoration: BoxDecoration(
-                              color: const Color(0xFFEFF4F0),
+                              color: soft,
                               borderRadius: BorderRadius.circular(16),
                             ),
                             child: Column(
@@ -318,19 +355,29 @@ String _detectLanguage(List<PageTranslationField> fields) {
 }
 
 class _ReaderChip extends StatelessWidget {
-  const _ReaderChip({required this.label});
+  const _ReaderChip({required this.label, this.accent, this.surface});
+
   final String label;
+  final Color? accent;
+  final Color? surface;
 
   @override
   Widget build(BuildContext context) {
+    final color = accent ?? Theme.of(context).colorScheme.primary;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: surface ?? Theme.of(context).colorScheme.surface,
         borderRadius: BorderRadius.circular(99),
       ),
-      child: Text(label,
-          style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+      child: Text(
+        label,
+        style: TextStyle(
+          color: color,
+          fontSize: 12,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
     );
   }
 }

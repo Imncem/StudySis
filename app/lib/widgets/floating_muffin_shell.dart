@@ -37,6 +37,7 @@ class _FloatingMuffinShellState extends State<FloatingMuffinShell> {
   static const _topKey = 'floating_muffin_top';
   static const _size = 56.0;
   static const _margin = 14.0;
+  static const _bottomNavigationAvoidance = 84.0;
   static const _tapMovementThreshold = 8.0;
 
   bool _rightEdge = true;
@@ -77,11 +78,14 @@ class _FloatingMuffinShellState extends State<FloatingMuffinShell> {
         final media = MediaQuery.of(context);
         final keyboardOpen = media.viewInsets.bottom > 0;
         final minTop = media.padding.top + _margin;
-        final maxTop =
-            constraints.maxHeight - media.padding.bottom - _size - _margin;
-        final top = (_top ?? constraints.maxHeight * 0.72)
-            .clamp(minTop, maxTop)
-            .toDouble();
+        final maxTop = constraints.maxHeight -
+            media.padding.bottom -
+            _bottomNavigationAvoidance -
+            _size -
+            _margin;
+        final defaultTop =
+            (media.padding.top + 76).clamp(minTop, maxTop).toDouble();
+        final top = (_top ?? defaultTop).clamp(minTop, maxTop).toDouble();
         final edgeLeft =
             _rightEdge ? constraints.maxWidth - _size - _margin : _margin;
         final left = (_dragLeft ?? edgeLeft)
@@ -122,7 +126,11 @@ class _FloatingMuffinShellState extends State<FloatingMuffinShell> {
                             _endPointerGesture(constraints.maxWidth),
                         onPanCancel: _cancelPointerGesture,
                         child: Material(
-                          color: const Color(0xFFFFE6D5),
+                          color: Theme.of(context).brightness == Brightness.dark
+                              ? Theme.of(context)
+                                  .colorScheme
+                                  .surfaceContainerHighest
+                              : const Color(0xFFFFE6D5),
                           shape: const CircleBorder(),
                           elevation: 4,
                           child: const SizedBox(

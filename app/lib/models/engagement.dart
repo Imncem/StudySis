@@ -119,6 +119,7 @@ class EngagementCreditResult {
     required this.credited,
     required this.studyPointsAwarded,
     required this.xpAwarded,
+    required this.pawCoinsAwarded,
     required this.previousTotalXp,
     required this.previousLevel,
     required this.state,
@@ -128,6 +129,7 @@ class EngagementCreditResult {
   final bool credited;
   final int studyPointsAwarded;
   final int xpAwarded;
+  final int pawCoinsAwarded;
   final int previousTotalXp;
   final int previousLevel;
   final EngagementState state;

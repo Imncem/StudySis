@@ -1,7 +1,10 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
 import 'package:studysis/models/page_translation.dart';
 import 'package:studysis/services/page_translation_service.dart';
 import 'package:studysis/widgets/page_translation_scope.dart';
@@ -179,6 +182,49 @@ void main() {
 
     expect(result.fields['name'], 'Hai Qidah');
     expect(result.fields['equation'], contains('2 + x = 5'));
+  });
+
+  test('remote page translation uses web-safe HTTP client and ID token',
+      () async {
+    late http.Request captured;
+    final service = RemotePageTranslationService(
+      endpoint: Uri.parse('https://example.test/translateMuffinPage'),
+      idTokenProvider: () async => 'firebase-id-token',
+      httpClient: MockClient((request) async {
+        captured = request;
+        return http.Response(
+          jsonEncode({
+            'sourceLanguage': TranslationLanguage.english,
+            'targetLanguage': TranslationLanguage.malay,
+            'translatedFieldCount': 1,
+            'fields': [
+              {'id': 'greeting', 'translatedText': 'Hai Qidah'},
+            ],
+          }),
+          200,
+          headers: {'content-type': 'application/json'},
+        );
+      }),
+    );
+
+    final result = await service.translate(
+      PageTranslationRequest(
+        content: _homeContent(),
+        targetLanguage: TranslationLanguage.malay,
+      ),
+    );
+
+    expect(result.fields['greeting'], 'Hai Qidah');
+    expect(
+      captured.url.toString(),
+      'https://example.test/translateMuffinPage',
+    );
+    expect(captured.headers['authorization'], 'Bearer firebase-id-token');
+    expect(captured.headers['content-type'], 'application/json');
+    final body = jsonDecode(captured.body) as Map<String, dynamic>;
+    expect(body['pageType'], 'home');
+    expect(body['targetLanguage'], TranslationLanguage.malay);
+    expect(body['fields'], isA<List<dynamic>>());
   });
 
   test('mock translation never produces fake language prefixes', () async {

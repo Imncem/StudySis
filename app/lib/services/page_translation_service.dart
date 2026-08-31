@@ -1,9 +1,9 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io';
 
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
+import 'package:http/http.dart' as http;
 
 import '../models/page_translation.dart';
 
@@ -111,24 +111,27 @@ class RemotePageTranslationService implements PageTranslationService {
   RemotePageTranslationService({
     required Uri endpoint,
     FirebaseAuth? auth,
-    HttpClient? httpClient,
+    http.Client? httpClient,
+    Future<String?> Function()? idTokenProvider,
     Duration timeout = const Duration(seconds: 25),
   })  : _endpoint = endpoint,
         _auth = auth,
-        _httpClient = httpClient ?? HttpClient(),
+        _httpClient = httpClient ?? http.Client(),
+        _idTokenProvider = idTokenProvider,
         _timeout = timeout;
 
   final Uri _endpoint;
   final FirebaseAuth? _auth;
-  final HttpClient _httpClient;
+  final http.Client _httpClient;
+  final Future<String?> Function()? _idTokenProvider;
   final Duration _timeout;
 
   @override
   Future<PageTranslationResult> translate(
     PageTranslationRequest request,
   ) async {
-    final user = (_auth ?? FirebaseAuth.instance).currentUser;
-    if (user == null) {
+    final token = await _getIdToken();
+    if (token == null || token.isEmpty) {
       throw const PageTranslationException(
         'Muffin could not translate this page right now.',
       );
@@ -143,21 +146,22 @@ class RemotePageTranslationService implements PageTranslationService {
       );
     }
     try {
-      final token = await user.getIdToken();
-      final httpRequest =
-          await _httpClient.postUrl(_endpoint).timeout(_timeout);
-      httpRequest.headers
-        ..contentType = ContentType.json
-        ..set(HttpHeaders.authorizationHeader, 'Bearer $token');
-      httpRequest.write(jsonEncode(request.toJson()));
-      final response = await httpRequest.close().timeout(_timeout);
-      final body = await utf8.decodeStream(response).timeout(_timeout);
+      final response = await _httpClient
+          .post(
+            _endpoint,
+            headers: {
+              'content-type': 'application/json',
+              'authorization': 'Bearer $token',
+            },
+            body: jsonEncode(request.toJson()),
+          )
+          .timeout(_timeout);
       if (response.statusCode < 200 || response.statusCode >= 300) {
         throw const PageTranslationException(
           'Muffin could not translate this page right now.',
         );
       }
-      final decoded = jsonDecode(body);
+      final decoded = jsonDecode(response.body);
       if (decoded is! Map<String, dynamic>) {
         throw const FormatException('Invalid page translation response.');
       }
@@ -185,6 +189,13 @@ class RemotePageTranslationService implements PageTranslationService {
         'Muffin could not translate this page right now.',
       );
     }
+  }
+
+  Future<String?> _getIdToken() {
+    final provider = _idTokenProvider;
+    if (provider != null) return provider();
+    final user = (_auth ?? FirebaseAuth.instance).currentUser;
+    return user?.getIdToken() ?? Future<String?>.value();
   }
 }
 

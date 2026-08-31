@@ -85,6 +85,196 @@ void main() {
     expect(data['xpBaselineAtSelection'], 290);
     expect(data['hatchXpTarget'], hatchXpTargetDefault);
     expect(data['hatchDelayHours'], hatchDelayHoursDefault);
+    expect(data['habitatTheme'], 'forest');
+  });
+
+  test('missing and invalid habitat safely fall back to Forest', () {
+    expect(StudyPetState.fromMap({'stage': 'hatchling'}).habitatTheme,
+        StudyPetHabitat.forest);
+    expect(
+      StudyPetState.fromMap({
+        'stage': 'hatchling',
+        'habitatTheme': 'moon',
+      }).habitatTheme,
+      StudyPetHabitat.forest,
+    );
+  });
+
+  test('growth XP uses lifetime XP since hatch baseline and clamps at zero',
+      () {
+    expect(
+      StudyPetGrowthRules.growthXp(
+        currentTotalXp: 390,
+        baselineAtHatch: 390,
+      ),
+      0,
+    );
+    expect(
+      StudyPetGrowthRules.growthXp(
+        currentTotalXp: 590,
+        baselineAtHatch: 390,
+      ),
+      200,
+    );
+    expect(
+      StudyPetGrowthRules.growthXp(
+        currentTotalXp: 890,
+        baselineAtHatch: 390,
+      ),
+      500,
+    );
+    expect(
+      StudyPetGrowthRules.growthXp(
+        currentTotalXp: 1290,
+        baselineAtHatch: 390,
+      ),
+      900,
+    );
+    expect(
+      StudyPetGrowthRules.growthXp(
+        currentTotalXp: 300,
+        baselineAtHatch: 390,
+      ),
+      0,
+    );
+  });
+
+  test('growth readiness requires both XP and elapsed time', () {
+    final hatchedAt = DateTime.utc(2026, 8, 18);
+    StudyPetViewState hatchling(int totalXp, Duration elapsed) => _view(
+          totalXp: totalXp,
+          pet: _hatchlingState(
+            growthStage: StudyPetGrowthStage.hatchling,
+            hatchedAt: hatchedAt,
+            xpBaselineAtHatch: 390,
+          ),
+          now: hatchedAt.add(elapsed),
+        );
+    StudyPetViewState young(int totalXp, Duration elapsed) => _view(
+          totalXp: totalXp,
+          pet: _hatchlingState(
+            growthStage: StudyPetGrowthStage.young,
+            hatchedAt: hatchedAt,
+            xpBaselineAtHatch: 390,
+          ),
+          now: hatchedAt.add(elapsed),
+        );
+    StudyPetViewState evolved(int totalXp, Duration elapsed) => _view(
+          totalXp: totalXp,
+          pet: _hatchlingState(
+            growthStage: StudyPetGrowthStage.evolved,
+            hatchedAt: hatchedAt,
+            xpBaselineAtHatch: 390,
+          ),
+          now: hatchedAt.add(elapsed),
+        );
+
+    expect(hatchling(589, const Duration(days: 2)).readyToEvolve, isFalse);
+    expect(hatchling(590, const Duration(hours: 47)).readyToEvolve, isFalse);
+    expect(hatchling(590, const Duration(days: 2)).readyToEvolve, isTrue);
+
+    expect(young(889, const Duration(days: 5)).readyToEvolve, isFalse);
+    expect(young(890, const Duration(hours: 119)).readyToEvolve, isFalse);
+    expect(young(890, const Duration(days: 5)).readyToEvolve, isTrue);
+
+    expect(evolved(1289, const Duration(days: 10)).readyToEvolve, isFalse);
+    expect(evolved(1290, const Duration(hours: 239)).readyToEvolve, isFalse);
+    expect(evolved(1290, const Duration(days: 10)).readyToEvolve, isTrue);
+  });
+
+  test('growth transitions are adjacent and forward only', () {
+    expect(
+      StudyPetGrowthRules.isValidTransition(
+        from: StudyPetGrowthStage.hatchling,
+        to: StudyPetGrowthStage.young,
+      ),
+      isTrue,
+    );
+    expect(
+      StudyPetGrowthRules.isValidTransition(
+        from: StudyPetGrowthStage.young,
+        to: StudyPetGrowthStage.evolved,
+      ),
+      isTrue,
+    );
+    expect(
+      StudyPetGrowthRules.isValidTransition(
+        from: StudyPetGrowthStage.evolved,
+        to: StudyPetGrowthStage.adult,
+      ),
+      isTrue,
+    );
+    expect(
+      StudyPetGrowthRules.isValidTransition(
+        from: StudyPetGrowthStage.hatchling,
+        to: StudyPetGrowthStage.evolved,
+      ),
+      isFalse,
+    );
+    expect(
+      StudyPetGrowthRules.isValidTransition(
+        from: StudyPetGrowthStage.hatchling,
+        to: StudyPetGrowthStage.adult,
+      ),
+      isFalse,
+    );
+    expect(
+      StudyPetGrowthRules.isValidTransition(
+        from: StudyPetGrowthStage.young,
+        to: StudyPetGrowthStage.adult,
+      ),
+      isFalse,
+    );
+    expect(
+      StudyPetGrowthRules.isValidTransition(
+        from: StudyPetGrowthStage.young,
+        to: StudyPetGrowthStage.hatchling,
+      ),
+      isFalse,
+    );
+    expect(
+      StudyPetGrowthRules.isValidTransition(
+        from: StudyPetGrowthStage.evolved,
+        to: StudyPetGrowthStage.young,
+      ),
+      isFalse,
+    );
+    expect(
+      StudyPetGrowthRules.isValidTransition(
+        from: StudyPetGrowthStage.adult,
+        to: StudyPetGrowthStage.evolved,
+      ),
+      isFalse,
+    );
+  });
+
+  test('habitat update writes only habitat and updatedAt', () async {
+    final firestore = FakeFirebaseFirestore();
+    final repository = _repo(firestore);
+    final ref = firestore.doc('student_progress/$uid/pet/state');
+    await ref.set({
+      'schemaVersion': 1,
+      'petUnlockAcknowledgedAt': Timestamp.fromDate(DateTime.utc(2026, 8, 17)),
+      'eggId': 'egg_spark',
+      'petId': 'pet_fox',
+      'stage': 'hatchling',
+      'selectedAt': Timestamp.fromDate(DateTime.utc(2026, 8, 17, 10)),
+      'xpBaselineAtSelection': 250,
+      'hatchXpTarget': 100,
+      'hatchDelayHours': 24,
+      'hatchedAt': Timestamp.fromDate(DateTime.utc(2026, 8, 18, 10)),
+      'petName': 'Nara',
+      'habitatTheme': 'forest',
+      'updatedAt': Timestamp.fromDate(DateTime.utc(2026, 8, 18, 10)),
+    });
+
+    await repository.updateHabitat(StudyPetHabitat.garden);
+
+    final data = (await ref.get()).data()!;
+    expect(data['habitatTheme'], 'garden');
+    expect(data['stage'], 'hatchling');
+    expect(data['petId'], 'pet_fox');
+    expect(data['petName'], 'Nara');
   });
 
   test('existing XP before selection counts as zero hatch XP', () {
@@ -174,6 +364,95 @@ void main() {
     expect(data['stage'], 'hatchling');
     expect(data['petId'], 'pet_bunny');
     expect(data['petName'], 'Mochi');
+    expect(data['habitatTheme'], 'forest');
+    expect(data['growthStage'], 'hatchling');
+    expect(data['xpBaselineAtHatch'], 350);
+  });
+
+  test('old hatchling initializes growth baseline from current total XP',
+      () async {
+    final firestore = FakeFirebaseFirestore();
+    await _seedHatchlingDoc(firestore, xpBaselineAtHatch: null);
+
+    await _repo(firestore).ensureGrowthBaseline(currentTotalXp: 620);
+
+    final data =
+        (await firestore.doc('student_progress/$uid/pet/state').get()).data()!;
+    expect(data['growthStage'], 'hatchling');
+    expect(data['xpBaselineAtHatch'], 620);
+    expect(data['stage'], 'hatchling');
+    expect(data['habitatTheme'], 'forest');
+  });
+
+  test('evolution advances one stage without consuming XP or resetting habitat',
+      () async {
+    final firestore = FakeFirebaseFirestore();
+    await _seedEngagement(firestore, xp: 590, studyPoints: 3);
+    await _seedHatchlingDoc(
+      firestore,
+      growthStage: StudyPetGrowthStage.hatchling,
+      hatchedAt: DateTime.utc(2026, 8, 17),
+      xpBaselineAtHatch: 390,
+      habitatTheme: StudyPetHabitat.garden,
+    );
+
+    await _repo(firestore).evolvePet(now: DateTime.utc(2026, 8, 19));
+
+    final data =
+        (await firestore.doc('student_progress/$uid/pet/state').get()).data()!;
+    final engagement =
+        (await firestore.doc('student_progress/$uid/engagement/state').get())
+            .data()!;
+    expect(data['growthStage'], 'young');
+    expect(data['xpBaselineAtHatch'], 390);
+    expect(data['habitatTheme'], 'garden');
+    expect(engagement['totalXp'], 590);
+  });
+
+  test('exact Momo 430 total XP and 230 hatch baseline evolves to young',
+      () async {
+    final firestore = FakeFirebaseFirestore();
+    await _seedEngagement(firestore, xp: 430, studyPoints: 3);
+    await firestore.doc('student_progress/$uid/pet/state').set({
+      'schemaVersion': 1,
+      'eggId': 'egg_sprout',
+      'petId': 'pet_bunny',
+      'petName': 'Momo',
+      'stage': 'hatchling',
+      'growthStage': 'hatchling',
+      'xpBaselineAtHatch': 230,
+      'habitatTheme': 'forest',
+      'hatchedAt': Timestamp.fromDate(DateTime.utc(2026, 8, 17, 10)),
+      'updatedAt': Timestamp.fromDate(DateTime.utc(2026, 8, 17, 10)),
+    });
+
+    await _repo(firestore).evolvePet(now: DateTime.utc(2026, 8, 19, 11));
+
+    final data =
+        (await firestore.doc('student_progress/$uid/pet/state').get()).data()!;
+    expect(data['growthStage'], 'young');
+    expect(data['stage'], 'hatchling');
+    expect(data['xpBaselineAtHatch'], 230);
+    expect(
+        data['hatchedAt'], Timestamp.fromDate(DateTime.utc(2026, 8, 17, 10)));
+    expect(data['habitatTheme'], 'forest');
+    expect(data['petName'], 'Momo');
+  });
+
+  test('evolution rejects insufficient growth requirements', () async {
+    final firestore = FakeFirebaseFirestore();
+    await _seedEngagement(firestore, xp: 589, studyPoints: 3);
+    await _seedHatchlingDoc(
+      firestore,
+      growthStage: StudyPetGrowthStage.hatchling,
+      hatchedAt: DateTime.utc(2026, 8, 17),
+      xpBaselineAtHatch: 390,
+    );
+
+    expect(
+      () => _repo(firestore).evolvePet(now: DateTime.utc(2026, 8, 19)),
+      throwsStateError,
+    );
   });
 
   test('pet name validation trims and rejects invalid names', () {
@@ -198,6 +477,13 @@ void main() {
       egg: studyEggs[2],
       currentTotalXp: before.totalXp,
     );
+    await firestore.doc('student_progress/$uid/pet/state').update({
+      'stage': 'hatchling',
+      'petId': 'pet_cat',
+      'hatchedAt': Timestamp.fromDate(DateTime.utc(2026, 8, 19)),
+      'petName': 'Luna',
+    });
+    await _repo(firestore).updateHabitat(StudyPetHabitat.house);
     final after = await engagement.readState();
     final wallet = await firestore.doc('students/qidah/muffin/state').get();
 
@@ -205,6 +491,27 @@ void main() {
     expect(after.todayStudyPoints, before.todayStudyPoints);
     expect(wallet.exists, isFalse);
   });
+}
+
+StudyPetState _hatchlingState({
+  required StudyPetGrowthStage growthStage,
+  required DateTime hatchedAt,
+  required int? xpBaselineAtHatch,
+}) {
+  return StudyPetState(
+    schemaVersion: 1,
+    stage: StudyPetStage.hatchling,
+    eggId: 'egg_sprout',
+    petId: 'pet_bunny',
+    selectedAt: hatchedAt.subtract(const Duration(days: 1)),
+    xpBaselineAtSelection: 290,
+    hatchXpTarget: 100,
+    hatchDelayHours: 24,
+    hatchedAt: hatchedAt,
+    petName: 'Momo',
+    growthStage: growthStage,
+    xpBaselineAtHatch: xpBaselineAtHatch,
+  );
 }
 
 StudyPetRepository _repo(FakeFirebaseFirestore firestore) {
@@ -246,5 +553,35 @@ Future<void> _seedEngagement(
     'dailyStudyTarget': 3,
     'todayStreakSecured': false,
     'updatedAt': Timestamp.fromDate(DateTime.utc(2026, 8, 19)),
+  });
+}
+
+Future<void> _seedHatchlingDoc(
+  FakeFirebaseFirestore firestore, {
+  StudyPetGrowthStage growthStage = StudyPetGrowthStage.hatchling,
+  DateTime? hatchedAt,
+  int? xpBaselineAtHatch = 390,
+  StudyPetHabitat habitatTheme = StudyPetHabitat.forest,
+}) async {
+  final hatchTime = hatchedAt ?? DateTime.utc(2026, 8, 17);
+  await firestore.doc('student_progress/$uid/pet/state').set({
+    'schemaVersion': 1,
+    'petUnlockAcknowledgedAt': Timestamp.fromDate(DateTime.utc(2026, 8, 17)),
+    'eggId': 'egg_sprout',
+    'petId': 'pet_bunny',
+    'stage': 'hatchling',
+    'selectedAt': Timestamp.fromDate(DateTime.utc(2026, 8, 16)),
+    'xpBaselineAtSelection': 290,
+    'hatchXpTarget': 100,
+    'hatchDelayHours': 24,
+    'hatchedAt': Timestamp.fromDate(hatchTime),
+    'petName': 'Momo',
+    'habitatTheme': habitatTheme.storageId,
+    if (xpBaselineAtHatch != null) ...{
+      'growthStage': growthStage.storageId,
+      'xpBaselineAtHatch': xpBaselineAtHatch,
+      'lastEvolutionAt': null,
+    },
+    'updatedAt': Timestamp.fromDate(hatchTime),
   });
 }

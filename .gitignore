@@ -7,6 +7,7 @@ app/.packages
 app/pubspec.lock
 
 # Next.js
+node_modules/
 dashboard/.next/
 dashboard/node_modules/
 dashboard/out/
@@ -15,6 +16,7 @@ functions/node_modules/
 
 # Firebase / secrets
 .firebaserc
+functions/.env*
 firebase-debug.log
 *.log
 
@@ -23,3 +25,4 @@ firebase-debug.log
 Thumbs.db
 .vscode/
 .idea/
+.tmp_flutter/

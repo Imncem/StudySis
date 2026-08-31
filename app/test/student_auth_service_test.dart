@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:studysis/services/student_auth_service.dart';
 
@@ -15,6 +17,7 @@ void main() {
     final user = await service.ensureSignedInAnonymously();
 
     expect(user.uid, 'existing-anonymous-uid');
+    expect(client.persistenceCount, 1);
     expect(client.signInCount, 0);
   });
 
@@ -33,6 +36,32 @@ void main() {
     final user = await service.ensureSignedInAnonymously();
 
     expect(user.uid, 'restored-anonymous-uid');
+    expect(client.persistenceCount, 1);
+    expect(client.signInCount, 0);
+  });
+
+  test('waits through initial null auth state for a restored user', () async {
+    final controller = StreamController<StudentAuthSession?>();
+    final client = _FakeStudentAuthClient(authStates: controller.stream);
+    final service = StudentAuthService(
+      client: client,
+      authRestoreTimeout: const Duration(milliseconds: 200),
+    );
+
+    final future = service.ensureSignedInAnonymously();
+    controller.add(null);
+    await Future<void>.delayed(const Duration(milliseconds: 10));
+    controller.add(
+      const StudentAuthSession(
+        uid: 'slow-restored-anonymous-uid',
+        isAnonymous: true,
+      ),
+    );
+
+    final user = await future;
+    await controller.close();
+
+    expect(user.uid, 'slow-restored-anonymous-uid');
     expect(client.signInCount, 0);
   });
 
@@ -45,11 +74,15 @@ void main() {
         isAnonymous: true,
       ),
     );
-    final service = StudentAuthService(client: client);
+    final service = StudentAuthService(
+      client: client,
+      authRestoreTimeout: const Duration(milliseconds: 1),
+    );
 
     final user = await service.ensureSignedInAnonymously();
 
     expect(user.uid, 'new-anonymous-uid');
+    expect(client.persistenceCount, 1);
     expect(client.signInCount, 1);
   });
 
@@ -80,6 +113,7 @@ class _FakeStudentAuthClient implements StudentAuthClient {
   final Stream<StudentAuthSession?> _authStates;
   final StudentAuthSession signedInUser;
   int signInCount = 0;
+  int persistenceCount = 0;
 
   @override
   Stream<StudentAuthSession?> authStateChanges() => _authStates;
@@ -88,5 +122,10 @@ class _FakeStudentAuthClient implements StudentAuthClient {
   Future<StudentAuthSession> signInAnonymously() async {
     signInCount += 1;
     return signedInUser;
+  }
+
+  @override
+  Future<void> useDevicePersistentAuth() async {
+    persistenceCount += 1;
   }
 }

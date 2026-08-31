@@ -22,6 +22,8 @@ class QuizScreen extends StatefulWidget {
     super.key,
   });
 
+  static const routeName = 'quiz';
+
   final Chapter chapter;
   final String subjectId;
   final String subjectTitle;

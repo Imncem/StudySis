@@ -6,6 +6,7 @@ import '../repositories/engagement_repository.dart';
 import '../repositories/learning_repository.dart';
 import '../repositories/student_progress_repository.dart';
 import '../repositories/study_pet_repository.dart';
+import '../theme/app_theme.dart';
 import 'chapter_overview_screen.dart';
 
 class SubjectScreen extends StatefulWidget {
@@ -47,6 +48,13 @@ class _SubjectScreenState extends State<SubjectScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final subjectTheme = StudySisSubjectTheme.forSubject(
+      id: widget.subject.id,
+      displayName: widget.subject.displayName,
+      iconName: widget.subject.iconName,
+      fallbackHex: widget.subject.themeColor,
+    );
+    final accent = subjectTheme.accent(context);
     return Scaffold(
       appBar: AppBar(
         backgroundColor: Theme.of(context).scaffoldBackgroundColor,
@@ -59,24 +67,37 @@ class _SubjectScreenState extends State<SubjectScreen> {
           child: ListView(
             padding: const EdgeInsets.fromLTRB(20, 12, 20, 40),
             children: [
-              Text(
-                widget.subject.shortName.toUpperCase(),
-                style: TextStyle(
-                  color: Theme.of(context).colorScheme.primary,
-                  fontSize: 12,
-                  fontWeight: FontWeight.w700,
-                  letterSpacing: 1.2,
+              Container(
+                padding: const EdgeInsets.all(20),
+                decoration: StudySisDecorations.playfulCard(
+                  context,
+                  subjectTheme,
+                  radius: 26,
                 ),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                widget.subject.displayName,
-                style: Theme.of(context).textTheme.headlineMedium,
-              ),
-              const SizedBox(height: 8),
-              Text(
-                'Choose a chapter to begin the learning journey.',
-                style: Theme.of(context).textTheme.bodyLarge,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      widget.subject.shortName.toUpperCase(),
+                      style: TextStyle(
+                        color: accent,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: 1.2,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      widget.subject.displayName,
+                      style: Theme.of(context).textTheme.headlineMedium,
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      'Choose a chapter to begin the learning journey.',
+                      style: Theme.of(context).textTheme.bodyLarge,
+                    ),
+                  ],
+                ),
               ),
               const SizedBox(height: 24),
               FutureBuilder<List<Chapter>>(
@@ -108,6 +129,7 @@ class _SubjectScreenState extends State<SubjectScreen> {
                       for (final chapter in chapters) ...[
                         _ChapterCard(
                           chapter: chapter,
+                          subjectTheme: subjectTheme,
                           onTap: () {
                             Navigator.of(context).push(
                               MaterialPageRoute<void>(
@@ -140,13 +162,20 @@ class _SubjectScreenState extends State<SubjectScreen> {
 }
 
 class _ChapterCard extends StatelessWidget {
-  const _ChapterCard({required this.chapter, required this.onTap});
+  const _ChapterCard({
+    required this.chapter,
+    required this.subjectTheme,
+    required this.onTap,
+  });
 
   final Chapter chapter;
+  final StudySisSubjectTheme subjectTheme;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
+    final accent = subjectTheme.accent(context);
+    final soft = subjectTheme.softSurface(context);
     return Card(
       child: InkWell(
         borderRadius: BorderRadius.circular(24),
@@ -159,14 +188,14 @@ class _ChapterCard extends StatelessWidget {
                 width: 50,
                 height: 50,
                 decoration: BoxDecoration(
-                  color: const Color(0xFFE5EEE8),
+                  color: soft,
                   borderRadius: BorderRadius.circular(16),
                 ),
                 child: Center(
                   child: Text(
                     chapter.chapterNumber.toString(),
-                    style: const TextStyle(
-                      color: Color(0xFF496A5A),
+                    style: TextStyle(
+                      color: accent,
                       fontSize: 18,
                       fontWeight: FontWeight.w800,
                     ),
@@ -190,7 +219,7 @@ class _ChapterCard extends StatelessWidget {
                   ],
                 ),
               ),
-              const Icon(Icons.chevron_right_rounded),
+              Icon(Icons.chevron_right_rounded, color: accent),
             ],
           ),
         ),

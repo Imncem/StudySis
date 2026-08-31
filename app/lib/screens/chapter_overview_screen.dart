@@ -12,6 +12,7 @@ import '../models/chapter_progress.dart';
 import '../repositories/engagement_repository.dart';
 import '../repositories/student_progress_repository.dart';
 import '../repositories/study_pet_repository.dart';
+import '../theme/app_theme.dart';
 import '../widgets/xp_reward_overlay.dart';
 import 'streak_celebration_screen.dart';
 import 'flashcard_screen.dart';
@@ -105,6 +106,7 @@ class _ChapterOverviewScreenState extends State<ChapterOverviewScreen> {
     }
     final action = await Navigator.of(context).push<ModuleReaderExitAction>(
       MaterialPageRoute<ModuleReaderExitAction>(
+        settings: const RouteSettings(name: ModuleReaderScreen.routeName),
         builder: (_) => ModuleReaderScreen(learningContent: notes),
       ),
     );
@@ -144,6 +146,7 @@ class _ChapterOverviewScreenState extends State<ChapterOverviewScreen> {
     final masteredIds = progress.masteredFlashcardIds.toSet();
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
+        settings: const RouteSettings(name: FlashcardScreen.routeName),
         builder: (_) => FlashcardScreen(
           subjectId: widget.subjectId,
           subjectName: widget.subjectName,
@@ -190,6 +193,7 @@ class _ChapterOverviewScreenState extends State<ChapterOverviewScreen> {
     }
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
+        settings: const RouteSettings(name: PracticeScreen.routeName),
         builder: (_) => PracticeScreen(
           title: 'Chapter ${widget.chapter.chapterNumber} Practice',
           subjectId: widget.subjectId,
@@ -236,6 +240,7 @@ class _ChapterOverviewScreenState extends State<ChapterOverviewScreen> {
     }
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
+        settings: const RouteSettings(name: QuizScreen.routeName),
         builder: (_) => QuizScreen(
           chapter: widget.chapter,
           subjectId: widget.subjectId,
@@ -331,6 +336,7 @@ class _ChapterOverviewScreenState extends State<ChapterOverviewScreen> {
     if (!mounted || action?.wantsChoosePet != true) return;
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
+        settings: const RouteSettings(name: StudyPetScreen.routeName),
         builder: (_) => StudyPetScreen(
           engagementRepository: _engagementRepository,
           petRepository: _petRepository,
@@ -365,6 +371,11 @@ class _ChapterOverviewScreenState extends State<ChapterOverviewScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final subjectTheme = StudySisSubjectTheme.forSubject(
+      id: widget.subjectId,
+      displayName: widget.subjectName,
+    );
+    final accent = subjectTheme.accent(context);
     return Scaffold(
       appBar: AppBar(
         backgroundColor: Theme.of(context).scaffoldBackgroundColor,
@@ -405,24 +416,66 @@ class _ChapterOverviewScreenState extends State<ChapterOverviewScreen> {
                   return ListView(
                     padding: const EdgeInsets.fromLTRB(20, 12, 20, 40),
                     children: [
-                      Text(
-                        widget.subjectName.toUpperCase(),
-                        style: TextStyle(
-                          color: Theme.of(context).colorScheme.primary,
-                          fontSize: 12,
-                          fontWeight: FontWeight.w700,
-                          letterSpacing: 1.2,
+                      Container(
+                        padding: const EdgeInsets.all(20),
+                        decoration: StudySisDecorations.playfulCard(
+                          context,
+                          subjectTheme,
+                          radius: 26,
                         ),
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        'Chapter ${widget.chapter.chapterNumber}: ${widget.chapter.title}',
-                        style: Theme.of(context).textTheme.headlineMedium,
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Container(
+                              width: 52,
+                              height: 52,
+                              decoration: BoxDecoration(
+                                color: accent,
+                                borderRadius: BorderRadius.circular(18),
+                              ),
+                              child: Center(
+                                child: Text(
+                                  widget.chapter.chapterNumber.toString(),
+                                  style: TextStyle(
+                                    color: subjectTheme.onPrimary,
+                                    fontSize: 20,
+                                    fontWeight: FontWeight.w900,
+                                  ),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 14),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    widget.subjectName.toUpperCase(),
+                                    style: TextStyle(
+                                      color: accent,
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w800,
+                                      letterSpacing: 1.2,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 6),
+                                  Text(
+                                    'Chapter ${widget.chapter.chapterNumber}: ${widget.chapter.title}',
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .headlineMedium,
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
                       const SizedBox(height: 22),
                       _ProgressCard(
                         percent: progress.overallProgress,
                         progress: progressValue,
+                        subjectTheme: subjectTheme,
                       ),
                       if (progressSnapshot.connectionState ==
                           ConnectionState.waiting) ...[
@@ -457,6 +510,7 @@ class _ChapterOverviewScreenState extends State<ChapterOverviewScreen> {
                           icon: Icons.menu_book_rounded,
                           title: 'Learn',
                           description: 'Read and understand the lesson.',
+                          subjectTheme: subjectTheme,
                           status: learnCompleted
                               ? 'Completed'
                               : hasLearn
@@ -471,6 +525,7 @@ class _ChapterOverviewScreenState extends State<ChapterOverviewScreen> {
                           icon: Icons.psychology_rounded,
                           title: 'Flashcards',
                           description: 'Remember the important ideas.',
+                          subjectTheme: subjectTheme,
                           status:
                               '${progress.flashcardsMasteredCount} / $flashcardTotal mastered',
                           locked: !learnCompleted,
@@ -487,6 +542,7 @@ class _ChapterOverviewScreenState extends State<ChapterOverviewScreen> {
                           icon: Icons.edit_note_rounded,
                           title: 'Practice',
                           description: 'Guided exercises.',
+                          subjectTheme: subjectTheme,
                           status: practiceCompleted
                               ? 'Latest ${progress.practiceLatestPercentage}% · Best ${progress.practiceBestPercentage}%'
                               : flashcardsCompleted && practiceTotal > 0
@@ -504,6 +560,7 @@ class _ChapterOverviewScreenState extends State<ChapterOverviewScreen> {
                           icon: Icons.track_changes_rounded,
                           title: 'Quiz',
                           description: 'Timed challenge.',
+                          subjectTheme: subjectTheme,
                           status: quizCompleted
                               ? 'Latest ${progress.quizLatestPercentage}% · Best ${progress.quizBestPercentage}% · ${progress.quizPassed ? 'Pass' : 'Needs Revision'}'
                               : practiceCompleted && quizTotal > 0
@@ -521,6 +578,7 @@ class _ChapterOverviewScreenState extends State<ChapterOverviewScreen> {
                           icon: Icons.emoji_events_rounded,
                           title: 'Challenge',
                           description: 'Mixed chapter questions.',
+                          subjectTheme: subjectTheme,
                           status: 'Locked',
                           locked: true,
                           onTap: () =>
@@ -554,16 +612,22 @@ class _ChapterJourneyData {
 }
 
 class _ProgressCard extends StatelessWidget {
-  const _ProgressCard({required this.percent, required this.progress});
+  const _ProgressCard({
+    required this.percent,
+    required this.progress,
+    required this.subjectTheme,
+  });
 
   final int percent;
   final double progress;
+  final StudySisSubjectTheme subjectTheme;
 
   @override
   Widget build(BuildContext context) {
+    final accent = subjectTheme.accent(context);
     return Card(
-      color: const Color(0xFFE5EEE8),
-      child: Padding(
+      child: Container(
+        decoration: StudySisDecorations.playfulCard(context, subjectTheme),
         padding: const EdgeInsets.all(22),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -588,6 +652,7 @@ class _ProgressCard extends StatelessWidget {
                 value: progress,
                 minHeight: 10,
                 backgroundColor: Colors.white.withValues(alpha: 0.65),
+                color: accent,
               ),
             ),
           ],
@@ -649,6 +714,7 @@ class _JourneyCard extends StatelessWidget {
     required this.icon,
     required this.title,
     required this.description,
+    required this.subjectTheme,
     required this.status,
     required this.onTap,
     this.locked = false,
@@ -657,14 +723,16 @@ class _JourneyCard extends StatelessWidget {
   final IconData icon;
   final String title;
   final String description;
+  final StudySisSubjectTheme subjectTheme;
   final String status;
   final VoidCallback onTap;
   final bool locked;
 
   @override
   Widget build(BuildContext context) {
-    final mutedColor =
-        locked ? const Color(0xFF8A918B) : const Color(0xFF496A5A);
+    final accent = subjectTheme.accent(context);
+    final soft = subjectTheme.softSurface(context);
+    final mutedColor = locked ? const Color(0xFF8A918B) : accent;
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
       child: Card(
@@ -679,9 +747,7 @@ class _JourneyCard extends StatelessWidget {
                   width: 52,
                   height: 52,
                   decoration: BoxDecoration(
-                    color: locked
-                        ? const Color(0xFFF1EFEA)
-                        : const Color(0xFFE5EEE8),
+                    color: locked ? const Color(0xFFF1EFEA) : soft,
                     borderRadius: BorderRadius.circular(17),
                   ),
                   child: Icon(icon, color: mutedColor),
@@ -701,7 +767,11 @@ class _JourneyCard extends StatelessWidget {
                         style: Theme.of(context).textTheme.bodySmall,
                       ),
                       const SizedBox(height: 10),
-                      _StatusBadge(label: status, locked: locked),
+                      _StatusBadge(
+                        label: status,
+                        locked: locked,
+                        subjectTheme: subjectTheme,
+                      ),
                     ],
                   ),
                 ),
@@ -721,23 +791,30 @@ class _JourneyCard extends StatelessWidget {
 }
 
 class _StatusBadge extends StatelessWidget {
-  const _StatusBadge({required this.label, required this.locked});
+  const _StatusBadge({
+    required this.label,
+    required this.locked,
+    required this.subjectTheme,
+  });
 
   final String label;
   final bool locked;
+  final StudySisSubjectTheme subjectTheme;
 
   @override
   Widget build(BuildContext context) {
+    final accent = subjectTheme.accent(context);
+    final soft = subjectTheme.softSurface(context);
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
-        color: locked ? const Color(0xFFF1EFEA) : const Color(0xFFE5EEE8),
+        color: locked ? const Color(0xFFF1EFEA) : soft,
         borderRadius: BorderRadius.circular(99),
       ),
       child: Text(
         label,
         style: TextStyle(
-          color: locked ? const Color(0xFF756F66) : const Color(0xFF496A5A),
+          color: locked ? const Color(0xFF756F66) : accent,
           fontSize: 12,
           fontWeight: FontWeight.w700,
         ),

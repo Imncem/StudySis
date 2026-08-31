@@ -4,22 +4,31 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 
 class StudentAuthService {
-  StudentAuthService({FirebaseAuth? auth, StudentAuthClient? client})
-      : _client =
-            client ?? FirebaseStudentAuthClient(auth ?? FirebaseAuth.instance);
+  StudentAuthService({
+    FirebaseAuth? auth,
+    StudentAuthClient? client,
+    Duration authRestoreTimeout = const Duration(seconds: 3),
+  })  : _client =
+            client ?? FirebaseStudentAuthClient(auth ?? FirebaseAuth.instance),
+        _authRestoreTimeout = authRestoreTimeout;
 
   final StudentAuthClient _client;
+  final Duration _authRestoreTimeout;
+  static String? _debugLifecycleUid;
 
   StudentAuthSession? get currentUser => _client.currentUser;
 
   Stream<StudentAuthSession?> authStateChanges() => _client.authStateChanges();
 
   Future<StudentAuthSession> ensureSignedInAnonymously() async {
+    await _client.useDevicePersistentAuth();
+
     final existing = _client.currentUser;
     if (existing != null) {
       debugPrint(
         '[StudySis][auth] Reusing current Firebase user: uid=${existing.uid} anonymous=${existing.isAnonymous}',
       );
+      _debugCheckUid(existing);
       return existing;
     }
 
@@ -28,13 +37,24 @@ class StudentAuthService {
       debugPrint(
         '[StudySis][auth] Reusing restored Firebase user: uid=${restored.uid} anonymous=${restored.isAnonymous}',
       );
+      _debugCheckUid(restored);
       return restored;
+    }
+
+    final lateCurrent = _client.currentUser;
+    if (lateCurrent != null) {
+      debugPrint(
+        '[StudySis][auth] Reusing late-restored Firebase user: uid=${lateCurrent.uid} anonymous=${lateCurrent.isAnonymous}',
+      );
+      _debugCheckUid(lateCurrent);
+      return lateCurrent;
     }
 
     try {
       debugPrint(
           '[StudySis][auth] No existing Firebase user; signing in anonymously.');
       final user = await _client.signInAnonymously();
+      _debugCheckUid(user);
       return user;
     } on FirebaseAuthException catch (error) {
       if (error.code == 'operation-not-allowed' ||
@@ -51,13 +71,29 @@ class StudentAuthService {
 
   Future<StudentAuthSession?> _initialAuthState() async {
     try {
-      return await _client.authStateChanges().first.timeout(
-            const Duration(seconds: 3),
+      return await _client
+          .authStateChanges()
+          .firstWhere(
+            (session) => session != null,
+          )
+          .timeout(
+            _authRestoreTimeout,
             onTimeout: () => null,
           );
     } catch (_) {
       return null;
     }
+  }
+
+  void _debugCheckUid(StudentAuthSession session) {
+    if (!kDebugMode) return;
+    final previous = _debugLifecycleUid;
+    if (previous != null && previous != session.uid) {
+      debugPrint(
+        '[StudySis][auth] Firebase student UID changed during this app lifecycle: previous=$previous current=${session.uid}',
+      );
+    }
+    _debugLifecycleUid = session.uid;
   }
 }
 
@@ -65,6 +101,7 @@ abstract class StudentAuthClient {
   StudentAuthSession? get currentUser;
   Stream<StudentAuthSession?> authStateChanges();
   Future<StudentAuthSession> signInAnonymously();
+  Future<void> useDevicePersistentAuth();
 }
 
 class FirebaseStudentAuthClient implements StudentAuthClient {
@@ -95,6 +132,12 @@ class FirebaseStudentAuthClient implements StudentAuthClient {
       );
     }
     return StudentAuthSession.fromFirebaseUser(user);
+  }
+
+  @override
+  Future<void> useDevicePersistentAuth() async {
+    if (!kIsWeb) return;
+    await _auth.setPersistence(Persistence.LOCAL);
   }
 }
 

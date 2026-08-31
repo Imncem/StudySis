@@ -38,6 +38,39 @@ class StudyPetRepository {
     await _stateRef(uid).set(_unselectedPayload(), SetOptions(merge: true));
   }
 
+  Future<void> updateHabitat(StudyPetHabitat habitat) async {
+    final uid = _uid;
+    await _stateRef(uid).update({
+      'habitatTheme': habitat.storageId,
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+  }
+
+  Future<void> ensureGrowthBaseline({
+    required int currentTotalXp,
+  }) async {
+    final uid = _uid;
+    final ref = _stateRef(uid);
+    final engagementRef = _engagementRef(uid);
+    await _firestore.runTransaction((transaction) async {
+      final snapshot = await transaction.get(ref);
+      final engagementSnapshot = await transaction.get(engagementRef);
+      final current = StudyPetState.fromMap(snapshot.data());
+      if (!current.hasHatchling || current.xpBaselineAtHatch != null) {
+        return;
+      }
+      final totalXp = _totalXpFromMap(
+        engagementSnapshot.data(),
+        fallback: currentTotalXp,
+      );
+      transaction.update(ref, {
+        'growthStage': current.growthStage.storageId,
+        'xpBaselineAtHatch': totalXp,
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+    });
+  }
+
   Future<StudyPetState> selectEgg({
     required StudyEggDefinition egg,
     required int currentTotalXp,
@@ -60,6 +93,7 @@ class StudyPetRepository {
         xpBaselineAtSelection: currentTotalXp,
         hatchXpTarget: hatchXpTargetDefault,
         hatchDelayHours: hatchDelayHoursDefault,
+        habitatTheme: current.habitatTheme,
       );
     });
   }
@@ -72,8 +106,12 @@ class StudyPetRepository {
     final trimmedName = validatePetName(petName);
     final uid = _uid;
     final ref = _stateRef(uid);
+    final engagementRef = _engagementRef(uid);
     return _firestore.runTransaction((transaction) async {
       final snapshot = await transaction.get(ref);
+      final engagementSnapshot = await transaction.get(engagementRef);
+      final totalXpAtHatch =
+          _totalXpFromMap(engagementSnapshot.data(), fallback: currentTotalXp);
       final current = StudyPetState.fromMap(snapshot.data());
       if (current.stage == StudyPetStage.hatchling) return current;
       final egg = current.egg;
@@ -98,6 +136,9 @@ class StudyPetRepository {
         'stage': 'hatchling',
         'petId': pet.storageId,
         'petName': trimmedName,
+        'growthStage': StudyPetGrowthStage.hatchling.storageId,
+        'xpBaselineAtHatch': totalXpAtHatch,
+        'lastEvolutionAt': null,
         'hatchedAt': FieldValue.serverTimestamp(),
         'updatedAt': FieldValue.serverTimestamp(),
       });
@@ -113,12 +154,79 @@ class StudyPetRepository {
         hatchDelayHours: current.hatchDelayHours,
         hatchedAt: now,
         petName: trimmedName,
+        habitatTheme: current.habitatTheme,
+        growthStage: StudyPetGrowthStage.hatchling,
+        xpBaselineAtHatch: totalXpAtHatch,
+      );
+    });
+  }
+
+  Future<StudyPetState> evolvePet({
+    required DateTime now,
+  }) async {
+    final uid = _uid;
+    final ref = _stateRef(uid);
+    final engagementRef = _engagementRef(uid);
+    return _firestore.runTransaction((transaction) async {
+      final snapshot = await transaction.get(ref);
+      final engagementSnapshot = await transaction.get(engagementRef);
+      final current = StudyPetState.fromMap(snapshot.data());
+      if (!current.hasHatchling || current.hatchedAt == null) {
+        throw StateError('No Study Buddy is ready to grow.');
+      }
+      final baseline = current.xpBaselineAtHatch;
+      if (baseline == null) {
+        throw StateError(
+            'Growth baseline is being prepared. Please try again.');
+      }
+      final requirement =
+          StudyPetGrowthRules.nextRequirementFor(current.growthStage);
+      if (requirement == null) return current;
+      final totalXp = _totalXpFromMap(engagementSnapshot.data());
+      final growthXp = StudyPetGrowthRules.growthXp(
+        currentTotalXp: totalXp,
+        baselineAtHatch: baseline,
+      );
+      final elapsed = now.difference(current.hatchedAt!);
+      final canEvolve = StudyPetGrowthRules.canEvolve(
+        currentStage: current.growthStage,
+        growthXp: growthXp,
+        elapsedSinceHatch: elapsed.isNegative ? Duration.zero : elapsed,
+      );
+      if (!canEvolve) {
+        throw StateError('Your Study Buddy is not ready to grow yet.');
+      }
+      transaction.update(ref, {
+        'growthStage': requirement.stage.storageId,
+        'lastEvolutionAt': FieldValue.serverTimestamp(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+      return StudyPetState(
+        schemaVersion: current.schemaVersion,
+        stage: current.stage,
+        petUnlockAcknowledgedAt: current.petUnlockAcknowledgedAt,
+        eggId: current.eggId,
+        petId: current.petId,
+        selectedAt: current.selectedAt,
+        xpBaselineAtSelection: current.xpBaselineAtSelection,
+        hatchXpTarget: current.hatchXpTarget,
+        hatchDelayHours: current.hatchDelayHours,
+        hatchedAt: current.hatchedAt,
+        petName: current.petName,
+        habitatTheme: current.habitatTheme,
+        growthStage: requirement.stage,
+        xpBaselineAtHatch: baseline,
+        lastEvolutionAt: now,
       );
     });
   }
 
   DocumentReference<Map<String, dynamic>> _stateRef(String uid) {
     return _firestore.doc('student_progress/$uid/pet/state');
+  }
+
+  DocumentReference<Map<String, dynamic>> _engagementRef(String uid) {
+    return _firestore.doc('student_progress/$uid/engagement/state');
   }
 
   String get debugStatePath =>
@@ -162,6 +270,10 @@ Map<String, Object?> _unselectedPayload() {
     'hatchDelayHours': hatchDelayHoursDefault,
     'hatchedAt': null,
     'petName': null,
+    'habitatTheme': StudyPetHabitat.forest.storageId,
+    'growthStage': null,
+    'xpBaselineAtHatch': null,
+    'lastEvolutionAt': null,
     'updatedAt': FieldValue.serverTimestamp(),
   };
 }
@@ -179,6 +291,10 @@ Map<String, Object?> _eggPayload(StudyEggDefinition egg, int currentTotalXp) {
     'hatchDelayHours': hatchDelayHoursDefault,
     'hatchedAt': null,
     'petName': null,
+    'habitatTheme': StudyPetHabitat.forest.storageId,
+    'growthStage': null,
+    'xpBaselineAtHatch': null,
+    'lastEvolutionAt': null,
     'updatedAt': FieldValue.serverTimestamp(),
   };
 }
@@ -200,5 +316,20 @@ Map<String, Object?> _statePayload(StudyPetState state) {
     'hatchedAt':
         state.hatchedAt == null ? null : Timestamp.fromDate(state.hatchedAt!),
     'petName': state.petName,
+    'habitatTheme': state.habitatTheme.storageId,
+    'growthStage': state.stage == StudyPetStage.hatchling
+        ? state.growthStage.storageId
+        : null,
+    'xpBaselineAtHatch': state.xpBaselineAtHatch,
+    'lastEvolutionAt': state.lastEvolutionAt == null
+        ? null
+        : Timestamp.fromDate(state.lastEvolutionAt!),
   };
+}
+
+int _totalXpFromMap(Map<String, dynamic>? data, {int fallback = 0}) {
+  final value = data?['totalXp'];
+  if (value is int) return value;
+  if (value is num) return value.toInt();
+  return fallback;
 }

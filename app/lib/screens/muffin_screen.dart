@@ -2,19 +2,25 @@ import 'package:flutter/material.dart';
 
 import '../models/chapter_progress.dart';
 import '../models/muffin.dart';
+import '../models/muffin_wallet.dart';
 import '../repositories/student_progress_repository.dart';
 import '../services/muffin_service.dart';
+import '../services/muffin_wallet_service.dart';
+import '../theme/app_theme.dart';
 import '../widgets/muffin_assist_sheet.dart';
+import '../widgets/muffin_mascot_icon.dart';
 
 class MuffinScreen extends StatefulWidget {
   const MuffinScreen({
     this.progressRepository,
     this.muffinService,
+    this.walletService,
     super.key,
   });
 
   final StudentProgressRepository? progressRepository;
   final MuffinService? muffinService;
+  final MuffinWalletService? walletService;
 
   @override
   State<MuffinScreen> createState() => _MuffinScreenState();
@@ -36,6 +42,37 @@ class _MuffinScreenState extends State<MuffinScreen> {
     setState(() {
       _progressFuture = _progressRepository.getAllChapterProgress();
     });
+  }
+
+  void _openGeneralMuffin(MuffinAction action) {
+    const context = MuffinContext(
+      studentProfileId: 'qidah',
+      preferredLanguage: 'Mixed',
+      subjectId: 'general',
+      subjectTitle: 'StudySis',
+      mode: MuffinMode.learn,
+      currentScreen: 'muffin_hub',
+      originalScreenContent: 'General StudySis Muffin hub',
+      contextKey: 'muffin_hub_general',
+    );
+    showModalBottomSheet<void>(
+      context: this.context,
+      showDragHandle: true,
+      isScrollControlled: true,
+      builder: (_) => MuffinAssistSheet(
+        title: 'Muffin',
+        subtitle: 'Your AI learning companion.',
+        mode: MuffinMode.learn,
+        context: context,
+        service: widget.muffinService,
+        actions: [
+          MuffinActionConfig(
+            action: action,
+            label: _labelForAction(action),
+          ),
+        ],
+      ),
+    );
   }
 
   void _openMuffin(ChapterProgress progress, MuffinAction action) {
@@ -76,78 +113,133 @@ class _MuffinScreenState extends State<MuffinScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final walletService =
+        widget.walletService ?? MuffinWalletServiceFactory.create();
     return Scaffold(
-      appBar: AppBar(
-        backgroundColor: Theme.of(context).scaffoldBackgroundColor,
-        surfaceTintColor: Colors.transparent,
-        title: const Text('Muffin'),
-      ),
       body: SafeArea(
-        child: FutureBuilder<List<ChapterProgress>>(
-          future: _progressFuture,
-          builder: (context, snapshot) {
-            if (snapshot.connectionState == ConnectionState.waiting) {
-              return const Center(child: CircularProgressIndicator());
-            }
-            if (snapshot.hasError) {
-              return _MuffinState(
-                icon: Icons.cloud_off_rounded,
-                title: 'Muffin could not load right now.',
-                message: 'Your learning progress is safe. Please try again.',
-                actionLabel: 'Retry',
-                onAction: _retry,
-              );
-            }
-            final progress = snapshot.data ?? const <ChapterProgress>[];
-            if (progress.isEmpty) {
-              return const _MuffinState(
-                icon: Icons.auto_stories_rounded,
-                title:
-                    'Start a lesson first so Muffin can help with your learning.',
-                message: 'Muffin uses your current chapter to stay focused.',
-              );
-            }
-            progress.sort((a, b) {
-              final aActivity = a.lastActivityAt;
-              final bActivity = b.lastActivityAt;
-              if (aActivity == null && bActivity == null) return 0;
-              if (aActivity == null) return 1;
-              if (bActivity == null) return -1;
-              return bActivity.compareTo(aActivity);
-            });
-            final latest = progress.first;
-            return ListView(
-              padding: const EdgeInsets.fromLTRB(20, 12, 20, 40),
-              children: [
-                Text(
-                  'Choose a focused Muffin action.',
-                  style: Theme.of(context).textTheme.bodyLarge,
-                ),
-                const SizedBox(height: 18),
-                _MuffinActionCard(
-                  title: 'Explain my current chapter',
-                  subtitle: 'A simple explanation using your latest progress.',
-                  onTap: () => _openMuffin(latest, MuffinAction.explainConcept),
-                ),
-                _MuffinActionCard(
-                  title: 'What should I revise?',
-                  subtitle: 'A gentle suggestion from saved scores.',
-                  onTap: () => _openMuffin(latest, MuffinAction.smallHint),
-                ),
-                _MuffinActionCard(
-                  title: 'Translate a difficult term',
-                  subtitle: 'Use the lesson language support.',
-                  onTap: () => _openMuffin(latest, MuffinAction.explainConcept),
-                ),
-                _MuffinActionCard(
-                  title: 'Create a quick practice question',
-                  subtitle: 'One temporary generated question.',
-                  onTap: () => _openMuffin(
-                    latest,
-                    MuffinAction.generateSimilarQuestion,
-                  ),
-                ),
-              ],
+        child: StreamBuilder(
+          stream: walletService.watchWallet(),
+          initialData: MuffinWallet.full,
+          builder: (context, walletSnapshot) {
+            final wallet = walletSnapshot.data ?? MuffinWallet.full;
+            return FutureBuilder<List<ChapterProgress>>(
+              future: _progressFuture,
+              builder: (context, snapshot) {
+                final progress = [
+                  ...snapshot.data ?? const <ChapterProgress>[]
+                ];
+                progress.sort((a, b) {
+                  final aActivity = a.lastActivityAt;
+                  final bActivity = b.lastActivityAt;
+                  if (aActivity == null && bActivity == null) return 0;
+                  if (aActivity == null) return 1;
+                  if (bActivity == null) return -1;
+                  return bActivity.compareTo(aActivity);
+                });
+                final latest = progress.isEmpty ? null : progress.first;
+                return ListView(
+                  key: const PageStorageKey<String>('muffin-tab-scroll'),
+                  padding: const EdgeInsets.fromLTRB(20, 24, 20, 32),
+                  children: [
+                    Text('Muffin',
+                        style: Theme.of(context).textTheme.headlineMedium),
+                    const SizedBox(height: 18),
+                    Card(
+                      child: Container(
+                        padding: const EdgeInsets.all(22),
+                        decoration: StudySisDecorations.softAccentSurface(
+                          context,
+                          accent: StudySisColors.muffinAccent(context),
+                          surface: StudySisColors.muffinSurface(context),
+                          radius: 24,
+                        ),
+                        child: Column(
+                          children: [
+                            const MuffinMascotIcon(size: 62),
+                            const SizedBox(height: 10),
+                            Text(
+                              'Your AI learning companion',
+                              style: Theme.of(context).textTheme.titleLarge,
+                              textAlign: TextAlign.center,
+                            ),
+                            const SizedBox(height: 8),
+                            Text(
+                              'Muffin can explain concepts, give hints, guide questions, and translate content.',
+                              textAlign: TextAlign.center,
+                              style: Theme.of(context).textTheme.bodyMedium,
+                            ),
+                            const SizedBox(height: 14),
+                            Text(
+                              '\u{1F36A} ${wallet.currentBites} / ${wallet.maxBites} Muffin Bites',
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w900,
+                              ),
+                            ),
+                            const SizedBox(height: 16),
+                            FilledButton.icon(
+                              onPressed: () => latest == null
+                                  ? _openGeneralMuffin(MuffinAction.askMuffin)
+                                  : _openMuffin(
+                                      latest,
+                                      MuffinAction.askMuffin,
+                                    ),
+                              icon: const Icon(Icons.psychology_rounded),
+                              label: const Text('Ask Muffin'),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 18),
+                    if (snapshot.hasError)
+                      _MuffinState(
+                        icon: Icons.cloud_off_rounded,
+                        title: 'Muffin could not load progress right now.',
+                        message: 'You can still ask a general study question.',
+                        actionLabel: 'Retry',
+                        onAction: _retry,
+                      )
+                    else ...[
+                      _MuffinActionCard(
+                        title: 'Explain my current chapter',
+                        subtitle: latest == null
+                            ? 'Start a lesson for chapter-aware help.'
+                            : 'A simple explanation using your latest progress.',
+                        onTap: latest == null
+                            ? () => _openGeneralMuffin(
+                                  MuffinAction.explainConcept,
+                                )
+                            : () => _openMuffin(
+                                  latest,
+                                  MuffinAction.explainConcept,
+                                ),
+                      ),
+                      _MuffinActionCard(
+                        title: 'What should I revise?',
+                        subtitle: 'A gentle suggestion from saved scores.',
+                        onTap: latest == null
+                            ? () => _openGeneralMuffin(MuffinAction.smallHint)
+                            : () => _openMuffin(
+                                  latest,
+                                  MuffinAction.smallHint,
+                                ),
+                      ),
+                      _MuffinActionCard(
+                        title: 'Create a quick practice question',
+                        subtitle: 'One temporary generated question.',
+                        onTap: latest == null
+                            ? () => _openGeneralMuffin(
+                                  MuffinAction.generateSimilarQuestion,
+                                )
+                            : () => _openMuffin(
+                                  latest,
+                                  MuffinAction.generateSimilarQuestion,
+                                ),
+                      ),
+                    ],
+                  ],
+                );
+              },
             );
           },
         ),

@@ -16,10 +16,10 @@ import '../services/firestore_service.dart';
 import '../services/muffin_context_registry.dart';
 import '../services/muffin_wallet_service.dart';
 import '../services/saved_flashcard_service.dart';
-import '../widgets/info_chip.dart';
+import '../theme/app_theme.dart';
 import '../widgets/page_translation_scope.dart';
 import '../widgets/study_pet_visuals.dart';
-import '../widgets/subject_card.dart';
+import '../widgets/studysis_decorative_background.dart';
 import 'progress_screen.dart';
 import 'saved_flashcards_screen.dart';
 import 'study_pet_screen.dart';
@@ -166,16 +166,6 @@ class _HomeScreenState extends State<HomeScreen> {
               text: "Let's take one gentle step today.",
             ),
             PageTranslationField(
-              id: 'dailyTargetLabel',
-              type: 'label',
-              text: 'Daily target',
-            ),
-            PageTranslationField(
-              id: 'languageLabel',
-              type: 'label',
-              text: 'Language',
-            ),
-            PageTranslationField(
               id: 'continueTitle',
               type: 'heading',
               text: 'Continue learning',
@@ -195,11 +185,6 @@ class _HomeScreenState extends State<HomeScreen> {
               type: 'heading',
               text: 'Saved Flashcards',
             ),
-            PageTranslationField(
-              id: 'subjects',
-              type: 'heading',
-              text: 'Subjects',
-            ),
           ],
         ),
       );
@@ -209,142 +194,52 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: SafeArea(
-        child: StreamBuilder<Student>(
-          stream: widget.studentStream ??
-              (widget.firestoreService ?? FirestoreService()).watchQidah(),
-          builder: (context, studentSnapshot) {
-            if (studentSnapshot.hasError) {
-              return _ErrorState(message: studentSnapshot.error.toString());
-            }
-            if (!studentSnapshot.hasData) {
-              return const Center(child: CircularProgressIndicator());
-            }
-            final student = studentSnapshot.data!;
-            _registerTranslationContent(context);
-            return RefreshIndicator(
-              onRefresh: _refresh,
-              child: ListView(
-                padding: const EdgeInsets.fromLTRB(20, 24, 20, 40),
-                children: [
-                  const PageTranslationBanner(),
-                  Text(
-                    PageTranslationScope.text(context, 'greeting', 'Hi Qidah'),
-                    style: Theme.of(context).textTheme.headlineMedium,
-                  ),
-                  const SizedBox(height: 6),
-                  Text(
-                    PageTranslationScope.text(
-                      context,
-                      'encouragement',
-                      "Let's take one gentle step today.",
+      body: StudySisDecorativeBackground(
+        density: StudySisPatternDensity.medium,
+        child: SafeArea(
+          child: StreamBuilder<Student>(
+            stream: widget.studentStream ??
+                (widget.firestoreService ?? FirestoreService()).watchQidah(),
+            builder: (context, studentSnapshot) {
+              if (studentSnapshot.hasError) {
+                return _ErrorState(message: studentSnapshot.error.toString());
+              }
+              if (!studentSnapshot.hasData) {
+                return const Center(child: CircularProgressIndicator());
+              }
+              _registerTranslationContent(context);
+              return RefreshIndicator(
+                onRefresh: _refresh,
+                child: ListView(
+                  padding: const EdgeInsets.fromLTRB(20, 24, 20, 40),
+                  children: [
+                    const PageTranslationBanner(),
+                    const _HomeGreetingHero(),
+                    const SizedBox(height: 22),
+                    _MyDayCard(
+                      engagementRepository: _engagementRepository,
+                      walletService: _walletService,
+                      petRepository: _petRepository,
+                      continueContent: _nextContent,
+                      isOpeningContinue: _isOpeningModule,
+                      nowProvider: widget.nowProvider,
+                      onUnlockedUnacknowledged: _showPetUnlockCelebration,
+                      onContinueLearning: _continueLearning,
+                      onOpenProgress: _openProgress,
+                      onOpenStudyPet: _openStudyPet,
                     ),
-                    style: Theme.of(context).textTheme.bodyLarge,
-                  ),
-                  const SizedBox(height: 22),
-                  Row(
-                    children: [
-                      InfoChip(
-                        icon: Icons.timer_outlined,
-                        label: PageTranslationScope.text(
-                          context,
-                          'dailyTargetLabel',
-                          'Daily target',
-                        ),
-                        value: '${student.dailyTargetMinutes} min',
-                      ),
-                      const SizedBox(width: 12),
-                      InfoChip(
-                        icon: Icons.translate_rounded,
-                        label: PageTranslationScope.text(
-                          context,
-                          'languageLabel',
-                          'Language',
-                        ),
-                        value: student.preferredLanguage,
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 24),
-                  _MyDayCard(
-                    engagementRepository: _engagementRepository,
-                    walletService: _walletService,
-                    petRepository: _petRepository,
-                    continueContent: _nextContent,
-                    isOpeningContinue: _isOpeningModule,
-                    nowProvider: widget.nowProvider,
-                    onUnlockedUnacknowledged: _showPetUnlockCelebration,
-                    onContinueLearning: _continueLearning,
-                    onOpenProgress: _openProgress,
-                    onOpenStudyPet: _openStudyPet,
-                  ),
-                  const SizedBox(height: 28),
-                  Text(
-                    PageTranslationScope.text(context, 'subjects', 'Subjects'),
-                    style: Theme.of(context).textTheme.titleLarge,
-                  ),
-                  const SizedBox(height: 12),
-                  StreamBuilder<List<Subject>>(
-                    stream: widget.subjectsStream ??
-                        (widget.firestoreService ?? FirestoreService())
-                            .watchSubjects(),
-                    builder: (context, subjectSnapshot) {
-                      if (subjectSnapshot.hasError) {
-                        return _InlineError(
-                            message: subjectSnapshot.error.toString());
-                      }
-                      if (!subjectSnapshot.hasData) {
-                        return const Padding(
-                          padding: EdgeInsets.all(24),
-                          child: Center(child: CircularProgressIndicator()),
-                        );
-                      }
-                      final subjects = subjectSnapshot.data!;
-                      if (subjects.isEmpty) {
-                        return const _InlineError(
-                          message: 'No subjects have been added yet.',
-                        );
-                      }
-                      return Column(
-                        children: [
-                          for (final subject in subjects) ...[
-                            SubjectCard(
-                              subject: subject,
-                              onTap: subject.isComingSoon
-                                  ? null
-                                  : () {
-                                      Navigator.of(context).push(
-                                        MaterialPageRoute<void>(
-                                          builder: (_) => SubjectScreen(
-                                            subject: subject,
-                                            repository: _learningRepository,
-                                            progressRepository:
-                                                _progressRepository,
-                                            engagementRepository:
-                                                _engagementRepository,
-                                            petRepository: _petRepository,
-                                          ),
-                                        ),
-                                      );
-                                    },
-                            ),
-                            const SizedBox(height: 10),
-                          ],
-                        ],
-                      );
-                    },
-                  ),
-                  const SizedBox(height: 14),
-                  _SavedFlashcardsDashboardSection(
-                    savedFlashcardService: _savedFlashcardService,
-                    learningRepository: _learningRepository,
-                    engagementRepository: _engagementRepository,
-                    petRepository: _petRepository,
-                  ),
-                ],
-              ),
-            );
-          },
+                    const SizedBox(height: 14),
+                    _SavedFlashcardsDashboardSection(
+                      savedFlashcardService: _savedFlashcardService,
+                      learningRepository: _learningRepository,
+                      engagementRepository: _engagementRepository,
+                      petRepository: _petRepository,
+                    ),
+                  ],
+                ),
+              );
+            },
+          ),
         ),
       ),
     );
@@ -366,6 +261,7 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _openStudyPet() {
     return Navigator.of(context).push(
       MaterialPageRoute<void>(
+        settings: const RouteSettings(name: StudyPetScreen.routeName),
         builder: (_) => StudyPetScreen(
           engagementRepository: _engagementRepository,
           petRepository: _petRepository,
@@ -423,6 +319,67 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 }
 
+class _HomeGreetingHero extends StatelessWidget {
+  const _HomeGreetingHero();
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Container(
+      padding: const EdgeInsets.fromLTRB(18, 18, 18, 20),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            scheme.surface.withValues(alpha: 0.90),
+            Color.lerp(
+                  StudySisColors.progressSurface(context),
+                  scheme.surface,
+                  0.42,
+                ) ??
+                scheme.surface,
+          ],
+        ),
+        borderRadius: BorderRadius.circular(28),
+        border: Border.all(color: scheme.primary.withValues(alpha: 0.08)),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: const StudySisDecorativeBackground(
+        hero: true,
+        density: StudySisPatternDensity.low,
+        child: _HomeGreetingText(),
+      ),
+    );
+  }
+}
+
+class _HomeGreetingText extends StatelessWidget {
+  const _HomeGreetingText();
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          PageTranslationScope.text(context, 'greeting', 'Hi Qidah'),
+          style: Theme.of(context).textTheme.headlineMedium,
+        ),
+        const SizedBox(height: 6),
+        Text(
+          PageTranslationScope.text(
+            context,
+            'encouragement',
+            "Let's take one gentle step today.",
+          ),
+          style: Theme.of(context).textTheme.bodyLarge,
+        ),
+      ],
+    );
+  }
+}
+
 class _MyDayCard extends StatelessWidget {
   const _MyDayCard({
     required this.engagementRepository,
@@ -452,6 +409,7 @@ class _MyDayCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
     return StreamBuilder<EngagementState>(
       stream: engagementRepository.watchState(),
       initialData: EngagementState.initial('today'),
@@ -479,8 +437,15 @@ class _MyDayCard extends StatelessWidget {
                   });
                 }
                 return Card(
-                  child: Padding(
+                  child: Container(
                     padding: const EdgeInsets.all(18),
+                    decoration: BoxDecoration(
+                      color: scheme.surface.withValues(alpha: 0.96),
+                      borderRadius: BorderRadius.circular(24),
+                      border: Border.all(
+                        color: scheme.primary.withValues(alpha: 0.06),
+                      ),
+                    ),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
@@ -498,7 +463,10 @@ class _MyDayCard extends StatelessWidget {
                             Expanded(
                               child: _MyDayStatusTile(
                                 icon: Icons.local_fire_department_rounded,
-                                iconColor: Color(0xFFE26D3D),
+                                iconColor: StudySisColors.streakAccent(context),
+                                surfaceColor:
+                                    StudySisColors.streakSurface(context),
+                                emphasize: engagement.currentStreak > 0,
                                 label: 'Streak',
                                 value: '${engagement.currentStreak} day streak',
                                 subtitle: engagement.todayStreakSecured
@@ -510,7 +478,10 @@ class _MyDayCard extends StatelessWidget {
                             Expanded(
                               child: _MyDayStatusTile(
                                 icon: Icons.cookie_rounded,
-                                iconColor: Color(0xFFA45E37),
+                                iconColor: StudySisColors.muffinAccent(context),
+                                surfaceColor:
+                                    StudySisColors.muffinSurface(context),
+                                showCrumbs: true,
                                 label: 'Muffin Bites',
                                 value:
                                     '\u{1F36A} ${wallet.currentBites} / ${wallet.maxBites}',
@@ -529,6 +500,12 @@ class _MyDayCard extends StatelessWidget {
                               : engagement.clampedTodayStudyPoints /
                                   engagement.dailyStudyTarget,
                           message: _goalMessage(engagement),
+                          barColor: engagement.todayStreakSecured
+                              ? StudySisColors.progressAccent(context)
+                              : scheme.primary,
+                          leadingIcon: engagement.todayStreakSecured
+                              ? Icons.check_circle_rounded
+                              : null,
                         ),
                         const SizedBox(height: 14),
                         _MyDayProgressSection(
@@ -536,7 +513,8 @@ class _MyDayCard extends StatelessWidget {
                           value:
                               '${engagement.totalXp} / ${engagement.xpForNextLevel} XP',
                           progress: engagement.levelProgress,
-                          barColor: const Color(0xFFA45E37),
+                          barColor: StudySisColors.xpAccent(context),
+                          leadingIcon: Icons.star_rounded,
                         ),
                         if (engagement.level < petUnlockLevel) ...[
                           const SizedBox(height: 14),
@@ -552,20 +530,13 @@ class _MyDayCard extends StatelessWidget {
                           onTap: onContinueLearning,
                         ),
                         const SizedBox(height: 10),
-                        Row(
-                          children: [
-                            TextButton.icon(
-                              onPressed: onOpenProgress,
-                              icon: const Icon(Icons.insights_rounded),
-                              label: const Text('View Progress'),
-                            ),
-                            const SizedBox(width: 4),
-                            TextButton.icon(
-                              onPressed: onOpenStudyPet,
-                              icon: const Icon(Icons.egg_alt_rounded),
-                              label: const Text('Study Pet'),
-                            ),
-                          ],
+                        Align(
+                          alignment: Alignment.centerLeft,
+                          child: TextButton.icon(
+                            onPressed: onOpenProgress,
+                            icon: const Icon(Icons.insights_rounded),
+                            label: const Text('View Progress'),
+                          ),
                         ),
                       ],
                     ),
@@ -605,56 +576,152 @@ class _MyDayStatusTile extends StatelessWidget {
   const _MyDayStatusTile({
     required this.icon,
     required this.iconColor,
+    required this.surfaceColor,
     required this.label,
     required this.value,
     required this.subtitle,
+    this.emphasize = false,
+    this.showCrumbs = false,
   });
 
   final IconData icon;
   final Color iconColor;
+  final Color surfaceColor;
   final String label;
   final String value;
   final String subtitle;
+  final bool emphasize;
+  final bool showCrumbs;
 
   @override
   Widget build(BuildContext context) {
     return Container(
       padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: const Color(0xFFF8F3EA),
-        borderRadius: BorderRadius.circular(18),
+      decoration: StudySisDecorations.softAccentSurface(
+        context,
+        accent: iconColor,
+        surface: surfaceColor,
       ),
-      child: Row(
+      child: Stack(
         children: [
-          Icon(icon, color: iconColor, size: 22),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  label,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: Theme.of(context).textTheme.bodySmall,
-                ),
-                Text(
-                  value,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(fontWeight: FontWeight.w800),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  subtitle,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: Theme.of(context).textTheme.bodySmall,
-                ),
-              ],
+          if (showCrumbs) ...[
+            Positioned(
+              right: 8,
+              top: 4,
+              child: _TinyDot(color: iconColor.withValues(alpha: 0.22)),
             ),
+            Positioned(
+              right: 25,
+              bottom: 5,
+              child: _TinyDot(color: iconColor.withValues(alpha: 0.16)),
+            ),
+          ],
+          Row(
+            children: [
+              DecoratedBox(
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  boxShadow: emphasize
+                      ? [
+                          BoxShadow(
+                            color: iconColor.withValues(alpha: 0.26),
+                            blurRadius: 12,
+                          ),
+                        ]
+                      : null,
+                ),
+                child: Icon(icon, color: iconColor, size: 22),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      label,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                    Text(
+                      value,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: iconColor,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      subtitle,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _TinyDot extends StatelessWidget {
+  const _TinyDot({required this.color});
+
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 5,
+      height: 5,
+      decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+    );
+  }
+}
+
+class _GradientProgressBar extends StatelessWidget {
+  const _GradientProgressBar({
+    required this.value,
+    required this.color,
+  });
+
+  final double value;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final clamped = value.clamp(0, 1).toDouble();
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(99),
+      child: Container(
+        height: 7,
+        color: scheme.surfaceContainerHighest,
+        alignment: Alignment.centerLeft,
+        child: FractionallySizedBox(
+          widthFactor: clamped,
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                colors: [
+                  color,
+                  Color.lerp(
+                        color,
+                        StudySisColors.xpAccent(context),
+                        0.36,
+                      ) ??
+                      color,
+                ],
+              ),
+            ),
+          ),
+        ),
       ),
     );
   }
@@ -667,6 +734,7 @@ class _MyDayProgressSection extends StatelessWidget {
     required this.progress,
     this.message,
     this.barColor,
+    this.leadingIcon,
   });
 
   final String label;
@@ -674,14 +742,24 @@ class _MyDayProgressSection extends StatelessWidget {
   final double progress;
   final String? message;
   final Color? barColor;
+  final IconData? leadingIcon;
 
   @override
   Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Row(
           children: [
+            if (leadingIcon != null) ...[
+              Icon(
+                leadingIcon,
+                size: 16,
+                color: barColor ?? scheme.primary,
+              ),
+              const SizedBox(width: 5),
+            ],
             Expanded(
               child: Text(
                 label,
@@ -695,14 +773,9 @@ class _MyDayProgressSection extends StatelessWidget {
           ],
         ),
         const SizedBox(height: 7),
-        ClipRRect(
-          borderRadius: BorderRadius.circular(99),
-          child: LinearProgressIndicator(
-            value: progress.clamp(0, 1),
-            minHeight: 7,
-            backgroundColor: const Color(0xFFE2E8E3),
-            color: barColor,
-          ),
+        _GradientProgressBar(
+          value: progress,
+          color: barColor ?? scheme.primary,
         ),
         if (message != null) ...[
           const SizedBox(height: 6),
@@ -725,14 +798,16 @@ class _MyDayStudyBuddyRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final details = _details();
+    final accent = StudySisColors.studyPetAccent(context);
     return InkWell(
       borderRadius: BorderRadius.circular(18),
       onTap: onTap,
       child: Container(
         padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(
-          color: const Color(0xFFF1F4F0),
-          borderRadius: BorderRadius.circular(18),
+        decoration: StudySisDecorations.softAccentSurface(
+          context,
+          accent: accent,
+          surface: StudySisColors.studyPetSurface(context),
         ),
         child: Row(
           children: [
@@ -781,7 +856,7 @@ class _MyDayStudyBuddyRow extends StatelessWidget {
             Text(
               details.action,
               style: TextStyle(
-                color: Theme.of(context).colorScheme.primary,
+                color: accent,
                 fontWeight: FontWeight.w800,
               ),
             ),
@@ -809,10 +884,21 @@ class _MyDayStudyBuddyRow extends StatelessWidget {
       );
     }
     if (state.pet.stage == StudyPetStage.hatchling && pet != null) {
+      final requirement = state.nextGrowthRequirement;
       return _StudyBuddyDetails(
-        visual: StudyPetAvatar(pet: pet, size: 42),
+        visual: StudyPetAvatar(
+          pet: pet,
+          growthStage: state.pet.growthStage,
+          size: 42,
+        ),
         title: '${pet.icon} ${state.pet.petName ?? pet.displayName}',
-        subtitle: 'Hatchling. Growing with you.',
+        subtitle: state.isFinalGrowthStage
+            ? '${pet.stageName(state.pet.growthStage)} · Final Form'
+            : state.readyToEvolve
+                ? 'Ready to evolve!'
+                : requirement == null
+                    ? 'Growing with you.'
+                    : '${state.cappedGrowthXp} / ${requirement.requiredXp} growth XP',
         action: 'View',
       );
     }
@@ -856,6 +942,12 @@ class _MyDayContinueLearningRow extends StatelessWidget {
       future: content,
       builder: (context, snapshot) {
         final learningContent = snapshot.data;
+        final subjectTheme = StudySisSubjectTheme.forSubject(
+          id: learningContent?.subjectName ?? 'math',
+          displayName: learningContent?.subjectName,
+        );
+        final accent = subjectTheme.accent(context);
+        final soft = subjectTheme.softSurface(context);
         final hasError = snapshot.hasError;
         final title = learningContent == null
             ? 'Learning modules'
@@ -875,21 +967,35 @@ class _MyDayContinueLearningRow extends StatelessWidget {
           child: Container(
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
-              color: const Color(0xFFF1F4F0),
+              color: Color.lerp(
+                soft,
+                Theme.of(context).colorScheme.surface,
+                StudySisColors.isDark(context) ? 0.18 : 0.38,
+              ),
               borderRadius: BorderRadius.circular(18),
+              border: Border.all(color: accent.withValues(alpha: 0.12)),
             ),
             child: Row(
               children: [
                 Container(
+                  width: 4,
+                  height: 42,
+                  decoration: BoxDecoration(
+                    color: accent,
+                    borderRadius: BorderRadius.circular(99),
+                  ),
+                ),
+                const SizedBox(width: 9),
+                Container(
                   width: 42,
                   height: 42,
                   decoration: BoxDecoration(
-                    color: const Color(0xFFE5EEE8),
+                    color: Theme.of(context).colorScheme.surface,
                     borderRadius: BorderRadius.circular(14),
                   ),
-                  child: const Icon(
+                  child: Icon(
                     Icons.auto_stories_rounded,
-                    color: Color(0xFF496A5A),
+                    color: accent,
                     size: 22,
                   ),
                 ),
@@ -923,7 +1029,7 @@ class _MyDayContinueLearningRow extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(width: 8),
-                const Icon(Icons.chevron_right_rounded),
+                Icon(Icons.chevron_right_rounded, color: accent),
               ],
             ),
           ),
@@ -1020,15 +1126,12 @@ class _SavedFlashcardsDashboardSection extends StatelessWidget {
                     ],
                   ),
                   const SizedBox(height: 8),
-                  if (refs.isEmpty)
-                    const Text(
-                      "Save useful cards while studying and they'll appear here.",
-                    )
-                  else
-                    _SavedFlashcardPreview(
-                      ref: refs.first,
-                      learningRepository: learningRepository,
-                    ),
+                  Text(
+                    refs.isEmpty
+                        ? "Save useful cards while studying and they'll appear here."
+                        : 'Ready for a quick review.',
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
                 ],
               ),
             ),
@@ -1037,66 +1140,6 @@ class _SavedFlashcardsDashboardSection extends StatelessWidget {
       },
     );
   }
-}
-
-class _SavedFlashcardPreview extends StatelessWidget {
-  const _SavedFlashcardPreview({
-    required this.ref,
-    required this.learningRepository,
-  });
-
-  final SavedFlashcardRef ref;
-  final LearningRepository learningRepository;
-
-  @override
-  Widget build(BuildContext context) {
-    return FutureBuilder<_SavedFlashcardPreviewData>(
-      future: _load(),
-      builder: (context, snapshot) {
-        final data = snapshot.data;
-        if (data == null) {
-          return const Text('Saved flashcards are ready to review.');
-        }
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              data.chapterTitle,
-              style: const TextStyle(fontWeight: FontWeight.w600),
-            ),
-            const SizedBox(height: 2),
-            Text('${data.subjectName} - ${data.chapterLabel}'),
-          ],
-        );
-      },
-    );
-  }
-
-  Future<_SavedFlashcardPreviewData> _load() async {
-    final subjectName = await learningRepository.getSubjectName(ref.subjectId);
-    final chapter = await learningRepository.getChapter(
-      subjectId: ref.subjectId,
-      chapterId: ref.chapterId,
-    );
-    return _SavedFlashcardPreviewData(
-      subjectName: subjectName,
-      chapterTitle: chapter?.title ?? 'Saved flashcard',
-      chapterLabel:
-          chapter == null ? ref.chapterId : 'Chapter ${chapter.chapterNumber}',
-    );
-  }
-}
-
-class _SavedFlashcardPreviewData {
-  const _SavedFlashcardPreviewData({
-    required this.subjectName,
-    required this.chapterTitle,
-    required this.chapterLabel,
-  });
-
-  final String subjectName;
-  final String chapterTitle;
-  final String chapterLabel;
 }
 
 class _ErrorState extends StatelessWidget {
@@ -1119,21 +1162,6 @@ class _ErrorState extends StatelessWidget {
             Text(message, textAlign: TextAlign.center),
           ],
         ),
-      ),
-    );
-  }
-}
-
-class _InlineError extends StatelessWidget {
-  const _InlineError({required this.message});
-  final String message;
-
-  @override
-  Widget build(BuildContext context) {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(20),
-        child: Text(message),
       ),
     );
   }

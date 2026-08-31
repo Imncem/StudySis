@@ -4,6 +4,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:fake_cloud_firestore/fake_cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:studysis/config/content_paths.dart';
 import 'package:studysis/models/muffin_wallet.dart';
 import 'package:studysis/models/student.dart';
@@ -17,6 +18,9 @@ import 'package:studysis/services/muffin_context_registry.dart';
 import 'package:studysis/services/muffin_wallet_service.dart';
 import 'package:studysis/services/saved_flashcard_service.dart';
 import 'package:studysis/theme/app_theme.dart';
+import 'package:studysis/theme/theme_controller.dart';
+import 'package:studysis/theme/theme_controller_scope.dart';
+import 'package:studysis/widgets/theme_toggle_button.dart';
 
 const uid = 'anonymousUid123';
 
@@ -27,6 +31,8 @@ void main() {
     await tester.pumpWidget(_app(walletService: wallet));
     await tester.pumpAndSettle();
 
+    expect(find.text('Daily target'), findsNothing);
+    expect(find.text('Language'), findsNothing);
     expect(find.text('Muffin Bites'), findsOneWidget);
     expect(find.text('🍪 5 / 5'), findsOneWidget);
     expect(find.text('Muffin is ready to help!'), findsOneWidget);
@@ -129,7 +135,7 @@ void main() {
     expect(tester.getTopLeft(find.text('Continue Learning')).dy,
         greaterThan(tester.getTopLeft(find.text('My Day')).dy));
     expect(tester.getTopLeft(find.text('Continue Learning')).dy,
-        lessThan(tester.getTopLeft(find.text('Subjects')).dy));
+        lessThan(tester.getTopLeft(find.text('Saved Flashcards')).dy));
   });
 
   testWidgets('compact Continue Learning row still opens learning flow',
@@ -156,7 +162,7 @@ void main() {
     expect(find.text('Patterns and Sequences'), findsOneWidget);
   });
 
-  testWidgets('My Day places Subjects above Saved Flashcards', (tester) async {
+  testWidgets('compact Home removes full Subjects list', (tester) async {
     _setLargeSurface(tester);
     await tester.pumpWidget(_app(
       subjectsStream: Stream.value(const [
@@ -174,11 +180,10 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('My Day'), findsOneWidget);
-    expect(find.text('Subjects'), findsOneWidget);
+    expect(find.text('Subjects'), findsNothing);
+    expect(find.text('Mathematics'), findsNothing);
     expect(find.text('Saved Flashcards'), findsOneWidget);
     expect(tester.getTopLeft(find.text('My Day')).dy,
-        lessThan(tester.getTopLeft(find.text('Subjects')).dy));
-    expect(tester.getTopLeft(find.text('Subjects')).dy,
         lessThan(tester.getTopLeft(find.text('Saved Flashcards')).dy));
   });
 
@@ -197,7 +202,8 @@ void main() {
     expect(find.text('⭐ 80 / 250 XP'), findsOneWidget);
   });
 
-  testWidgets('Level 3 student with no pet can choose egg', (tester) async {
+  testWidgets('Level 3 student with no pet hides Home Study Pet shortcut',
+      (tester) async {
     _setLargeSurface(tester);
     final firestore = FakeFirebaseFirestore();
     await _seedEngagementState(firestore, studyPoints: 3, xp: 250);
@@ -208,17 +214,10 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('Maybe Later'));
     await tester.pumpAndSettle();
-    await _scrollToStudyPetCard(tester);
 
     expect(find.text('YOUR STUDY BUDDY'), findsNothing);
     expect(find.textContaining('Study Pets Unlocked'), findsNothing);
-    expect(find.text('Study Pet'), findsOneWidget);
-
-    await tester.tap(find.text('Study Pet'));
-    await tester.pumpAndSettle();
-
-    expect(find.text('Choose Your Study Buddy'), findsOneWidget);
-    expect(find.text('Spark Egg'), findsOneWidget);
+    expect(find.text('Study Pet'), findsNothing);
   });
 
   testWidgets('pet unlock celebration appears only once after acknowledgement',
@@ -246,7 +245,7 @@ void main() {
     expect(find.text('🎉 NEW FEATURE UNLOCKED'), findsNothing);
   });
 
-  testWidgets('Level 3 hides Study Pet preview but keeps bottom action',
+  testWidgets('Level 3 hides Study Pet preview and Home shortcut',
       (tester) async {
     _setLargeSurface(tester);
     final firestore = FakeFirebaseFirestore();
@@ -271,11 +270,10 @@ void main() {
       nowProvider: () => DateTime.utc(2026, 8, 19),
     ));
     await tester.pumpAndSettle();
-    await _scrollToStudyPetCard(tester);
 
     expect(find.text('Spark Egg'), findsNothing);
     expect(find.text('Ready to hatch!'), findsNothing);
-    expect(find.text('Study Pet'), findsOneWidget);
+    expect(find.text('Study Pet'), findsNothing);
 
     await firestore.doc('student_progress/$uid/pet/state').set({
       'schemaVersion': 1,
@@ -295,7 +293,7 @@ void main() {
 
     expect(find.text('🦊 Mochi'), findsNothing);
     expect(find.text('Hatchling. Growing with you.'), findsNothing);
-    expect(find.text('Study Pet'), findsOneWidget);
+    expect(find.text('Study Pet'), findsNothing);
   });
 
   testWidgets('View Progress action still opens progress screen',
@@ -473,7 +471,7 @@ void main() {
 
     expect(find.text('Saved Flashcards'), findsOneWidget);
     expect(find.text('1 saved flashcards'), findsOneWidget);
-    expect(find.text('Patterns and Sequences'), findsOneWidget);
+    expect(find.text('Ready for a quick review.'), findsOneWidget);
 
     await tester.tap(find.text('Saved Flashcards'));
     await tester.pumpAndSettle();
@@ -652,6 +650,100 @@ void main() {
 
     expect(find.text('No saved flashcards yet'), findsOneWidget);
     expect(find.textContaining('Save useful cards'), findsOneWidget);
+  });
+
+  testWidgets(
+      'Home renders in dark mode and theme switch preserves dashboard state',
+      (tester) async {
+    _setLargeSurface(tester);
+    SharedPreferences.setMockInitialValues({});
+    final controller = ThemeController();
+    await controller.load();
+    final firestore = FakeFirebaseFirestore();
+    await _seedEngagementState(
+      firestore,
+      studyPoints: 3,
+      xp: 200,
+      currentStreak: 3,
+      secured: true,
+    );
+
+    await tester.pumpWidget(
+      ThemeControllerScope(
+        controller: controller,
+        child: AnimatedBuilder(
+          animation: controller,
+          builder: (context, _) {
+            return MaterialApp(
+              theme: AppTheme.light,
+              darkTheme: AppTheme.dark,
+              themeMode: controller.themeMode,
+              home: Stack(
+                children: [
+                  HomeScreen(
+                    walletService: const StaticMuffinWalletService(
+                      MuffinWallet(
+                        maxBites: 5,
+                        currentBites: 4,
+                        regenIntervalMinutes: 60,
+                        dailyUsedRequests: 1,
+                        dailySoftLimit: 17,
+                        dailyHardLimit: 20,
+                        status: 'active',
+                      ),
+                    ),
+                    savedFlashcardService: const StaticSavedFlashcardService(),
+                    engagementRepository: EngagementRepository(
+                      firestore: firestore,
+                      uidProvider: () => uid,
+                      nowProvider: () => DateTime.utc(2026, 8, 17, 2),
+                    ),
+                    progressRepository: StudentProgressRepository(
+                      firestore: firestore,
+                      uidProvider: () => uid,
+                    ),
+                    petRepository: _petRepo(firestore),
+                    learningRepository:
+                        LearningRepository(firestore: firestore),
+                    studentStream: Stream.value(
+                      const Student(
+                        id: 'qidah',
+                        name: 'Qidah',
+                        preferredLanguage: 'Bahasa Melayu',
+                        dailyTargetMinutes: 20,
+                        status: 'active',
+                      ),
+                    ).asBroadcastStream(),
+                    subjectsStream:
+                        Stream.value(const <Subject>[]).asBroadcastStream(),
+                    nowProvider: () => DateTime.utc(2026, 8, 17, 2),
+                  ),
+                  const Positioned(
+                    top: 12,
+                    right: 14,
+                    child: SafeArea(child: ThemeToggleButton()),
+                  ),
+                ],
+              ),
+            );
+          },
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('My Day'), findsOneWidget);
+    expect(find.textContaining('4 / 5'), findsOneWidget);
+    expect(find.text('3 / 3'), findsOneWidget);
+    expect(find.text('Level 2'), findsOneWidget);
+
+    await tester.tap(find.byType(ThemeToggleButton));
+    await tester.pumpAndSettle();
+
+    expect(controller.themeMode, ThemeMode.dark);
+    expect(find.textContaining('4 / 5'), findsOneWidget);
+    expect(find.text('3 / 3'), findsOneWidget);
+    expect(find.text('Level 2'), findsOneWidget);
   });
 
   test('saved flashcards survive supported persistence lifecycle', () async {

@@ -10,16 +10,21 @@ The configured Firebase project is `studysis-d2151`.
 
 ## Current Status
 
-The current branch includes work through Sprint 3.6A.2:
+The current branch includes work through Sprint 3.6C.1 plus the Android release build hotfix:
 
 - Content Studio for Mathematics chapters and learning modules.
-- Student learning flow for Learn, Flashcards, Practice, Quiz, Progress, saved flashcards, and Muffin.
+- Student learning flow for Learn, Flashcards, Practice, Quiz, Progress, saved flashcards, Rewards, Profile, and Muffin.
 - Persistent anonymous-student progress in Firestore.
 - Context-aware Muffin assistant with real Gemini provider support.
 - Whole-page translation for dynamic learning screens.
 - Muffin Bites wallet, cooldown, daily provider budget, and real-time regeneration.
 - Wrong-question-safe Muffin response caching.
 - Study Points, permanent XP, levels, daily streaks, and upgraded streak celebration UX.
+- Compact bottom-navigation Home dashboard with a consolidated My Day card.
+- Global light/dark mode.
+- Study Pet unlock, egg selection, habitats, roaming buddy, growth/evolution, and polished pet visuals.
+- Paw Coins economy, Pet Shop, and pet cosmetics.
+- Android release APK build support with the current Firebase/Flutter dependencies.
 
 Mock Muffin remains available for local Flutter development. Real Muffin uses Firebase Functions so provider API keys never enter Flutter source or client builds.
 
@@ -69,6 +74,8 @@ Student progress:
 student_progress/{uid}/chapters/{subjectId}_{chapterId}
 student_progress/{uid}/engagement/state
 student_progress/{uid}/engagement_days/{YYYY-MM-DD}
+student_progress/{uid}/pet/state
+student_progress/{uid}/pet_economy/state
 ```
 
 Muffin wallet:
@@ -91,6 +98,15 @@ student_private/{uid}/saved_flashcards/{subjectId}_{chapterId}_{cardId}
 The student app uses Firebase Anonymous Authentication. Startup must first reuse `FirebaseAuth.instance.currentUser`, then wait briefly for restored auth state, and only call `signInAnonymously()` if no existing user is available.
 
 This preserves the anonymous UID across app restarts, which keeps progress and saved flashcards attached to the same user.
+
+For Flutter Web development, use a stable localhost origin so browser auth storage is reused:
+
+```bash
+cd app
+flutter run -d chrome --web-port=50406
+```
+
+Changing from `localhost:50406` to another port changes the browser storage origin and can create a different anonymous Firebase user. Android retains the anonymous user across normal app restarts, but uninstalling the app, clearing app storage, changing emulator profiles, or wiping emulator data can legitimately create a new anonymous UID.
 
 The dashboard uses Firebase Email/Password authentication for admin access.
 
@@ -168,6 +184,51 @@ todayStreakSecured=false OR currentStreak >= 1
 ```
 
 The streak celebration screen receives the newly persisted transaction result and can show the already-awarded XP reward. It does not award XP or streaks from the Continue button.
+
+## Study Pets, Paw Coins, And Cosmetics
+
+Study Pets unlock at Level 3. The pet flow includes:
+
+- Egg selection.
+- Hatch foundation and hatch celebration.
+- Growth stages from hatchling through final form.
+- Habitat themes: Forest, Farm, Inside House, and Garden.
+- Roaming Study Buddy companion.
+- Pet visual polish for bunny, fox, and cat stages.
+
+Study Pet state is stored at:
+
+```text
+student_progress/{uid}/pet/state
+```
+
+Pet state rules remain strict around ownership, valid stages, egg IDs, pet IDs, deterministic egg-to-pet mapping, hatch constants, forward-only stage movement, and hatch XP/time requirements. The optional `habitatTheme` field is backward-compatible for older pet documents and accepts only:
+
+```text
+forest
+farm
+house
+garden
+```
+
+Paw Coins are earned from learning activity and spent on Pet Shop cosmetics. Economy state is stored at:
+
+```text
+student_progress/{uid}/pet_economy/state
+```
+
+Cosmetics include head, face, and neck slots. The overlay system uses species, growth stage, slot, and preview-context anchors so items line up across the Pet Shop preview and Study Pet hero.
+
+Current cosmetics catalog:
+
+```text
+Leaf Bow
+Round Glasses
+Star Scarf
+Study Headphones
+Wizard Hat
+Graduation Cap
+```
 
 ## Muffin AI
 
@@ -392,7 +453,35 @@ flutter pub get
 flutter build apk --debug
 ```
 
+Android release build for the demo backend:
+
+```powershell
+cd app
+flutter build apk --release `
+  --dart-define=MUFFIN_USE_MOCK=false `
+  --dart-define=MUFFIN_ENDPOINT=https://us-central1-studysis-d2151.cloudfunctions.net/askMuffin `
+  --dart-define=MUFFIN_TRANSLATION_ENDPOINT=https://us-central1-studysis-d2151.cloudfunctions.net/translateMuffinPage
+```
+
+Release APK output:
+
+```text
+app/build/app/outputs/flutter-apk/app-release.apk
+```
+
 Firebase SDK XML processing warnings are separate from real Android build failures. The app minimum Android SDK is 23 because Firebase Auth requires it.
+
+Current Android release toolchain:
+
+```text
+Gradle wrapper: 8.10.2
+Android Gradle Plugin: 8.7.3
+Kotlin Gradle Plugin: 2.1.0
+Java used by Flutter/Gradle: Android Studio JBR OpenJDK 21.0.8
+compileSdk: 35
+targetSdk: 35
+Jetifier: enabled
+```
 
 ## Sprint History
 
@@ -488,14 +577,49 @@ Firebase SDK XML processing warnings are separate from real Android build failur
 - Fixed persisted `currentStreak=0` after qualification by enforcing transaction/model/rules invariants.
 - Added regression tests for first streak, missed-day restart, consecutive-day increment, same-day no double increment, secured-zero normalization, celebration copy, reward display, and disposal.
 
+### Sprint 3.6B-3.6B.4 - Study Pet Foundation, Home Dashboard, Theme, And Navigation
+
+- Added Study Pet unlock, egg selection, hatch foundation, XP reward feedback, and level-up transition.
+- Redesigned Home around a compact My Day card and moved Subjects higher in the app.
+- Moved Continue Learning into My Day as a compact tappable row.
+- Added bottom navigation for Home, Subjects, Muffin, Rewards, and Profile.
+- Added global light/dark mode and fixed the full-screen red overlay hotfix after theme toggling.
+- Added visual personality tokens, subject color identities, and playful UI polish.
+- Removed standalone Daily Target and Language cards from Home.
+
+### Sprint 3.6B.5-3.6B.9 - Study Pet Visuals, Habitats, Roaming, And Evolution
+
+- Upgraded the Study Pet hero visual and habitat scenes.
+- Added roaming pixel Study Buddy behavior.
+- Added habitat switching for Forest, Farm, Inside House, and Garden.
+- Added Firestore rules support for optional, validated `habitatTheme`.
+- Added Study Pet growth/evolution requirements and emulator tests for protected progression rules.
+- Polished bunny, fox, and cat stage visuals so each pet reads more clearly in the habitat card.
+
+### Sprint 3.6C.1 - Paw Coins, Pet Shop, And Cosmetics
+
+- Added Paw Coins as the Study Pet cosmetic currency.
+- Added Pet Shop screen with wallet balance, preview, All/Owned selector, purchase, equip, unequip, and owned/equipped states.
+- Added cosmetics catalog: Leaf Bow, Round Glasses, Star Scarf, Study Headphones, Wizard Hat, and Graduation Cap.
+- Added context-aware cosmetic overlay anchors for species, growth stage, cosmetic slot, shop preview, and hero preview.
+- Fixed Pet Shop cosmetic card bottom overflow at narrow mobile widths with responsive grid/card sizing.
+
+### Android Release Build Hotfix
+
+- Upgraded the Android build toolchain for release APK compatibility with current FlutterFire dependencies.
+- Fixed Kotlin metadata compatibility by moving Kotlin Gradle Plugin to 2.1.0.
+- Fixed Java 21/Gradle compatibility by moving Gradle wrapper to 8.10.2 and AGP to 8.7.3.
+- Confirmed release APK generation at `app/build/app/outputs/flutter-apk/app-release.apk`.
+
 ## Current Test Baseline
 
-Latest validation on Sprint 3.6A.2:
+Latest validation after Sprint 3.6C.1 and Android release hotfix:
 
 ```text
 dart format lib test - passed
 flutter analyze - passed, no issues
-flutter test - passed, 172 tests
+flutter test - passed, 310 tests
+flutter build apk --release - passed, app-release.apk generated
 npm run lint - passed
 npm test - passed, 83 tests
 ```

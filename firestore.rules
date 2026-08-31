@@ -27,6 +27,12 @@ service cloud.firestore {
       return !data.keys().hasAny([field]) || validCount(data[field]);
     }
 
+    function optionalNullableCount(data, field) {
+      return !data.keys().hasAny([field])
+        || data[field] == null
+        || validCount(data[field]);
+    }
+
     function optionalPercent(data, field) {
       return !data.keys().hasAny([field]) || validPercent(data[field]);
     }
@@ -35,6 +41,12 @@ service cloud.firestore {
       return !data.keys().hasAny([field])
         || data[field] == null
         || data[field] is timestamp;
+    }
+
+    function optionalConstant(data, field, value) {
+      return !data.keys().hasAny([field])
+        || data[field] == null
+        || data[field] == value;
     }
 
     function validChapterProgress(uid) {
@@ -140,6 +152,171 @@ service cloud.firestore {
         && data.updatedAt is timestamp;
     }
 
+    function validPetCosmeticId(value) {
+      return value in [
+        'leaf_bow', 'round_glasses', 'star_scarf', 'study_headphones',
+        'wizard_hat', 'graduation_cap'
+      ];
+    }
+
+    function validPetCosmeticSlotForItem(slot, itemId) {
+      return (slot == 'head'
+          && itemId in [
+            'leaf_bow', 'study_headphones', 'wizard_hat', 'graduation_cap'
+          ])
+        || (slot == 'face' && itemId == 'round_glasses')
+        || (slot == 'neck' && itemId == 'star_scarf');
+    }
+
+    function petCosmeticSlot(itemId) {
+      return itemId == 'round_glasses' ? 'face'
+        : itemId == 'star_scarf' ? 'neck'
+        : 'head';
+    }
+
+    function petCosmeticPrice(itemId) {
+      return itemId == 'leaf_bow' ? 30
+        : itemId == 'round_glasses' ? 40
+        : itemId == 'star_scarf' ? 50
+        : itemId == 'study_headphones' ? 70
+        : itemId == 'wizard_hat' ? 90
+        : itemId == 'graduation_cap' ? 120
+        : -1;
+    }
+
+    function validPetEconomyShape(data) {
+      return data.keys().hasOnly([
+          'schemaVersion', 'pawCoins', 'lifetimePawCoinsEarned',
+          'totalPawCoinsSpent', 'creditedCoinActivities',
+          'ownedCosmeticIds', 'equippedCosmetics', 'lastPurchasedItemId',
+          'lastPurchasedAt', 'updatedAt'
+        ])
+        && data.schemaVersion == 1
+        && validCount(data.pawCoins)
+        && validCount(data.lifetimePawCoinsEarned)
+        && validCount(data.totalPawCoinsSpent)
+        && data.lifetimePawCoinsEarned >= data.pawCoins + data.totalPawCoinsSpent
+        && data.creditedCoinActivities is map
+        && data.ownedCosmeticIds is list
+        && data.equippedCosmetics is map
+        && data.equippedCosmetics.keys().hasOnly(['head', 'face', 'neck'])
+        && validEquippedSlot(data, 'head')
+        && validEquippedSlot(data, 'face')
+        && validEquippedSlot(data, 'neck')
+        && (data.lastPurchasedItemId == null
+          || validPetCosmeticId(data.lastPurchasedItemId))
+        && optionalTimestamp(data, 'lastPurchasedAt')
+        && data.updatedAt is timestamp;
+    }
+
+    function validEquippedSlot(data, slot) {
+      return data.equippedCosmetics[slot] == null
+        || (validPetCosmeticId(data.equippedCosmetics[slot])
+          && validPetCosmeticSlotForItem(slot, data.equippedCosmetics[slot])
+          && data.equippedCosmetics[slot] in data.ownedCosmeticIds);
+    }
+
+    function validPetEconomyDefaultCreate(stateId) {
+      let data = request.resource.data;
+      return stateId == 'state'
+        && validPetEconomyShape(data)
+        && data.pawCoins == 0
+        && data.lifetimePawCoinsEarned == 0
+        && data.totalPawCoinsSpent == 0
+        && data.ownedCosmeticIds.size() == 0
+        && data.equippedCosmetics.head == null
+        && data.equippedCosmetics.face == null
+        && data.equippedCosmetics.neck == null
+        && data.lastPurchasedItemId == null
+        && data.lastPurchasedAt == null;
+    }
+
+    function validPetEconomyEarnCreate(stateId) {
+      let data = request.resource.data;
+      return stateId == 'state'
+        && validPetEconomyShape(data)
+        && data.pawCoins > 0
+        && data.pawCoins <= 20
+        && data.lifetimePawCoinsEarned == data.pawCoins
+        && data.totalPawCoinsSpent == 0
+        && data.ownedCosmeticIds.size() == 0
+        && data.equippedCosmetics.head == null
+        && data.equippedCosmetics.face == null
+        && data.equippedCosmetics.neck == null
+        && data.lastPurchasedItemId == null
+        && data.lastPurchasedAt == null
+        && data.creditedCoinActivities.size() == 1;
+    }
+
+    function validPetEconomyEarnUpdate(stateId) {
+      let before = resource.data;
+      let after = request.resource.data;
+      let changed = after.diff(before).affectedKeys();
+      return stateId == 'state'
+        && validPetEconomyShape(after)
+        && changed.hasOnly([
+          'pawCoins', 'lifetimePawCoinsEarned', 'creditedCoinActivities',
+          'updatedAt'
+        ])
+        && after.pawCoins > before.pawCoins
+        && after.pawCoins - before.pawCoins <= 20
+        && after.lifetimePawCoinsEarned - before.lifetimePawCoinsEarned
+          == after.pawCoins - before.pawCoins
+        && after.creditedCoinActivities.size()
+          == before.creditedCoinActivities.size() + 1;
+    }
+
+    function validPetEconomyPurchaseUpdate(stateId) {
+      let before = resource.data;
+      let after = request.resource.data;
+      let changed = after.diff(before).affectedKeys();
+      let itemId = after.lastPurchasedItemId;
+      let price = petCosmeticPrice(itemId);
+      return stateId == 'state'
+        && validPetEconomyShape(after)
+        && changed.hasOnly([
+          'pawCoins', 'totalPawCoinsSpent', 'ownedCosmeticIds',
+          'equippedCosmetics', 'lastPurchasedItemId', 'lastPurchasedAt',
+          'updatedAt'
+        ])
+        && validPetCosmeticId(itemId)
+        && price > 0
+        && !(itemId in before.ownedCosmeticIds)
+        && itemId in after.ownedCosmeticIds
+        && after.ownedCosmeticIds.size() == before.ownedCosmeticIds.size() + 1
+        && before.pawCoins >= price
+        && after.pawCoins == before.pawCoins - price
+        && after.totalPawCoinsSpent == before.totalPawCoinsSpent + price
+        && after.lifetimePawCoinsEarned == before.lifetimePawCoinsEarned
+        && after.lastPurchasedAt is timestamp
+        && after.equippedCosmetics[petCosmeticSlot(itemId)] == itemId;
+    }
+
+    function validPetEconomyEquipmentUpdate(stateId) {
+      let after = request.resource.data;
+      let changed = after.diff(resource.data).affectedKeys();
+      return stateId == 'state'
+        && validPetEconomyShape(after)
+        && changed.hasOnly(['equippedCosmetics', 'updatedAt'])
+        && after.pawCoins == resource.data.pawCoins
+        && after.lifetimePawCoinsEarned == resource.data.lifetimePawCoinsEarned
+        && after.totalPawCoinsSpent == resource.data.totalPawCoinsSpent;
+    }
+
+    function validPetEconomyCreate(stateId) {
+      return validPetEconomyDefaultCreate(stateId)
+        || validPetEconomyEarnCreate(stateId);
+    }
+
+    function validPetEconomyUpdate(stateId) {
+      let changed = request.resource.data.diff(resource.data).affectedKeys();
+      return changed.hasAny(['lastPurchasedItemId', 'lastPurchasedAt'])
+        ? validPetEconomyPurchaseUpdate(stateId)
+        : changed.hasOnly(['equippedCosmetics', 'updatedAt'])
+          ? validPetEconomyEquipmentUpdate(stateId)
+          : validPetEconomyEarnUpdate(stateId);
+    }
+
     function validPetEggId(value) {
       return value in ['egg_spark', 'egg_sprout', 'egg_starlight'];
     }
@@ -160,6 +337,27 @@ service cloud.firestore {
         && value.size() <= 15;
     }
 
+    function validPetHabitatValue(value) {
+      return value in ['forest', 'farm', 'house', 'garden'];
+    }
+
+    function validPetHabitat(data) {
+      return !data.keys().hasAny(['habitatTheme'])
+        || validPetHabitatValue(data.habitatTheme);
+    }
+
+    function validPetGrowthStageValue(value) {
+      return value in ['hatchling', 'young', 'evolved', 'adult'];
+    }
+
+    function validPetGrowth(data) {
+      return (!data.keys().hasAny(['growthStage'])
+          || data.growthStage == null
+          || validPetGrowthStageValue(data.growthStage))
+        && optionalNullableCount(data, 'xpBaselineAtHatch')
+        && optionalTimestamp(data, 'lastEvolutionAt');
+    }
+
     function petStageRank(stage) {
       return stage == 'unselected' ? 0
         : stage == 'egg' ? 1
@@ -167,15 +365,83 @@ service cloud.firestore {
         : -1;
     }
 
+    function petGrowthStage(data) {
+      return data.keys().hasAny(['growthStage']) && data.growthStage != null
+        ? data.growthStage
+        : 'hatchling';
+    }
+
+    function petGrowthStageRank(stage) {
+      return stage == 'hatchling' ? 0
+        : stage == 'young' ? 1
+        : stage == 'evolved' ? 2
+        : stage == 'adult' ? 3
+        : -1;
+    }
+
+    function validPetGrowthTransition(before, after) {
+      let from = petGrowthStage(before);
+      let to = petGrowthStage(after);
+      return (from == 'hatchling' && to == 'young')
+        || (from == 'young' && to == 'evolved')
+        || (from == 'evolved' && to == 'adult');
+    }
+
+    function validPetGrowthRequirement(after, engagement) {
+      let to = petGrowthStage(after);
+      return after.xpBaselineAtHatch is int
+        && after.hatchedAt is timestamp
+        && validCount(engagement.totalXp)
+        && (
+          (to == 'young'
+            && engagement.totalXp - after.xpBaselineAtHatch >= 200
+            && request.time >= after.hatchedAt + duration.value(48, 'h'))
+          || (to == 'evolved'
+            && engagement.totalXp - after.xpBaselineAtHatch >= 500
+            && request.time >= after.hatchedAt + duration.value(120, 'h'))
+          || (to == 'adult'
+            && engagement.totalXp - after.xpBaselineAtHatch >= 900
+            && request.time >= after.hatchedAt + duration.value(240, 'h'))
+        );
+    }
+
+    function validStudyPetEvolutionState(data) {
+      return data.keys().hasOnly([
+          'schemaVersion', 'petUnlockAcknowledgedAt', 'eggId', 'petId',
+          'stage', 'selectedAt', 'xpBaselineAtSelection', 'hatchXpTarget',
+          'hatchDelayHours', 'hatchedAt', 'petName', 'habitatTheme',
+          'growthStage', 'xpBaselineAtHatch', 'lastEvolutionAt', 'updatedAt'
+        ])
+        && (!data.keys().hasAny(['schemaVersion']) || data.schemaVersion == 1)
+        && data.stage == 'hatchling'
+        && validPetEggId(data.eggId)
+        && validPetId(data.petId)
+        && validEggPetMapping(data.eggId, data.petId)
+        && data.hatchedAt is timestamp
+        && validPetName(data.petName)
+        && validPetHabitat(data)
+        && validPetGrowth(data)
+        && data.xpBaselineAtHatch is int
+        && data.updatedAt is timestamp
+        && optionalTimestamp(data, 'petUnlockAcknowledgedAt')
+        && optionalTimestamp(data, 'selectedAt')
+        && optionalNullableCount(data, 'xpBaselineAtSelection')
+        && optionalConstant(data, 'hatchXpTarget', 100)
+        && optionalConstant(data, 'hatchDelayHours', 24);
+    }
+
     function validStudyPetState() {
       let data = request.resource.data;
       return data.keys().hasOnly([
           'schemaVersion', 'petUnlockAcknowledgedAt', 'eggId', 'petId',
           'stage', 'selectedAt', 'xpBaselineAtSelection', 'hatchXpTarget',
-          'hatchDelayHours', 'hatchedAt', 'petName', 'updatedAt'
+          'hatchDelayHours', 'hatchedAt', 'petName', 'habitatTheme',
+          'growthStage', 'xpBaselineAtHatch', 'lastEvolutionAt', 'updatedAt'
         ])
         && data.schemaVersion == 1
         && data.stage in ['unselected', 'egg', 'hatchling']
+        && validPetHabitat(data)
+        && validPetGrowth(data)
         && optionalTimestamp(data, 'petUnlockAcknowledgedAt')
         && data.hatchXpTarget == 100
         && data.hatchDelayHours == 24
@@ -235,12 +501,74 @@ service cloud.firestore {
           || after.hatchedAt == before.hatchedAt)
         && (before.stage != 'hatchling'
           || after.petName == before.petName)
+        && (before.stage != 'hatchling'
+          || after.growthStage == before.growthStage)
+        && (before.stage != 'hatchling'
+          || after.xpBaselineAtHatch == before.xpBaselineAtHatch)
+        && (before.stage != 'hatchling'
+          || after.lastEvolutionAt == before.lastEvolutionAt)
         && (after.stage != 'hatchling'
           || before.stage == 'hatchling'
           || (before.stage == 'egg'
             && validCount(engagement.totalXp)
             && engagement.totalXp - before.xpBaselineAtSelection >= before.hatchXpTarget
-            && request.time >= before.selectedAt + duration.value(before.hatchDelayHours, 'h')));
+            && request.time >= before.selectedAt + duration.value(before.hatchDelayHours, 'h')
+            && after.growthStage == 'hatchling'
+            && after.xpBaselineAtHatch == engagement.totalXp
+            && after.lastEvolutionAt == null));
+    }
+
+    function validStudyPetWriteUpdate(stateId) {
+      let changed = request.resource.data.diff(resource.data).affectedKeys();
+      return changed.hasOnly(['habitatTheme', 'updatedAt'])
+        ? validStudyPetHabitatUpdate(stateId)
+        : changed.hasOnly(['growthStage', 'xpBaselineAtHatch', 'updatedAt'])
+          ? validStudyPetGrowthBaselineUpdate(stateId)
+          : changed.hasOnly(['growthStage', 'lastEvolutionAt', 'updatedAt'])
+            ? validStudyPetEvolutionUpdate(stateId)
+            : (resource.data.stage == 'hatchling'
+                && request.resource.data.stage == 'hatchling'
+                && changed.hasAny([
+                  'growthStage', 'xpBaselineAtHatch', 'lastEvolutionAt'
+                ]))
+              ? false
+              : validStudyPetUpdate(stateId);
+    }
+
+    function validStudyPetHabitatUpdate(stateId) {
+      return stateId == 'state'
+        && validStudyPetState()
+        && request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['habitatTheme', 'updatedAt'])
+        && request.resource.data.updatedAt is timestamp;
+    }
+
+    function validStudyPetGrowthBaselineUpdate(stateId) {
+      let engagement = get(/databases/$(database)/documents/student_progress/$(request.auth.uid)/engagement/state).data;
+      return stateId == 'state'
+        && validStudyPetState()
+        && resource.data.stage == 'hatchling'
+        && request.resource.data.stage == 'hatchling'
+        && request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['growthStage', 'xpBaselineAtHatch', 'updatedAt'])
+        && request.resource.data.growthStage == 'hatchling'
+        && request.resource.data.xpBaselineAtHatch == engagement.totalXp
+        && request.resource.data.updatedAt is timestamp;
+    }
+
+    function validStudyPetEvolutionUpdate(stateId) {
+      let engagement = get(/databases/$(database)/documents/student_progress/$(request.auth.uid)/engagement/state).data;
+      return stateId == 'state'
+        && validStudyPetEvolutionState(request.resource.data)
+        && resource.data.stage == 'hatchling'
+        && request.resource.data.stage == 'hatchling'
+        && request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['growthStage', 'lastEvolutionAt', 'updatedAt'])
+        && validPetGrowthTransition(resource.data, request.resource.data)
+        && validPetGrowthRequirement(request.resource.data, engagement)
+        && request.resource.data.xpBaselineAtHatch == resource.data.xpBaselineAtHatch
+        && request.resource.data.lastEvolutionAt is timestamp
+        && request.resource.data.updatedAt is timestamp;
     }
 
     function validChapter() {
@@ -437,7 +765,19 @@ service cloud.firestore {
         && validStudyPetCreate(stateId);
       allow update: if isSignedIn()
         && request.auth.uid == uid
-        && validStudyPetUpdate(stateId);
+        && validStudyPetWriteUpdate(stateId);
+      allow delete: if false;
+    }
+
+    match /student_progress/{uid}/pet_economy/{stateId} {
+      allow read: if isDashboardAdmin()
+        || (isSignedIn() && request.auth.uid == uid);
+      allow create: if isSignedIn()
+        && request.auth.uid == uid
+        && validPetEconomyCreate(stateId);
+      allow update: if isSignedIn()
+        && request.auth.uid == uid
+        && validPetEconomyUpdate(stateId);
       allow delete: if false;
     }
 

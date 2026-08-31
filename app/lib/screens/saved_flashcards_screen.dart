@@ -264,6 +264,7 @@ class _SavedFlashcardsScreenState extends State<SavedFlashcardsScreen> {
     if (!mounted || action?.wantsChoosePet != true) return;
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
+        settings: const RouteSettings(name: StudyPetScreen.routeName),
         builder: (_) => StudyPetScreen(
           engagementRepository: _engagementRepository,
           petRepository: _petRepository,

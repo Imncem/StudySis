@@ -1,4 +1,8 @@
+import 'dart:convert';
+
 import 'package:flutter_test/flutter_test.dart';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
 import 'package:studysis/models/muffin.dart';
 import 'package:studysis/services/muffin_safety_policy.dart';
 import 'package:studysis/services/muffin_service.dart';
@@ -148,6 +152,88 @@ void main() {
     expect(response.resultSource, 'cache');
     expect(response.biteCharged, 0);
     expect(response.currentBites, 2);
+  });
+
+  test('remote Muffin service posts with web-safe HTTP client and ID token',
+      () async {
+    late http.Request captured;
+    final service = RemoteMuffinService(
+      endpoint: Uri.parse('https://example.test/askMuffin'),
+      availabilityEndpoint:
+          Uri.parse('https://example.test/getMuffinActionAvailability'),
+      idTokenProvider: () async => 'firebase-id-token',
+      httpClient: MockClient((request) async {
+        captured = request;
+        return http.Response(
+          jsonEncode({
+            'responseType': 'explanation',
+            'message': 'Try one small step.',
+          }),
+          200,
+          headers: {'content-type': 'application/json'},
+        );
+      }),
+    );
+
+    final response = await service.ask(
+      const MuffinRequest(
+        mode: MuffinMode.learn,
+        action: MuffinAction.explainSimply,
+        context: MuffinContext(
+          mode: MuffinMode.learn,
+          currentScreen: 'learn',
+          subjectId: 'math',
+          chapterId: 'chapter-1',
+        ),
+      ),
+    );
+
+    expect(response.responseType, MuffinResponseType.explanation);
+    expect(captured.url.toString(), 'https://example.test/askMuffin');
+    expect(captured.headers['authorization'], 'Bearer firebase-id-token');
+    expect(captured.headers['content-type'], 'application/json');
+    final body = jsonDecode(captured.body) as Map<String, dynamic>;
+    expect(body['action'], 'explainSimply');
+    expect(body['context'], isA<Map<String, dynamic>>());
+  });
+
+  test('remote availability posts with web-safe HTTP client and ID token',
+      () async {
+    late http.Request captured;
+    final service = RemoteMuffinService(
+      endpoint: Uri.parse('https://example.test/askMuffin'),
+      availabilityEndpoint:
+          Uri.parse('https://example.test/getMuffinActionAvailability'),
+      idTokenProvider: () async => 'firebase-id-token',
+      httpClient: MockClient((request) async {
+        captured = request;
+        return http.Response(
+          jsonEncode({
+            'actions': {
+              'smallHint': {'cached': true, 'biteCost': 0},
+            },
+          }),
+          200,
+          headers: {'content-type': 'application/json'},
+        );
+      }),
+    );
+
+    final response = await service.availability(
+      const MuffinAvailabilityRequest(
+        mode: MuffinMode.quiz,
+        actions: [MuffinAction.smallHint],
+        context: MuffinContext(mode: MuffinMode.quiz),
+      ),
+    );
+
+    expect(response.actions[MuffinAction.smallHint]!.cached, isTrue);
+    expect(captured.url.toString(),
+        'https://example.test/getMuffinActionAvailability');
+    expect(captured.headers['authorization'], 'Bearer firebase-id-token');
+    expect(captured.headers['content-type'], 'application/json');
+    final body = jsonDecode(captured.body) as Map<String, dynamic>;
+    expect(body['actions'], ['smallHint']);
   });
 
   test('safe context truncates long note content', () {
