@@ -9,6 +9,8 @@ app/pubspec.lock
 # Next.js
 node_modules/
 dashboard/.next/
+dashboard/.next.stale/
+dashboard/.next.stale.*/
 dashboard/node_modules/
 dashboard/out/
 dashboard/.env.local

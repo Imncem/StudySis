@@ -7,8 +7,13 @@ import { getFirebaseAuth } from "@/lib/firebase";
 import { ContentStudio } from "@/components/content-studio/content-studio";
 import { DashboardOverview } from "@/components/dashboard-overview";
 import { StudentPage } from "@/components/student-page";
+import type { DashboardAccess } from "@/lib/dashboard-access";
+import { buildDashboardIdentity } from "@/lib/dashboard-identity";
 
-type Props = { user: User };
+type Props = {
+  user: User;
+  access: DashboardAccess;
+};
 type View = "dashboard" | "student" | "content" | "rewards" | "muffin" | "progress" | "settings";
 
 const navigation: { id: View; label: string; marker: string; available: boolean }[] = [
@@ -21,8 +26,16 @@ const navigation: { id: View; label: string; marker: string; available: boolean 
   { id: "settings", label: "Settings", marker: "⋯", available: false },
 ];
 
-export function AdminDashboard({ user }: Props) {
-  const [view, setView] = useState<View>("dashboard");
+const editorNavigation: { id: View; label: string; marker: string; available: boolean }[] = [
+  { id: "content", label: "Content Studio", marker: "C", available: true },
+];
+
+export function AdminDashboard({ user, access }: Props) {
+  const identity = buildDashboardIdentity(access, user.email);
+  const availableNavigation = access.role === "admin"
+    ? navigation
+    : editorNavigation;
+  const [view, setView] = useState<View>(access.role === "admin" ? "dashboard" : "content");
 
   return (
     <div className="min-h-screen md:pl-64">
@@ -32,11 +45,17 @@ export function AdminDashboard({ user }: Props) {
             <p className="text-xs font-bold tracking-[0.18em] text-[#567263]">STUDYSIS</p>
             <p className="mt-1 font-bold text-[#24342b]">Content Studio</p>
           </div>
-          <span className="grid h-10 w-10 place-items-center rounded-2xl bg-white font-bold text-[#496a5a]">S</span>
+          <span
+            aria-label={`${identity.displayName} avatar`}
+            className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-white text-sm font-bold text-[#496a5a] shadow-sm"
+            title={identity.displayName}
+          >
+            {identity.initials}
+          </span>
         </div>
 
         <nav className="flex gap-2 overflow-x-auto pb-1 md:block md:space-y-1 md:overflow-visible">
-          {navigation.map((item) => (
+          {availableNavigation.map((item) => (
             <button
               className={`flex shrink-0 items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-semibold transition md:w-full ${
                 view === item.id
@@ -55,7 +74,16 @@ export function AdminDashboard({ user }: Props) {
         </nav>
 
         <div className="mt-6 hidden border-t border-[#d8e0da] pt-5 md:block">
-          <p className="truncate text-xs text-slate-500">{user.email}</p>
+          <p
+            className="line-clamp-2 break-words text-sm font-bold leading-5 text-[#293930]"
+            title={identity.displayName}
+          >
+            {identity.displayName}
+          </p>
+          <p className="mt-1 break-all text-xs leading-4 text-slate-500" title={identity.email}>
+            {identity.email}
+          </p>
+          <p className="mt-2 text-xs font-semibold text-[#496a5a]">{identity.roleLabel}</p>
           <button className="secondary-button mt-3 w-full" onClick={() => signOut(getFirebaseAuth())} type="button">Sign out</button>
         </div>
       </aside>
@@ -63,8 +91,8 @@ export function AdminDashboard({ user }: Props) {
       <main className="mx-auto min-h-screen max-w-7xl px-5 py-8 sm:px-8 lg:py-12">
         {view === "dashboard" && <DashboardOverview onOpenContent={() => setView("content")} />}
         {view === "student" && <StudentPage />}
-        {view === "content" && <ContentStudio />}
-        {!navigation.find((item) => item.id === view)?.available && <ComingSoon title={navigation.find((item) => item.id === view)?.label ?? "Section"} />}
+        {view === "content" && <ContentStudio access={access} />}
+        {!availableNavigation.find((item) => item.id === view)?.available && <ComingSoon title={availableNavigation.find((item) => item.id === view)?.label ?? "Section"} />}
       </main>
     </div>
   );

@@ -9,6 +9,36 @@ export type Student = {
   status: string;
 };
 
+export const curriculumStructureTypes = [
+  "chapter",
+  "theme",
+  "unit",
+  "lesson",
+  "topic",
+] as const;
+export type CurriculumStructureType = (typeof curriculumStructureTypes)[number];
+
+export type CurriculumMetadata = {
+  curriculum: string;
+  form: number;
+  structureType: CurriculumStructureType;
+  structureLabelSingular: string;
+  structureLabelPlural: string;
+};
+
+export type CurriculumItem = {
+  group?: string;
+  order: number;
+  sequenceLabel: string;
+  title: string;
+  status: "draft";
+  contentStandards?: string[];
+  learningStandards?: string[];
+  learningObjectives?: string[];
+  curriculumSource?: string;
+  curriculumVersion?: string;
+};
+
 export type Subject = {
   id: string;
   displayName: string;
@@ -17,12 +47,13 @@ export type Subject = {
   iconName: string;
   themeColor: string;
   order: number;
-};
+} & Partial<CurriculumMetadata>;
 
 export const chapterStatuses = ["draft", "active", "archived"] as const;
 export type ChapterStatus = (typeof chapterStatuses)[number];
 
 export type Chapter = {
+  group?: string;
   id: string;
   chapterNumber: number;
   title: string;

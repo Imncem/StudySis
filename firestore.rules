@@ -2,9 +2,62 @@ rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
-    function isDashboardAdmin() {
+    function isVerifiedSubjectId(subjectId) {
+      return subjectId in [
+        'bahasa_melayu', 'english', 'math', 'science', 'sejarah',
+        'geography', 'rbt', 'pendidikan_islam', 'pjk', 'seni'
+      ];
+    }
+
+    function usesDashboardSignIn() {
       return request.auth != null
         && request.auth.token.firebase.sign_in_provider == 'password';
+    }
+
+    function validDashboardAccess(data) {
+      return data.keys().hasOnly([
+          'role', 'active', 'displayName', 'email', 'subjectIds'
+        ])
+        && data.keys().hasAll(['role', 'active'])
+        && data.role in ['admin', 'editor']
+        && data.active is bool
+        && (!data.keys().hasAny(['subjectIds'])
+          || (data.subjectIds is list
+            && data.subjectIds.size() <= 10
+            && data.subjectIds.toSet().size() == data.subjectIds.size()
+            && data.subjectIds.hasOnly([
+              'bahasa_melayu', 'english', 'math', 'science', 'sejarah',
+              'geography', 'rbt', 'pendidikan_islam', 'pjk', 'seni'
+            ])))
+        && (!data.keys().hasAny(['displayName']) || data.displayName is string)
+        && (!data.keys().hasAny(['email']) || data.email is string);
+    }
+
+    function isDashboardUser() {
+      return usesDashboardSignIn()
+        && exists(/databases/$(database)/documents/dashboard_access/$(request.auth.uid))
+        && validDashboardAccess(
+          get(/databases/$(database)/documents/dashboard_access/$(request.auth.uid)).data
+        )
+        && get(/databases/$(database)/documents/dashboard_access/$(request.auth.uid)).data.active;
+    }
+
+    function isDashboardAdmin() {
+      return isDashboardUser()
+        && get(/databases/$(database)/documents/dashboard_access/$(request.auth.uid)).data.role == 'admin';
+    }
+
+    function canEditSubject(subjectId) {
+      return isVerifiedSubjectId(subjectId)
+        && isDashboardUser()
+        && get(/databases/$(database)/documents/dashboard_access/$(request.auth.uid)).data.role in ['admin', 'editor'];
+    }
+
+    function isDraftModule(subjectId, chapterId, moduleId, moduleType) {
+      let modulePath = /databases/$(database)/documents/curriculum/form2/subjects/$(subjectId)/chapters/$(chapterId)/modules/$(moduleId);
+      return exists(modulePath)
+        && get(modulePath).data.status == 'draft'
+        && get(modulePath).data.type == moduleType;
     }
 
     function isSignedIn() {
@@ -576,7 +629,7 @@ service cloud.firestore {
       return data.keys().hasOnly([
           'chapterNumber', 'title', 'textbookChapterTitle',
           'learningObjectives', 'estimatedMinutes', 'status', 'order',
-          'createdAt', 'updatedAt'
+          'group', 'createdAt', 'updatedAt'
         ])
         && data.chapterNumber is int
         && data.chapterNumber > 0
@@ -590,6 +643,8 @@ service cloud.firestore {
         && data.status in ['draft', 'active', 'archived']
         && data.order is int
         && data.order >= 0
+        && (!data.keys().hasAny(['group'])
+          || (data.group is string && data.group.size() > 0))
         && data.createdAt is timestamp
         && data.updatedAt is timestamp;
     }
@@ -781,6 +836,11 @@ service cloud.firestore {
       allow delete: if false;
     }
 
+    match /dashboard_access/{uid} {
+      allow get: if usesDashboardSignIn() && request.auth.uid == uid;
+      allow list, create, update, delete: if false;
+    }
+
     // `form2` is the current curriculum catalog ID. Future catalogs can use
     // sibling IDs without changing the subjects/chapters/modules structure.
     match /curriculum/form2/subjects/{subjectId} {
@@ -790,67 +850,103 @@ service cloud.firestore {
       match /chapters/{chapterId} {
         allow read: if true;
         allow create, update: if isDashboardAdmin()
-          && subjectId == 'math'
+          && isVerifiedSubjectId(subjectId)
           && validChapter();
-        allow delete: if isDashboardAdmin() && subjectId == 'math';
+        allow delete: if isDashboardAdmin() && isVerifiedSubjectId(subjectId);
 
         match /practice_questions/{questionId} {
           allow read: if true;
-          allow create, update: if isDashboardAdmin()
-            && subjectId == 'math'
-            && validPracticeItem();
-          allow delete: if isDashboardAdmin() && subjectId == 'math';
+          allow create: if canEditSubject(subjectId)
+            && validPracticeItem()
+            && (isDashboardAdmin() || request.resource.data.status == 'draft');
+          allow update: if canEditSubject(subjectId)
+            && validPracticeItem()
+            && (isDashboardAdmin()
+              || (resource.data.status == 'draft'
+                && request.resource.data.status == 'draft'));
+          allow delete: if canEditSubject(subjectId)
+            && (isDashboardAdmin() || resource.data.status == 'draft');
         }
 
         match /modules/{moduleId} {
           allow read: if true;
-          allow create, update: if isDashboardAdmin()
-            && subjectId == 'math'
-            && validModule();
-          allow delete: if isDashboardAdmin() && subjectId == 'math';
+          allow create: if canEditSubject(subjectId)
+            && validModule()
+            && (isDashboardAdmin() || request.resource.data.status == 'draft');
+          allow update: if canEditSubject(subjectId)
+            && validModule()
+            && (isDashboardAdmin()
+              || (resource.data.status == 'draft'
+                && request.resource.data.status == 'draft'));
+          allow delete: if canEditSubject(subjectId)
+            && (isDashboardAdmin() || resource.data.status == 'draft');
 
           match /sections/{sectionId} {
             allow read: if true;
-            allow create, update: if isDashboardAdmin()
-              && subjectId == 'math'
-              && moduleId == 'notes'
+            allow create, update: if canEditSubject(subjectId)
+              && (isDashboardAdmin()
+                || isDraftModule(subjectId, chapterId, moduleId, 'notes'))
               && validNoteSection();
-            allow delete: if isDashboardAdmin()
-              && subjectId == 'math'
-              && moduleId == 'notes';
+            allow delete: if canEditSubject(subjectId)
+              && (isDashboardAdmin()
+                || isDraftModule(subjectId, chapterId, moduleId, 'notes'));
           }
 
           match /cards/{cardId} {
             allow read: if true;
-            allow create, update: if isDashboardAdmin()
-              && subjectId == 'math'
-              && moduleId == 'flashcards'
-              && validFlashcard();
-            allow delete: if isDashboardAdmin()
-              && subjectId == 'math'
-              && moduleId == 'flashcards';
+            allow create: if canEditSubject(subjectId)
+              && validFlashcard()
+              && (isDashboardAdmin()
+                || (isDraftModule(subjectId, chapterId, moduleId, 'flashcards')
+                  && request.resource.data.status == 'draft'));
+            allow update: if canEditSubject(subjectId)
+              && validFlashcard()
+              && (isDashboardAdmin()
+                || (isDraftModule(subjectId, chapterId, moduleId, 'flashcards')
+                  && resource.data.status == 'draft'
+                  && request.resource.data.status == 'draft'));
+            allow delete: if canEditSubject(subjectId)
+              && (isDashboardAdmin()
+                || (isDraftModule(subjectId, chapterId, moduleId, 'flashcards')
+                  && resource.data.status == 'draft'));
           }
 
           match /items/{itemId} {
             allow read: if true;
-            allow create, update: if isDashboardAdmin()
-              && subjectId == 'math'
-              && moduleId == 'practice'
-              && validPracticeItem();
-            allow delete: if isDashboardAdmin()
-              && subjectId == 'math'
-              && moduleId == 'practice';
+            allow create: if canEditSubject(subjectId)
+              && validPracticeItem()
+              && (isDashboardAdmin()
+                || (isDraftModule(subjectId, chapterId, moduleId, 'practice')
+                  && request.resource.data.status == 'draft'));
+            allow update: if canEditSubject(subjectId)
+              && validPracticeItem()
+              && (isDashboardAdmin()
+                || (isDraftModule(subjectId, chapterId, moduleId, 'practice')
+                  && resource.data.status == 'draft'
+                  && request.resource.data.status == 'draft'));
+            allow delete: if canEditSubject(subjectId)
+              && (isDashboardAdmin()
+                || (isDraftModule(subjectId, chapterId, moduleId, 'practice')
+                  && resource.data.status == 'draft'));
           }
 
           match /questions/{questionId} {
             allow read: if true;
-            allow create, update: if isDashboardAdmin()
-              && subjectId == 'math'
-              && moduleId == 'quiz'
-              && validQuizQuestion();
-            allow delete: if isDashboardAdmin()
-              && subjectId == 'math'
-              && moduleId == 'quiz';
+            allow create: if canEditSubject(subjectId)
+              && validQuizQuestion()
+              && (isDashboardAdmin()
+                || (isDraftModule(subjectId, chapterId, moduleId, 'quiz')
+                  && request.resource.data.status == 'draft'));
+            allow update: if canEditSubject(subjectId)
+              && validQuizQuestion()
+              && (isDashboardAdmin()
+                || (isDraftModule(subjectId, chapterId, moduleId, 'quiz')
+                  && resource.data.status == 'draft'
+                  && request.resource.data.status == 'draft'));
+            allow delete: if canEditSubject(subjectId)
+              && (isDashboardAdmin()
+                || (isDraftModule(subjectId, chapterId, moduleId, 'quiz')
+                  && resource.data.status == 'draft'));
           }
         }
       }

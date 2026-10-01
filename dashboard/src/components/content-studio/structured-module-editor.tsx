@@ -21,7 +21,7 @@ import {
 
 type Location = { subjectId: string; chapterId: string; moduleId: string };
 
-export function StructuredModuleEditor({ repository, subjectId, chapterId, module, onBack, onEditDetails, onPublish }: { repository: StructuredContentRepository; subjectId: string; chapterId: string; module: LearningModule; onBack: () => void; onEditDetails: () => void; onPublish: () => Promise<void> }) {
+export function StructuredModuleEditor({ repository, subjectId, chapterId, module, canEdit, canPublish, onBack, onEditDetails, onPublish }: { repository: StructuredContentRepository; subjectId: string; chapterId: string; module: LearningModule; canEdit: boolean; canPublish: boolean; onBack: () => void; onEditDetails: () => void; onPublish: () => Promise<void> }) {
   const location = useMemo(
     () => ({ subjectId, chapterId, moduleId: module.id }),
     [chapterId, module.id, subjectId],
@@ -35,15 +35,15 @@ export function StructuredModuleEditor({ repository, subjectId, chapterId, modul
           <h2 className="mt-1 text-2xl font-bold text-[#293930]">{module.title}</h2>
         </div>
         <div className="flex flex-wrap gap-2">
-          <button className="secondary-button" onClick={onEditDetails} type="button">Edit details</button>
-          {module.status !== "active" && <button className="primary-button" onClick={onPublish} type="button">Publish module</button>}
+          {canEdit && <button className="secondary-button" onClick={onEditDetails} type="button">Edit details</button>}
+          {canPublish && module.status !== "active" && <button className="primary-button" onClick={onPublish} type="button">Publish module</button>}
         </div>
       </div>
       <div className="pt-6">
-        {module.type === "notes" && <NotesEditor location={location} repository={repository} />}
-        {module.type === "flashcards" && <FlashcardsEditor location={location} repository={repository} />}
-        {module.type === "practice" && <PracticeEditor location={location} repository={repository} />}
-        {module.type === "quiz" && <QuizEditor location={location} repository={repository} />}
+        {module.type === "notes" && <NotesEditor canEdit={canEdit} location={location} repository={repository} />}
+        {module.type === "flashcards" && <FlashcardsEditor canEdit={canEdit} canPublish={canPublish} location={location} repository={repository} />}
+        {module.type === "practice" && <PracticeEditor canEdit={canEdit} canPublish={canPublish} location={location} repository={repository} />}
+        {module.type === "quiz" && <QuizEditor canEdit={canEdit} canPublish={canPublish} location={location} repository={repository} />}
         {module.type === "test" && <Placeholder text="Test builder coming later" />}
         {module.type === "review" && <Placeholder text="Review engine coming later" />}
       </div>
@@ -51,7 +51,7 @@ export function StructuredModuleEditor({ repository, subjectId, chapterId, modul
   );
 }
 
-function NotesEditor({ repository, location }: EditorProps) {
+function NotesEditor({ repository, location, canEdit }: EditorProps) {
   const [items, setItems] = useState<NoteSection[]>([]);
   const [editing, setEditing] = useState<NoteSection | "new" | null>(null);
   const [error, setError] = useState("");
@@ -63,63 +63,63 @@ function NotesEditor({ repository, location }: EditorProps) {
     setEditing(null);
   }
 
-  return <CollectionLayout title="Note sections" count={items.length} addLabel="Add section" onAdd={() => setEditing("new")} error={error}>
+  return <CollectionLayout title="Note sections" count={items.length} addLabel="Add section" onAdd={canEdit ? () => setEditing("new") : undefined} error={error}>
     {editing && <NoteSectionForm item={editing === "new" ? undefined : editing} onCancel={() => setEditing(null)} onSave={save} />}
-    {!editing && items.map((item) => <ItemCard key={item.id} eyebrow={`SECTION ${item.order}`} title={item.heading} description={item.body} onEdit={() => setEditing(item)} onDelete={() => confirmDelete(item.heading) && repository.deleteNoteSection(location, item.id)} />)}
+    {!editing && items.map((item) => <ItemCard key={item.id} eyebrow={`SECTION ${item.order}`} title={item.heading} description={item.body} onEdit={canEdit ? () => setEditing(item) : undefined} onDelete={canEdit ? () => confirmDelete(item.heading) && repository.deleteNoteSection(location, item.id) : undefined} />)}
     {!editing && !items.length && <Empty text="No note sections yet." />}
   </CollectionLayout>;
 }
 
-function FlashcardsEditor({ repository, location }: EditorProps) {
+function FlashcardsEditor({ repository, location, canEdit, canPublish = false }: EditorProps) {
   const [items, setItems] = useState<Flashcard[]>([]);
   const [editing, setEditing] = useState<Flashcard | "new" | null>(null);
   const [error, setError] = useState("");
   useEffect(() => repository.watchFlashcards(location, setItems, (next) => setError(next.message)), [location, repository]);
-  async function save(input: FlashcardInput) { if (editing && editing !== "new") await repository.updateFlashcard(location, editing.id, input); else await repository.createFlashcard(location, input); setEditing(null); }
-  return <CollectionLayout title="Flashcards" count={items.length} addLabel="Add flashcard" onAdd={() => setEditing("new")} error={error}>
-    {editing && <FlashcardForm item={editing === "new" ? undefined : editing} onCancel={() => setEditing(null)} onSave={save} />}
-    {!editing && items.map((item) => <ItemCard key={item.id} eyebrow={`${item.status} · CARD ${item.order}`} title={item.front} description={item.back} onEdit={() => setEditing(item)} onDelete={() => confirmDelete(item.front) && repository.deleteFlashcard(location, item.id)} />)}
+  async function save(input: FlashcardInput) { const allowed = canPublish ? input : { ...input, status: "draft" as const }; if (editing && editing !== "new") await repository.updateFlashcard(location, editing.id, allowed); else await repository.createFlashcard(location, allowed); setEditing(null); }
+  return <CollectionLayout title="Flashcards" count={items.length} addLabel="Add flashcard" onAdd={canEdit ? () => setEditing("new") : undefined} error={error}>
+    {editing && <FlashcardForm allowStatusChange={canPublish} item={editing === "new" ? undefined : editing} onCancel={() => setEditing(null)} onSave={save} />}
+    {!editing && items.map((item) => { const canEditItem = canEdit && (canPublish || item.status === "draft"); return <ItemCard key={item.id} eyebrow={`${item.status} · CARD ${item.order}`} title={item.front} description={item.back} onEdit={canEditItem ? () => setEditing(item) : undefined} onDelete={canEditItem ? () => confirmDelete(item.front) && repository.deleteFlashcard(location, item.id) : undefined} />; })}
     {!editing && !items.length && <Empty text="No flashcards yet." />}
   </CollectionLayout>;
 }
 
-function PracticeEditor({ repository, location }: EditorProps) {
+function PracticeEditor({ repository, location, canEdit, canPublish = false }: EditorProps) {
   const [items, setItems] = useState<PracticeItem[]>([]);
   const [editing, setEditing] = useState<PracticeItem | "new" | null>(null);
   const [error, setError] = useState("");
   useEffect(() => repository.watchPracticeItems(location, setItems, (next) => setError(next.message)), [location, repository]);
-  async function save(input: PracticeItemInput) { if (editing && editing !== "new") await repository.updatePracticeItem(location, editing.id, input); else await repository.createPracticeItem(location, input); setEditing(null); }
-  return <CollectionLayout title="Practice questions" count={items.length} addLabel="Add question" onAdd={() => setEditing("new")} error={error}>
-    {editing && <PracticeForm item={editing === "new" ? undefined : editing} onCancel={() => setEditing(null)} onSave={save} />}
-    {!editing && items.map((item) => <ItemCard key={item.id} eyebrow={`${item.status} · ${item.difficulty} · ${item.order}`} title={item.question} description={`${item.options.filter(Boolean).length} options · correct ${answerLabel(item.correctAnswerIndex)}${item.topic ? ` · ${item.topic}` : ""}`} onEdit={() => setEditing(item)} onDelete={() => confirmDelete(item.question) && repository.deletePracticeItem(location, item.id)} />)}
+  async function save(input: PracticeItemInput) { const allowed = canPublish ? input : { ...input, status: "draft" as const }; if (editing && editing !== "new") await repository.updatePracticeItem(location, editing.id, allowed); else await repository.createPracticeItem(location, allowed); setEditing(null); }
+  return <CollectionLayout title="Practice questions" count={items.length} addLabel="Add question" onAdd={canEdit ? () => setEditing("new") : undefined} error={error}>
+    {editing && <PracticeForm allowStatusChange={canPublish} item={editing === "new" ? undefined : editing} onCancel={() => setEditing(null)} onSave={save} />}
+    {!editing && items.map((item) => { const canEditItem = canEdit && (canPublish || item.status === "draft"); return <ItemCard key={item.id} eyebrow={`${item.status} · ${item.difficulty} · ${item.order}`} title={item.question} description={`${item.options.filter(Boolean).length} options · correct ${answerLabel(item.correctAnswerIndex)}${item.topic ? ` · ${item.topic}` : ""}`} onEdit={canEditItem ? () => setEditing(item) : undefined} onDelete={canEditItem ? () => confirmDelete(item.question) && repository.deletePracticeItem(location, item.id) : undefined} />; })}
     {!editing && !items.length && <Empty text="No practice questions yet." />}
   </CollectionLayout>;
 }
 
-function QuizEditor({ repository, location }: EditorProps) {
+function QuizEditor({ repository, location, canEdit, canPublish = false }: EditorProps) {
   const [items, setItems] = useState<QuizQuestion[]>([]);
   const [editing, setEditing] = useState<QuizQuestion | "new" | null>(null);
   const [error, setError] = useState("");
   useEffect(() => repository.watchQuizQuestions(location, setItems, (next) => setError(next.message)), [location, repository]);
-  async function save(input: QuizQuestionInput) { if (editing && editing !== "new") await repository.updateQuizQuestion(location, editing.id, input); else await repository.createQuizQuestion(location, input); setEditing(null); }
-  return <CollectionLayout title="Quiz questions" count={items.length} addLabel="New Question" onAdd={() => setEditing("new")} error={error}>
-    {editing && <QuizForm item={editing === "new" ? undefined : editing} onCancel={() => setEditing(null)} onSave={save} />}
-    {!editing && items.map((item) => <QuizQuestionCard key={item.id} item={item} onEdit={() => setEditing(item)} onDelete={() => confirmDelete(item.question) && repository.deleteQuizQuestion(location, item.id)} />)}
+  async function save(input: QuizQuestionInput) { const allowed = canPublish ? input : { ...input, status: "draft" as const }; if (editing && editing !== "new") await repository.updateQuizQuestion(location, editing.id, allowed); else await repository.createQuizQuestion(location, allowed); setEditing(null); }
+  return <CollectionLayout title="Quiz questions" count={items.length} addLabel="New Question" onAdd={canEdit ? () => setEditing("new") : undefined} error={error}>
+    {editing && <QuizForm allowStatusChange={canPublish} item={editing === "new" ? undefined : editing} onCancel={() => setEditing(null)} onSave={save} />}
+    {!editing && items.map((item) => { const canEditItem = canEdit && (canPublish || item.status === "draft"); return <QuizQuestionCard key={item.id} item={item} onEdit={canEditItem ? () => setEditing(item) : undefined} onDelete={canEditItem ? () => confirmDelete(item.question) && repository.deleteQuizQuestion(location, item.id) : undefined} />; })}
     {!editing && !items.length && <Empty text="No quiz questions yet." />}
   </CollectionLayout>;
 }
 
-type EditorProps = { repository: StructuredContentRepository; location: Location };
+type EditorProps = { repository: StructuredContentRepository; location: Location; canEdit: boolean; canPublish?: boolean };
 
-function CollectionLayout({ title, count, addLabel, onAdd, error, children }: { title: string; count: number; addLabel: string; onAdd: () => void; error: string; children: React.ReactNode }) {
-  return <div><div className="mb-5 flex flex-wrap items-center justify-between gap-3"><div><h3 className="text-xl font-bold text-[#293930]">{title}</h3><p className="mt-1 text-sm text-slate-500">{count} total</p></div><button className="primary-button" onClick={onAdd} type="button">{addLabel}</button></div>{error && <p className="error-banner">{error}</p>}<div className="space-y-3">{children}</div></div>;
+function CollectionLayout({ title, count, addLabel, onAdd, error, children }: { title: string; count: number; addLabel: string; onAdd?: () => void; error: string; children: React.ReactNode }) {
+  return <div><div className="mb-5 flex flex-wrap items-center justify-between gap-3"><div><h3 className="text-xl font-bold text-[#293930]">{title}</h3><p className="mt-1 text-sm text-slate-500">{count} total</p></div>{onAdd && <button className="primary-button" onClick={onAdd} type="button">{addLabel}</button>}</div>{error && <p className="error-banner">{error}</p>}<div className="space-y-3">{children}</div></div>;
 }
 
-function ItemCard({ eyebrow, title, description, onEdit, onDelete }: { eyebrow: string; title: string; description: string; onEdit: () => void; onDelete: () => void }) {
-  return <article className="rounded-2xl border border-[#e5eae6] p-4"><p className="text-xs font-semibold uppercase tracking-wide text-[#668071]">{eyebrow}</p><h4 className="mt-1 font-bold text-[#293930]">{title}</h4><p className="mt-2 line-clamp-2 whitespace-pre-line text-sm text-slate-500">{description}</p><div className="mt-4 flex gap-2 border-t border-[#e8ebe7] pt-3"><button className="small-button" onClick={onEdit} type="button">Edit</button><button className="small-button danger" onClick={onDelete} type="button">Delete</button></div></article>;
+function ItemCard({ eyebrow, title, description, onEdit, onDelete }: { eyebrow: string; title: string; description: string; onEdit?: () => void; onDelete?: () => void }) {
+  return <article className="rounded-2xl border border-[#e5eae6] p-4"><p className="text-xs font-semibold uppercase tracking-wide text-[#668071]">{eyebrow}</p><h4 className="mt-1 font-bold text-[#293930]">{title}</h4><p className="mt-2 line-clamp-2 whitespace-pre-line text-sm text-slate-500">{description}</p>{(onEdit || onDelete) && <div className="mt-4 flex gap-2 border-t border-[#e8ebe7] pt-3">{onEdit && <button className="small-button" onClick={onEdit} type="button">Edit</button>}{onDelete && <button className="small-button danger" onClick={onDelete} type="button">Delete</button>}</div>}</article>;
 }
 
-function QuizQuestionCard({ item, onEdit, onDelete }: { item: QuizQuestion; onEdit: () => void; onDelete: () => void }) {
+function QuizQuestionCard({ item, onEdit, onDelete }: { item: QuizQuestion; onEdit?: () => void; onDelete?: () => void }) {
   return <article className="rounded-2xl border border-[#e5eae6] bg-white p-4">
     <div className="flex flex-wrap items-start justify-between gap-3">
       <div>
@@ -132,7 +132,7 @@ function QuizQuestionCard({ item, onEdit, onDelete }: { item: QuizQuestion; onEd
       </div>
     </div>
     <p className="mt-3 text-sm font-semibold text-[#496a5a]">{quizQuestionMetadata(item)}</p>
-    <div className="mt-4 flex gap-2 border-t border-[#e8ebe7] pt-3"><button className="small-button" onClick={onEdit} type="button">Edit</button><button className="small-button danger" onClick={onDelete} type="button">Delete</button></div>
+    {(onEdit || onDelete) && <div className="mt-4 flex gap-2 border-t border-[#e8ebe7] pt-3">{onEdit && <button className="small-button" onClick={onEdit} type="button">Edit</button>}{onDelete && <button className="small-button danger" onClick={onDelete} type="button">Delete</button>}</div>}
   </article>;
 }
 
@@ -145,12 +145,12 @@ function NoteSectionForm({ item, onSave, onCancel }: { item?: NoteSection; onSav
   return <SimpleForm onSubmit={() => onSave({ heading: heading.trim(), body: body.trim(), example: example.trim(), order })} onCancel={onCancel}><Field label="Heading" value={heading} setValue={setHeading} /><TextField label="Body" value={body} setValue={setBody} /><TextField label="Example" value={example} setValue={setExample} /><NumberField label="Order" value={order} setValue={setOrder} /></SimpleForm>;
 }
 
-function FlashcardForm({ item, onSave, onCancel }: { item?: Flashcard; onSave: (input: FlashcardInput) => Promise<void>; onCancel: () => void }) {
+function FlashcardForm({ item, allowStatusChange, onSave, onCancel }: { item?: Flashcard; allowStatusChange: boolean; onSave: (input: FlashcardInput) => Promise<void>; onCancel: () => void }) {
   const [front, setFront] = useState(item?.front ?? ""); const [back, setBack] = useState(item?.back ?? ""); const [hint, setHint] = useState(item?.hint ?? ""); const [order, setOrder] = useState(item?.order ?? 1); const [status, setStatus] = useState<ModuleStatus>(item?.status ?? "draft");
-  return <SimpleForm onSubmit={() => onSave({ front: front.trim(), back: back.trim(), hint: hint.trim(), order, status })} onCancel={onCancel}><TextField label="Front" value={front} setValue={setFront} /><TextField label="Back" value={back} setValue={setBack} /><Field label="Hint" value={hint} setValue={setHint} required={false} /><NumberField label="Order" value={order} setValue={setOrder} /><StatusField value={status} setValue={setStatus} /></SimpleForm>;
+  return <SimpleForm onSubmit={() => onSave({ front: front.trim(), back: back.trim(), hint: hint.trim(), order, status })} onCancel={onCancel}><TextField label="Front" value={front} setValue={setFront} /><TextField label="Back" value={back} setValue={setBack} /><Field label="Hint" value={hint} setValue={setHint} required={false} /><NumberField label="Order" value={order} setValue={setOrder} />{allowStatusChange && <StatusField value={status} setValue={setStatus} />}</SimpleForm>;
 }
 
-function PracticeForm({ item, onSave, onCancel }: { item?: PracticeItem; onSave: (input: PracticeItemInput) => Promise<void>; onCancel: () => void }) {
+function PracticeForm({ item, allowStatusChange, onSave, onCancel }: { item?: PracticeItem; allowStatusChange: boolean; onSave: (input: PracticeItemInput) => Promise<void>; onCancel: () => void }) {
   const initialOptions = normalizePracticeOptions(item);
   const [question, setQuestion] = useState(item?.question ?? "");
   const [optionA, setOptionA] = useState(initialOptions[0]);
@@ -170,10 +170,10 @@ function PracticeForm({ item, onSave, onCancel }: { item?: PracticeItem; onSave:
     if (correctAnswerIndex < 0 || correctAnswerIndex > 3) throw new Error("Choose the correct answer.");
     await onSave({ question: question.trim(), options, correctAnswerIndex, explanation: explanation.trim(), hint: hint.trim(), topic: topic.trim(), difficulty, order, status });
   }
-  return <SimpleForm onSubmit={save} onCancel={onCancel}><TextField label="Question" value={question} setValue={setQuestion} /><Field label="Option A" value={optionA} setValue={setOptionA} /><Field label="Option B" value={optionB} setValue={setOptionB} /><Field label="Option C" value={optionC} setValue={setOptionC} /><Field label="Option D" value={optionD} setValue={setOptionD} /><CorrectAnswerField value={correctAnswerIndex} setValue={setCorrectAnswerIndex} /><Field label="Topic tag" value={topic} setValue={setTopic} required={false} /><TextField label="Explanation" value={explanation} setValue={setExplanation} /><Field label="Hint" value={hint} setValue={setHint} required={false} /><DifficultyField value={difficulty} setValue={setDifficulty} /><NumberField label="Order" value={order} setValue={setOrder} /><StatusField value={status} setValue={setStatus} /></SimpleForm>;
+  return <SimpleForm onSubmit={save} onCancel={onCancel}><TextField label="Question" value={question} setValue={setQuestion} /><Field label="Option A" value={optionA} setValue={setOptionA} /><Field label="Option B" value={optionB} setValue={setOptionB} /><Field label="Option C" value={optionC} setValue={setOptionC} /><Field label="Option D" value={optionD} setValue={setOptionD} /><CorrectAnswerField value={correctAnswerIndex} setValue={setCorrectAnswerIndex} /><Field label="Topic tag" value={topic} setValue={setTopic} required={false} /><TextField label="Explanation" value={explanation} setValue={setExplanation} /><Field label="Hint" value={hint} setValue={setHint} required={false} /><DifficultyField value={difficulty} setValue={setDifficulty} /><NumberField label="Order" value={order} setValue={setOrder} />{allowStatusChange && <StatusField value={status} setValue={setStatus} />}</SimpleForm>;
 }
 
-function QuizForm({ item, onSave, onCancel }: { item?: QuizQuestion; onSave: (input: QuizQuestionInput) => Promise<void>; onCancel: () => void }) {
+function QuizForm({ item, allowStatusChange, onSave, onCancel }: { item?: QuizQuestion; allowStatusChange: boolean; onSave: (input: QuizQuestionInput) => Promise<void>; onCancel: () => void }) {
   const initialOptions = normalizeQuizOptions(item);
   const [question, setQuestion] = useState(item?.question ?? "");
   const [optionA, setOptionA] = useState(initialOptions[0]);
@@ -238,7 +238,7 @@ function QuizForm({ item, onSave, onCancel }: { item?: QuizQuestion; onSave: (in
           <div className="grid gap-4 md:grid-cols-3">
             <QuizSelect error={errors.difficulty} label="Difficulty" value={difficulty} values={moduleDifficulties} onChange={(value) => setDifficulty(value as ModuleDifficulty)} />
             <QuizNumberInput error={errors.order} label="Order" value={order} onChange={setOrder} />
-            <QuizSelect error={errors.status} label="Status" value={status} values={moduleStatuses} onChange={(value) => setStatus(value as ModuleStatus)} />
+            {allowStatusChange && <QuizSelect error={errors.status} label="Status" value={status} values={moduleStatuses} onChange={(value) => setStatus(value as ModuleStatus)} />}
           </div>
         </FormSection>
       </div>

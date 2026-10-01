@@ -6,6 +6,7 @@ import {
   onSnapshot,
   orderBy,
   query,
+  runTransaction,
   serverTimestamp,
   updateDoc,
   writeBatch,
@@ -14,11 +15,13 @@ import {
   type QueryDocumentSnapshot,
   type Unsubscribe,
 } from "firebase/firestore";
-import { contentPaths, EDITABLE_SUBJECT_ID } from "@/lib/content-paths";
 import {
-  draftModuleSeed,
-  mathematicsChapterSeed,
-} from "@/lib/seeds/mathematics-chapters";
+  getCurriculumSetupDefinition,
+  getCurriculumSetupStatus as calculateCurriculumSetupStatus,
+  type CurriculumSetupResult,
+  type CurriculumSetupStatus,
+} from "@/lib/curriculum/curriculumSetup";
+import { contentPaths } from "@/lib/content-paths";
 import type {
   Chapter,
   ChapterInput,
@@ -26,14 +29,11 @@ import type {
   LearningModuleInput,
   Subject,
 } from "@/lib/types";
+import { mapSubjectDocument } from "@/lib/repositories/subject-mapper";
+import { mapChapterDocument } from "@/lib/repositories/chapter-mapper";
 
 type ErrorHandler = (error: Error) => void;
 const structuredCollections = ["sections", "cards", "items", "questions"];
-
-export type SeedResult = {
-  created: number;
-  skipped: number;
-};
 
 export class ContentRepository {
   constructor(private readonly db: Firestore) {}
@@ -47,9 +47,8 @@ export class ContentRepository {
       (snapshot) =>
         onData(
           snapshot.docs.map((item) => ({
-            id: item.id,
-            ...item.data(),
-          }) as Subject),
+            ...mapSubjectDocument(item.id, item.data()),
+          })),
         ),
       onError,
     );
@@ -91,69 +90,52 @@ export class ContentRepository {
     });
   }
 
-  async seedMathematicsChapters(): Promise<SeedResult> {
-    const subjectId = EDITABLE_SUBJECT_ID;
-    const chaptersCollection = collection(
-      this.db,
-      contentPaths.chapters(subjectId),
+  async getCurriculumSetupStatus(
+    subjectId: string,
+  ): Promise<CurriculumSetupStatus> {
+    getCurriculumSetupDefinition(subjectId);
+    const snapshot = await getDocs(
+      collection(this.db, contentPaths.chapters(subjectId)),
     );
-    const existingSnapshot = await getDocs(chaptersCollection);
-    const existingChapterNumbers = new Set(
-      existingSnapshot.docs
-        .map((item) => item.data().chapterNumber)
-        .filter((value): value is number => Number.isInteger(value)),
+    return calculateCurriculumSetupStatus(
+      subjectId,
+      snapshot.docs.map((item) => item.id),
     );
-    const existingDocumentIds = new Set(
-      existingSnapshot.docs.map((item) => item.id),
-    );
-    const batch = writeBatch(this.db);
-    let created = 0;
+  }
 
-    mathematicsChapterSeed.forEach((title, index) => {
-      const chapterNumber = index + 1;
-      const chapterId = `chapter-${chapterNumber.toString().padStart(2, "0")}`;
-      if (
-        existingChapterNumbers.has(chapterNumber) ||
-        existingDocumentIds.has(chapterId)
-      ) {
-        return;
-      }
+  async setupCurriculum(subjectId: string): Promise<CurriculumSetupResult> {
+    const definition = getCurriculumSetupDefinition(subjectId);
+    const references = definition.items.map((item) => ({
+      item,
+      reference: doc(this.db, contentPaths.chapter(subjectId, item.id)),
+    }));
 
-      const chapterReference = doc(chaptersCollection, chapterId);
-      batch.set(chapterReference, {
-        chapterNumber,
-        title,
-        textbookChapterTitle: title,
-        learningObjectives: [],
-        estimatedMinutes: 30,
-        order: chapterNumber,
-        status: "draft",
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
-      });
+    return runTransaction(this.db, async (transaction) => {
+      const snapshots = await Promise.all(
+        references.map(({ reference }) => transaction.get(reference)),
+      );
+      const createdIds: string[] = [];
 
-      draftModuleSeed.forEach((module, moduleIndex) => {
-        batch.set(doc(chapterReference, "modules", module.type), {
-          title: module.title,
-          type: module.type,
-          content: "",
-          summary: "",
-          estimatedMinutes: 5,
-          difficulty: "easy",
-          order: moduleIndex + 1,
-          status: "draft",
+      snapshots.forEach((snapshot, index) => {
+        if (snapshot.exists()) return;
+        const { item, reference } = references[index];
+        transaction.set(reference, {
+          ...item.chapter,
           createdAt: serverTimestamp(),
           updatedAt: serverTimestamp(),
         });
+        createdIds.push(item.id);
       });
-      created += 1;
-    });
 
-    if (created > 0) await batch.commit();
-    return {
-      created,
-      skipped: mathematicsChapterSeed.length - created,
-    };
+      const existing = definition.items.length - createdIds.length;
+      return {
+        expected: definition.items.length,
+        existing,
+        created: createdIds.length,
+        skipped: existing,
+        createdIds,
+      };
+    });
   }
 
   async updateChapter(
@@ -287,21 +269,7 @@ export class ContentRepository {
 }
 
 function mapChapter(item: QueryDocumentSnapshot<DocumentData>): Chapter {
-  const data = item.data();
-  return {
-    id: item.id,
-    chapterNumber: data.chapterNumber ?? 0,
-    title: data.title ?? "Untitled chapter",
-    textbookChapterTitle: data.textbookChapterTitle ?? "",
-    learningObjectives: Array.isArray(data.learningObjectives)
-      ? data.learningObjectives
-      : [],
-    estimatedMinutes: data.estimatedMinutes ?? 0,
-    status: data.status ?? "draft",
-    order: data.order ?? 0,
-    createdAt: data.createdAt ?? null,
-    updatedAt: data.updatedAt ?? null,
-  };
+  return mapChapterDocument(item.id, item.data());
 }
 
 function mapModule(item: QueryDocumentSnapshot<DocumentData>): LearningModule {

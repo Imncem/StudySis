@@ -1,5 +1,4 @@
 export const CURRENT_CURRICULUM_ID = "form2";
-export const EDITABLE_SUBJECT_ID = "math";
 
 export const contentPaths = {
   subjects: () => `curriculum/${CURRENT_CURRICULUM_ID}/subjects`,
