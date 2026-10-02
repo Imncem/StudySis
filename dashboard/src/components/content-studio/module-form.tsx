@@ -1,9 +1,9 @@
 "use client";
 
 import { FormEvent, useState } from "react";
-import { moduleDifficulties, moduleStatuses, moduleTypes, type LearningModule, type LearningModuleInput, type ModuleDifficulty, type ModuleStatus, type ModuleType } from "@/lib/types";
+import { moduleDifficulties, moduleTypes, type LearningModule, type LearningModuleInput, type ModuleDifficulty, type ModuleStatus, type ModuleType } from "@/lib/types";
 
-export function ModuleForm({ module, allowStatusChange, onSave, onCancel }: { module?: LearningModule; allowStatusChange: boolean; onSave: (input: LearningModuleInput) => Promise<void>; onCancel: () => void }) {
+export function ModuleForm({ module, statusOptions, onSave, onCancel }: { module?: LearningModule; statusOptions: readonly ModuleStatus[]; onSave: (input: LearningModuleInput) => Promise<void>; onCancel: () => void }) {
   const [title, setTitle] = useState(module?.title ?? "");
   const [type, setType] = useState<ModuleType>(module?.type ?? "notes");
   const [content, setContent] = useState(module?.content ?? "");
@@ -41,7 +41,7 @@ export function ModuleForm({ module, allowStatusChange, onSave, onCancel }: { mo
       <div className="grid gap-4 sm:grid-cols-3">
         <label className="field-label">Estimated minutes<input className="field mt-2" type="number" min="1" required value={estimatedMinutes} onChange={(event) => setEstimatedMinutes(Number(event.target.value))} /></label>
         <label className="field-label">Order<input className="field mt-2" type="number" min="0" required value={order} onChange={(event) => setOrder(Number(event.target.value))} /></label>
-        {allowStatusChange ? <label className="field-label">Status<select className="field mt-2" value={status} onChange={(event) => setStatus(event.target.value as ModuleStatus)}>{moduleStatuses.map((value) => <option key={value} value={value}>{titleCase(value)}</option>)}</select></label> : <div className="field-label">Status<p className="field mt-2">Draft</p></div>}
+        {statusOptions.length > 1 ? <label className="field-label">Status<select className="field mt-2" value={status} onChange={(event) => setStatus(event.target.value as ModuleStatus)}>{statusOptions.map((value) => <option key={value} value={value}>{titleCase(value)}</option>)}</select></label> : <div className="field-label">Status<p className="field mt-2">{titleCase(statusOptions[0] ?? "draft")}</p></div>}
       </div>
       {error && <p className="error-banner">{error}</p>}
       <div className="flex flex-wrap gap-3"><button className="primary-button" disabled={saving} type="submit">{saving ? "Saving…" : "Save module"}</button><button className="secondary-button" onClick={onCancel} type="button">Cancel</button></div>

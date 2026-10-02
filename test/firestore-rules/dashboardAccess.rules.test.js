@@ -9,10 +9,12 @@ const {
 } = require('@firebase/rules-unit-testing');
 const {
   doc,
+  deleteDoc,
   getDoc,
   setDoc,
   Timestamp,
   updateDoc,
+  writeBatch,
 } = require('firebase/firestore');
 
 const projectId = 'studysis-d2151';
@@ -92,6 +94,107 @@ test('admin may create missing generic curriculum items with optional grouping',
   ));
 });
 
+test('admin manages language topics and may publish topic modules', async () => {
+  const db = dashboardDb(adminUid);
+  const topic = topicRef(db, 'bahasa_melayu', 'tatabahasa', 'kata_nama');
+
+  await assertSucceeds(setDoc(topic, topicData()));
+  await assertSucceeds(updateDoc(topic, {status: 'active', updatedAt: later}));
+  await assertSucceeds(setDoc(
+    topicModuleRef(db, 'bahasa_melayu', 'tatabahasa', 'kata_nama', 'notes'),
+    moduleData({status: 'active'}),
+  ));
+});
+
+test('editor authors another editor draft inside a language topic but cannot change structure', async () => {
+  const db = dashboardDb(editorUid);
+  const topic = topicRef(db, 'bahasa_melayu', 'tatabahasa', 'kata_nama');
+  const notes = topicModuleRef(db, 'bahasa_melayu', 'tatabahasa', 'kata_nama', 'notes');
+
+  await assertFails(setDoc(
+    topicRef(db, 'bahasa_melayu', 'tatabahasa', 'kata_kerja'),
+    topicData({title: 'Kata Kerja', order: 2}),
+  ));
+  await assertFails(updateDoc(topic, {title: 'Changed', updatedAt: later}));
+  await assertSucceeds(updateDoc(notes, {
+    summary: 'Collaboratively updated topic notes',
+    updatedAt: later,
+  }));
+  await assertSucceeds(setDoc(doc(notes, 'sections', 'section-01'), noteData()));
+  await assertSucceeds(updateDoc(notes, {status: 'active', updatedAt: later}));
+});
+
+test('editor activates a normal module and its parent with status-only writes', async () => {
+  const db = dashboardDb(editorUid);
+  const batch = writeBatch(db);
+  batch.update(chapterRef(db, 'science', 'chapter-01'), {
+    status: 'active',
+    updatedAt: later,
+  });
+  batch.update(moduleRef(db, 'science', 'chapter-01', 'notes'), {
+    status: 'active',
+    updatedAt: later,
+  });
+
+  await assertSucceeds(batch.commit());
+});
+
+test('editor activates Flashcard, Practice and Quiz content created by another editor', async () => {
+  const db = dashboardDb(editorUid);
+
+  await assertSucceeds(updateDoc(
+    doc(moduleRef(db, 'science', 'chapter-01', 'flashcards'), 'cards', 'card-01'),
+    {status: 'active', updatedAt: later},
+  ));
+  await assertSucceeds(updateDoc(
+    doc(moduleRef(db, 'science', 'chapter-01', 'practice'), 'items', 'item-01'),
+    {status: 'active', updatedAt: later},
+  ));
+  await assertSucceeds(updateDoc(
+    doc(moduleRef(db, 'science', 'chapter-01', 'quiz'), 'questions', 'question-01'),
+    {status: 'active', updatedAt: later},
+  ));
+  await assertSucceeds(updateDoc(
+    practiceRef(db, 'science', 'chapter-01', 'practice-legacy'),
+    {status: 'active', updatedAt: later},
+  ));
+});
+
+test('editors activate BM and English topic modules and content', async () => {
+  const db = dashboardDb(editorUid);
+  const bmModule = topicModuleRef(db, 'bahasa_melayu', 'tatabahasa', 'kata_nama', 'notes');
+  const englishModule = topicModuleRef(db, 'english', 'grammar', 'verbs', 'flashcards');
+
+  const bmBatch = writeBatch(db);
+  bmBatch.update(chapterRef(db, 'bahasa_melayu', 'tatabahasa'), {status: 'active', updatedAt: later});
+  bmBatch.update(topicRef(db, 'bahasa_melayu', 'tatabahasa', 'kata_nama'), {status: 'active', updatedAt: later});
+  bmBatch.update(bmModule, {status: 'active', updatedAt: later});
+  await assertSucceeds(bmBatch.commit());
+
+  await assertSucceeds(updateDoc(
+    doc(englishModule, 'cards', 'card-01'),
+    {status: 'active', updatedAt: later},
+  ));
+  const englishBatch = writeBatch(db);
+  englishBatch.update(chapterRef(db, 'english', 'grammar'), {status: 'active', updatedAt: later});
+  englishBatch.update(topicRef(db, 'english', 'grammar', 'verbs'), {status: 'active', updatedAt: later});
+  englishBatch.update(englishModule, {status: 'active', updatedAt: later});
+  await assertSucceeds(englishBatch.commit());
+});
+
+test('topic hierarchy is language-only and topic validation rejects invalid ordering', async () => {
+  const adminDb = dashboardDb(adminUid);
+
+  await assertFails(setDoc(
+    topicRef(adminDb, 'science', 'chapter-01', 'invalid-topic'),
+    topicData(),
+  ));
+  await assertFails(setDoc(
+    topicRef(adminDb, 'english', 'grammar', 'invalid-order'),
+    topicData({order: 0}),
+  ));
+});
+
 test('active editor can create and edit draft module content', async () => {
   const db = dashboardDb(editorUid);
   const draftModule = moduleRef(db, 'science', 'chapter-01', 'editor-notes');
@@ -160,6 +263,18 @@ test('inactive editor, missing access record and anonymous student fail closed',
   await assertFails(setDoc(moduleRef(inactiveDb, 'science', 'chapter-01', 'blocked'), moduleData()));
   await assertFails(setDoc(moduleRef(missingDb, 'science', 'chapter-01', 'blocked'), moduleData()));
   await assertFails(setDoc(moduleRef(anonymousDb, 'science', 'chapter-01', 'blocked'), moduleData()));
+  await assertFails(updateDoc(moduleRef(inactiveDb, 'science', 'chapter-01', 'notes'), {
+    status: 'active',
+    updatedAt: later,
+  }));
+  await assertFails(updateDoc(moduleRef(missingDb, 'science', 'chapter-01', 'notes'), {
+    status: 'active',
+    updatedAt: later,
+  }));
+  await assertFails(updateDoc(moduleRef(anonymousDb, 'science', 'chapter-01', 'notes'), {
+    status: 'active',
+    updatedAt: later,
+  }));
   await assertFails(setDoc(chapterRef(inactiveDb, 'science', 'chapter_02'), chapterData()));
   await assertFails(setDoc(chapterRef(missingDb, 'science', 'chapter_02'), chapterData()));
   await assertFails(setDoc(chapterRef(anonymousDb, 'science', 'chapter_02'), chapterData()));
@@ -208,23 +323,29 @@ test('editor cannot alter verified curriculum structure', async () => {
     title: 'Changed by editor',
     updatedAt: later,
   }));
-  await assertFails(setDoc(chapterRef(db, 'science', 'chapter-02'), chapterData()));
-});
-
-test('editor cannot publish modules, child content or practice questions', async () => {
-  const db = dashboardDb(editorUid);
-
-  await assertFails(updateDoc(moduleRef(db, 'science', 'chapter-01', 'notes'), {
-    status: 'active',
+  await assertFails(updateDoc(chapterRef(db, 'science', 'chapter-01'), {
+    order: 9,
     updatedAt: later,
   }));
+  await assertFails(updateDoc(chapterRef(db, 'science', 'chapter-01'), {
+    group: 'Changed group',
+    updatedAt: later,
+  }));
+  await assertFails(setDoc(chapterRef(db, 'science', 'chapter-02'), chapterData()));
+  await assertFails(deleteDoc(chapterRef(db, 'science', 'chapter-01')));
+  await assertFails(deleteDoc(topicRef(db, 'bahasa_melayu', 'tatabahasa', 'kata_nama')));
+});
+
+test('editor cannot archive content or withdraw active content to draft', async () => {
+  const db = dashboardDb(editorUid);
+
   await assertFails(setDoc(
-    doc(moduleRef(db, 'science', 'chapter-01', 'flashcards'), 'cards', 'card-01'),
-    flashcardData({status: 'active'}),
+    moduleRef(db, 'science', 'chapter-01', 'created-active'),
+    moduleData({status: 'active'}),
   ));
   await assertFails(setDoc(
-    practiceRef(db, 'science', 'chapter-01', 'practice-active'),
-    practiceData({status: 'active'}),
+    doc(moduleRef(db, 'science', 'chapter-01', 'flashcards'), 'cards', 'created-active'),
+    flashcardData({status: 'active'}),
   ));
   await assertFails(updateDoc(moduleRef(db, 'science', 'chapter-01', 'notes'), {
     status: 'archived',
@@ -232,6 +353,14 @@ test('editor cannot publish modules, child content or practice questions', async
   }));
   await assertFails(updateDoc(moduleRef(db, 'science', 'chapter-01', 'active-notes'), {
     status: 'archived',
+    updatedAt: later,
+  }));
+  await assertFails(updateDoc(moduleRef(db, 'science', 'chapter-01', 'active-notes'), {
+    status: 'draft',
+    updatedAt: later,
+  }));
+  await assertFails(updateDoc(chapterRef(db, 'science', 'active-chapter'), {
+    status: 'draft',
     updatedAt: later,
   }));
 });
@@ -285,6 +414,47 @@ async function seedCurriculum() {
       moduleRef(db, 'science', 'chapter-01', 'active-notes'),
       moduleData({type: 'notes', status: 'active'}),
     );
+    await setDoc(chapterRef(db, 'science', 'active-chapter'), chapterData({status: 'active'}));
+    await setDoc(moduleRef(db, 'science', 'chapter-01', 'practice'), moduleData({type: 'practice'}));
+    await setDoc(moduleRef(db, 'science', 'chapter-01', 'quiz'), moduleData({type: 'quiz'}));
+    await setDoc(
+      doc(moduleRef(db, 'science', 'chapter-01', 'flashcards'), 'cards', 'card-01'),
+      flashcardData(),
+    );
+    await setDoc(
+      doc(moduleRef(db, 'science', 'chapter-01', 'practice'), 'items', 'item-01'),
+      practiceData(),
+    );
+    await setDoc(
+      doc(moduleRef(db, 'science', 'chapter-01', 'quiz'), 'questions', 'question-01'),
+      quizData(),
+    );
+    await setDoc(practiceRef(db, 'science', 'chapter-01', 'practice-legacy'), practiceData());
+    await setDoc(
+      chapterRef(db, 'bahasa_melayu', 'tatabahasa'),
+      chapterData({title: 'Tatabahasa', textbookChapterTitle: 'Tatabahasa'}),
+    );
+    await setDoc(
+      chapterRef(db, 'english', 'grammar'),
+      chapterData({title: 'Grammar', textbookChapterTitle: 'Grammar'}),
+    );
+    await setDoc(
+      topicRef(db, 'bahasa_melayu', 'tatabahasa', 'kata_nama'),
+      topicData(),
+    );
+    await setDoc(
+      topicModuleRef(db, 'bahasa_melayu', 'tatabahasa', 'kata_nama', 'notes'),
+      moduleData({type: 'notes'}),
+    );
+    await setDoc(topicRef(db, 'english', 'grammar', 'verbs'), topicData({title: 'Verbs'}));
+    await setDoc(
+      topicModuleRef(db, 'english', 'grammar', 'verbs', 'flashcards'),
+      moduleData({type: 'flashcards'}),
+    );
+    await setDoc(
+      doc(topicModuleRef(db, 'english', 'grammar', 'verbs', 'flashcards'), 'cards', 'card-01'),
+      flashcardData(),
+    );
   });
 }
 
@@ -322,6 +492,17 @@ function moduleData(overrides = {}) {
     summary: '',
     estimatedMinutes: 5,
     difficulty: 'easy',
+    order: 1,
+    status: 'draft',
+    createdAt: now,
+    updatedAt: now,
+    ...overrides,
+  };
+}
+
+function topicData(overrides = {}) {
+  return {
+    title: 'Kata Nama',
     order: 1,
     status: 'draft',
     createdAt: now,
@@ -372,6 +553,21 @@ function practiceData(overrides = {}) {
   };
 }
 
+function quizData(overrides = {}) {
+  return {
+    question: 'Which answer is correct?',
+    options: ['A', 'B', 'C', 'D'],
+    correctOptionIndex: 0,
+    explanation: 'A is correct.',
+    difficulty: 'easy',
+    order: 1,
+    status: 'draft',
+    createdAt: now,
+    updatedAt: now,
+    ...overrides,
+  };
+}
+
 function accessRef(db, uid) {
   return doc(db, 'dashboard_access', uid);
 }
@@ -382,6 +578,14 @@ function chapterRef(db, subjectId, chapterId) {
 
 function moduleRef(db, subjectId, chapterId, moduleId) {
   return doc(chapterRef(db, subjectId, chapterId), 'modules', moduleId);
+}
+
+function topicRef(db, subjectId, chapterId, topicId) {
+  return doc(chapterRef(db, subjectId, chapterId), 'topics', topicId);
+}
+
+function topicModuleRef(db, subjectId, chapterId, topicId, moduleId) {
+  return doc(topicRef(db, subjectId, chapterId, topicId), 'modules', moduleId);
 }
 
 function practiceRef(db, subjectId, chapterId, questionId) {

@@ -1,4 +1,4 @@
-import type { ChapterInput } from "../types.ts";
+import type { ChapterInput, CurriculumStructureType } from "../types.ts";
 import {
   getForm2Curriculum,
   type Form2Curriculum,
@@ -17,6 +17,7 @@ export type CurriculumSetupDefinition = {
   form: number;
   structureLabelSingular: string;
   structureLabelPlural: string;
+  structureType: CurriculumStructureType;
   items: CurriculumSetupItem[];
 };
 
@@ -33,6 +34,13 @@ export type CurriculumSetupStatus = {
   missing: number;
   missingItems: CurriculumSetupItem[];
   unexpectedIds: string[];
+  migration: LanguageMigrationStatus;
+};
+
+export type LanguageMigrationStatus = {
+  state: "notApplicable" | "none" | "replaceable" | "blocked";
+  legacyDocumentIds: string[];
+  authoredLegacyDocumentIds: string[];
 };
 
 export type CurriculumSetupResult = {
@@ -76,13 +84,26 @@ export function getCurriculumSetupDefinition(
     form: curriculum.form,
     structureLabelSingular: curriculum.structureLabelSingular,
     structureLabelPlural: curriculum.structureLabelPlural,
+    structureType: curriculum.structureType,
     items,
   };
+}
+
+export function curriculumDocumentIdFromTitle(title: string): string {
+  const id = title
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLocaleLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+  if (!id) throw new Error("A deterministic curriculum document ID could not be created.");
+  return id;
 }
 
 export function getCurriculumSetupStatus(
   subjectId: string,
   existingDocumentIds: Iterable<string>,
+  authoredLegacyDocumentIds: Iterable<string> = [],
 ): CurriculumSetupStatus {
   const definition = getCurriculumSetupDefinition(subjectId);
   const existingIds = new Set(existingDocumentIds);
@@ -95,6 +116,12 @@ export function getCurriculumSetupStatus(
       ? "configured"
       : "partiallyConfigured";
 
+  const migration = getLanguageMigrationStatus(
+    subjectId,
+    existingIds,
+    authoredLegacyDocumentIds,
+  );
+
   return {
     state,
     expected: definition.items.length,
@@ -105,6 +132,43 @@ export function getCurriculumSetupStatus(
     unexpectedIds: [...existingIds]
       .filter((id) => !expectedIds.has(id))
       .sort(),
+    migration,
+  };
+}
+
+export function getLanguageMigrationStatus(
+  subjectId: string,
+  existingDocumentIds: Iterable<string>,
+  authoredLegacyDocumentIds: Iterable<string> = [],
+): LanguageMigrationStatus {
+  const curriculum = getForm2Curriculum(subjectId);
+  if (!curriculum?.referenceItems?.length) {
+    return {
+      state: "notApplicable",
+      legacyDocumentIds: [],
+      authoredLegacyDocumentIds: [],
+    };
+  }
+
+  const referenceIds = new Set(
+    curriculum.referenceItems.flatMap((item) => item.id ? [item.id] : []),
+  );
+  const legacyDocumentIds = [...new Set(existingDocumentIds)]
+    .filter((id) => referenceIds.has(id))
+    .sort();
+  const existingLegacyIds = new Set(legacyDocumentIds);
+  const authoredIds = [...new Set(authoredLegacyDocumentIds)]
+    .filter((id) => existingLegacyIds.has(id))
+    .sort();
+
+  return {
+    state: legacyDocumentIds.length === 0
+      ? "none"
+      : authoredIds.length > 0
+        ? "blocked"
+        : "replaceable",
+    legacyDocumentIds,
+    authoredLegacyDocumentIds: authoredIds,
   };
 }
 
@@ -112,6 +176,7 @@ function curriculumItemId(
   curriculum: Form2Curriculum,
   item: Form2CurriculumItem,
 ): string {
+  if (item.id) return item.id;
   const number = sequenceNumber(item).toString().padStart(2, "0");
 
   if (curriculum.firestoreSubjectId === "math") {

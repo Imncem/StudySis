@@ -13,7 +13,10 @@ import {
   type QueryDocumentSnapshot,
   type Unsubscribe,
 } from "firebase/firestore";
-import { contentPaths } from "@/lib/content-paths";
+import {
+  contentPaths,
+  type CurriculumContentLocation,
+} from "@/lib/content-paths";
 import type {
   Flashcard,
   FlashcardInput,
@@ -27,7 +30,7 @@ import type {
 } from "@/lib/types";
 
 type ErrorHandler = (error: Error) => void;
-type Location = { subjectId: string; chapterId: string; moduleId: string };
+type Location = CurriculumContentLocation & { moduleId: string };
 
 const childCollectionByType = {
   notes: "sections",
@@ -56,7 +59,7 @@ export class StructuredContentRepository {
       return onSnapshot(
         collection(
           this.db,
-          contentPaths.practiceQuestions(location.subjectId, location.chapterId),
+          contentPaths.practiceQuestions(location),
         ),
         (snapshot) => onData(snapshot.size),
         onError,
@@ -66,8 +69,7 @@ export class StructuredContentRepository {
       collection(
         this.db,
         contentPaths.moduleContent(
-          location.subjectId,
-          location.chapterId,
+          location,
           module.id,
           collectionName,
         ),
@@ -114,7 +116,7 @@ export class StructuredContentRepository {
       query(
         collection(
           this.db,
-          contentPaths.practiceQuestions(location.subjectId, location.chapterId),
+          contentPaths.practiceQuestions(location),
         ),
         orderBy("order"),
       ),
@@ -127,7 +129,7 @@ export class StructuredContentRepository {
     return addDoc(
       collection(
         this.db,
-        contentPaths.practiceQuestions(location.subjectId, location.chapterId),
+        contentPaths.practiceQuestions(location),
       ),
       { ...input, createdAt: serverTimestamp(), updatedAt: serverTimestamp() },
     );
@@ -137,7 +139,7 @@ export class StructuredContentRepository {
     return updateDoc(
       doc(
         this.db,
-        contentPaths.practiceQuestion(location.subjectId, location.chapterId, id),
+        contentPaths.practiceQuestion(location, id),
       ),
       { ...input, updatedAt: serverTimestamp() },
     );
@@ -147,7 +149,7 @@ export class StructuredContentRepository {
     return deleteDoc(
       doc(
         this.db,
-        contentPaths.practiceQuestion(location.subjectId, location.chapterId, id),
+        contentPaths.practiceQuestion(location, id),
       ),
     );
   }
@@ -206,8 +208,7 @@ export class StructuredContentRepository {
 
   private collectionPath(location: Location, collectionName: string) {
     return contentPaths.moduleContent(
-      location.subjectId,
-      location.chapterId,
+      location,
       location.moduleId,
       collectionName,
     );
@@ -215,8 +216,7 @@ export class StructuredContentRepository {
 
   private itemPath(location: Location, collectionName: string, id: string) {
     return contentPaths.moduleContentItem(
-      location.subjectId,
-      location.chapterId,
+      location,
       location.moduleId,
       collectionName,
       id,

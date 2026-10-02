@@ -3,9 +3,10 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { answerLabel, answerLetters, isAnswerIndex, normalizeQuizOptions, quizQuestionMetadata, type QuizValidationErrors, validateQuizQuestionForm } from "@/components/content-studio/quiz-editor-utils";
 import type { StructuredContentRepository } from "@/lib/repositories/structured-content-repository";
+import type { CurriculumContentLocation } from "@/lib/content-paths";
+import { contentStatusOptions } from "@/lib/content-status-permissions";
 import {
   moduleDifficulties,
-  moduleStatuses,
   type Flashcard,
   type FlashcardInput,
   type LearningModule,
@@ -19,12 +20,12 @@ import {
   type QuizQuestionInput,
 } from "@/lib/types";
 
-type Location = { subjectId: string; chapterId: string; moduleId: string };
+type Location = CurriculumContentLocation & { moduleId: string };
 
-export function StructuredModuleEditor({ repository, subjectId, chapterId, module, canEdit, canPublish, onBack, onEditDetails, onPublish }: { repository: StructuredContentRepository; subjectId: string; chapterId: string; module: LearningModule; canEdit: boolean; canPublish: boolean; onBack: () => void; onEditDetails: () => void; onPublish: () => Promise<void> }) {
+export function StructuredModuleEditor({ repository, location: parentLocation, module, canEdit, canActivate, canManageStatus, onBack, onEditDetails, onPublish }: { repository: StructuredContentRepository; location: CurriculumContentLocation; module: LearningModule; canEdit: boolean; canActivate: boolean; canManageStatus: boolean; onBack: () => void; onEditDetails: () => void; onPublish: () => Promise<void> }) {
   const location = useMemo(
-    () => ({ subjectId, chapterId, moduleId: module.id }),
-    [chapterId, module.id, subjectId],
+    () => ({ ...parentLocation, moduleId: module.id }),
+    [module.id, parentLocation],
   );
   return (
     <div className="panel">
@@ -36,14 +37,14 @@ export function StructuredModuleEditor({ repository, subjectId, chapterId, modul
         </div>
         <div className="flex flex-wrap gap-2">
           {canEdit && <button className="secondary-button" onClick={onEditDetails} type="button">Edit details</button>}
-          {canPublish && module.status !== "active" && <button className="primary-button" onClick={onPublish} type="button">Publish module</button>}
+          {canActivate && module.status === "draft" && <button className="primary-button" onClick={onPublish} type="button">Activate module</button>}
         </div>
       </div>
       <div className="pt-6">
         {module.type === "notes" && <NotesEditor canEdit={canEdit} location={location} repository={repository} />}
-        {module.type === "flashcards" && <FlashcardsEditor canEdit={canEdit} canPublish={canPublish} location={location} repository={repository} />}
-        {module.type === "practice" && <PracticeEditor canEdit={canEdit} canPublish={canPublish} location={location} repository={repository} />}
-        {module.type === "quiz" && <QuizEditor canEdit={canEdit} canPublish={canPublish} location={location} repository={repository} />}
+        {module.type === "flashcards" && <FlashcardsEditor canActivate={canActivate} canEdit={canEdit} canManageStatus={canManageStatus} location={location} repository={repository} />}
+        {module.type === "practice" && <PracticeEditor canActivate={canActivate} canEdit={canEdit} canManageStatus={canManageStatus} location={location} repository={repository} />}
+        {module.type === "quiz" && <QuizEditor canActivate={canActivate} canEdit={canEdit} canManageStatus={canManageStatus} location={location} repository={repository} />}
         {module.type === "test" && <Placeholder text="Test builder coming later" />}
         {module.type === "review" && <Placeholder text="Review engine coming later" />}
       </div>
@@ -70,46 +71,46 @@ function NotesEditor({ repository, location, canEdit }: EditorProps) {
   </CollectionLayout>;
 }
 
-function FlashcardsEditor({ repository, location, canEdit, canPublish = false }: EditorProps) {
+function FlashcardsEditor({ repository, location, canEdit, canActivate = false, canManageStatus = false }: EditorProps) {
   const [items, setItems] = useState<Flashcard[]>([]);
   const [editing, setEditing] = useState<Flashcard | "new" | null>(null);
   const [error, setError] = useState("");
   useEffect(() => repository.watchFlashcards(location, setItems, (next) => setError(next.message)), [location, repository]);
-  async function save(input: FlashcardInput) { const allowed = canPublish ? input : { ...input, status: "draft" as const }; if (editing && editing !== "new") await repository.updateFlashcard(location, editing.id, allowed); else await repository.createFlashcard(location, allowed); setEditing(null); }
+  async function save(input: FlashcardInput) { const allowed = canManageStatus || (canActivate && editing !== "new") ? input : { ...input, status: "draft" as const }; if (editing && editing !== "new") await repository.updateFlashcard(location, editing.id, allowed); else await repository.createFlashcard(location, allowed); setEditing(null); }
   return <CollectionLayout title="Flashcards" count={items.length} addLabel="Add flashcard" onAdd={canEdit ? () => setEditing("new") : undefined} error={error}>
-    {editing && <FlashcardForm allowStatusChange={canPublish} item={editing === "new" ? undefined : editing} onCancel={() => setEditing(null)} onSave={save} />}
-    {!editing && items.map((item) => { const canEditItem = canEdit && (canPublish || item.status === "draft"); return <ItemCard key={item.id} eyebrow={`${item.status} · CARD ${item.order}`} title={item.front} description={item.back} onEdit={canEditItem ? () => setEditing(item) : undefined} onDelete={canEditItem ? () => confirmDelete(item.front) && repository.deleteFlashcard(location, item.id) : undefined} />; })}
+    {editing && <FlashcardForm item={editing === "new" ? undefined : editing} statusOptions={contentStatusOptions(canManageStatus ? "admin" : "editor", editing === "new" ? undefined : editing.status)} onCancel={() => setEditing(null)} onSave={save} />}
+    {!editing && items.map((item) => { const canEditItem = canManageStatus || (canEdit && item.status === "draft"); return <ItemCard key={item.id} eyebrow={`${item.status} · CARD ${item.order}`} title={item.front} description={item.back} onEdit={canEditItem ? () => setEditing(item) : undefined} onDelete={canEditItem ? () => confirmDelete(item.front) && repository.deleteFlashcard(location, item.id) : undefined} />; })}
     {!editing && !items.length && <Empty text="No flashcards yet." />}
   </CollectionLayout>;
 }
 
-function PracticeEditor({ repository, location, canEdit, canPublish = false }: EditorProps) {
+function PracticeEditor({ repository, location, canEdit, canActivate = false, canManageStatus = false }: EditorProps) {
   const [items, setItems] = useState<PracticeItem[]>([]);
   const [editing, setEditing] = useState<PracticeItem | "new" | null>(null);
   const [error, setError] = useState("");
   useEffect(() => repository.watchPracticeItems(location, setItems, (next) => setError(next.message)), [location, repository]);
-  async function save(input: PracticeItemInput) { const allowed = canPublish ? input : { ...input, status: "draft" as const }; if (editing && editing !== "new") await repository.updatePracticeItem(location, editing.id, allowed); else await repository.createPracticeItem(location, allowed); setEditing(null); }
+  async function save(input: PracticeItemInput) { const allowed = canManageStatus || (canActivate && editing !== "new") ? input : { ...input, status: "draft" as const }; if (editing && editing !== "new") await repository.updatePracticeItem(location, editing.id, allowed); else await repository.createPracticeItem(location, allowed); setEditing(null); }
   return <CollectionLayout title="Practice questions" count={items.length} addLabel="Add question" onAdd={canEdit ? () => setEditing("new") : undefined} error={error}>
-    {editing && <PracticeForm allowStatusChange={canPublish} item={editing === "new" ? undefined : editing} onCancel={() => setEditing(null)} onSave={save} />}
-    {!editing && items.map((item) => { const canEditItem = canEdit && (canPublish || item.status === "draft"); return <ItemCard key={item.id} eyebrow={`${item.status} · ${item.difficulty} · ${item.order}`} title={item.question} description={`${item.options.filter(Boolean).length} options · correct ${answerLabel(item.correctAnswerIndex)}${item.topic ? ` · ${item.topic}` : ""}`} onEdit={canEditItem ? () => setEditing(item) : undefined} onDelete={canEditItem ? () => confirmDelete(item.question) && repository.deletePracticeItem(location, item.id) : undefined} />; })}
+    {editing && <PracticeForm item={editing === "new" ? undefined : editing} statusOptions={contentStatusOptions(canManageStatus ? "admin" : "editor", editing === "new" ? undefined : editing.status)} onCancel={() => setEditing(null)} onSave={save} />}
+    {!editing && items.map((item) => { const canEditItem = canManageStatus || (canEdit && item.status === "draft"); return <ItemCard key={item.id} eyebrow={`${item.status} · ${item.difficulty} · ${item.order}`} title={item.question} description={`${item.options.filter(Boolean).length} options · correct ${answerLabel(item.correctAnswerIndex)}${item.topic ? ` · ${item.topic}` : ""}`} onEdit={canEditItem ? () => setEditing(item) : undefined} onDelete={canEditItem ? () => confirmDelete(item.question) && repository.deletePracticeItem(location, item.id) : undefined} />; })}
     {!editing && !items.length && <Empty text="No practice questions yet." />}
   </CollectionLayout>;
 }
 
-function QuizEditor({ repository, location, canEdit, canPublish = false }: EditorProps) {
+function QuizEditor({ repository, location, canEdit, canActivate = false, canManageStatus = false }: EditorProps) {
   const [items, setItems] = useState<QuizQuestion[]>([]);
   const [editing, setEditing] = useState<QuizQuestion | "new" | null>(null);
   const [error, setError] = useState("");
   useEffect(() => repository.watchQuizQuestions(location, setItems, (next) => setError(next.message)), [location, repository]);
-  async function save(input: QuizQuestionInput) { const allowed = canPublish ? input : { ...input, status: "draft" as const }; if (editing && editing !== "new") await repository.updateQuizQuestion(location, editing.id, allowed); else await repository.createQuizQuestion(location, allowed); setEditing(null); }
+  async function save(input: QuizQuestionInput) { const allowed = canManageStatus || (canActivate && editing !== "new") ? input : { ...input, status: "draft" as const }; if (editing && editing !== "new") await repository.updateQuizQuestion(location, editing.id, allowed); else await repository.createQuizQuestion(location, allowed); setEditing(null); }
   return <CollectionLayout title="Quiz questions" count={items.length} addLabel="New Question" onAdd={canEdit ? () => setEditing("new") : undefined} error={error}>
-    {editing && <QuizForm allowStatusChange={canPublish} item={editing === "new" ? undefined : editing} onCancel={() => setEditing(null)} onSave={save} />}
-    {!editing && items.map((item) => { const canEditItem = canEdit && (canPublish || item.status === "draft"); return <QuizQuestionCard key={item.id} item={item} onEdit={canEditItem ? () => setEditing(item) : undefined} onDelete={canEditItem ? () => confirmDelete(item.question) && repository.deleteQuizQuestion(location, item.id) : undefined} />; })}
+    {editing && <QuizForm item={editing === "new" ? undefined : editing} statusOptions={contentStatusOptions(canManageStatus ? "admin" : "editor", editing === "new" ? undefined : editing.status)} onCancel={() => setEditing(null)} onSave={save} />}
+    {!editing && items.map((item) => { const canEditItem = canManageStatus || (canEdit && item.status === "draft"); return <QuizQuestionCard key={item.id} item={item} onEdit={canEditItem ? () => setEditing(item) : undefined} onDelete={canEditItem ? () => confirmDelete(item.question) && repository.deleteQuizQuestion(location, item.id) : undefined} />; })}
     {!editing && !items.length && <Empty text="No quiz questions yet." />}
   </CollectionLayout>;
 }
 
-type EditorProps = { repository: StructuredContentRepository; location: Location; canEdit: boolean; canPublish?: boolean };
+type EditorProps = { repository: StructuredContentRepository; location: Location; canEdit: boolean; canActivate?: boolean; canManageStatus?: boolean };
 
 function CollectionLayout({ title, count, addLabel, onAdd, error, children }: { title: string; count: number; addLabel: string; onAdd?: () => void; error: string; children: React.ReactNode }) {
   return <div><div className="mb-5 flex flex-wrap items-center justify-between gap-3"><div><h3 className="text-xl font-bold text-[#293930]">{title}</h3><p className="mt-1 text-sm text-slate-500">{count} total</p></div>{onAdd && <button className="primary-button" onClick={onAdd} type="button">{addLabel}</button>}</div>{error && <p className="error-banner">{error}</p>}<div className="space-y-3">{children}</div></div>;
@@ -145,12 +146,12 @@ function NoteSectionForm({ item, onSave, onCancel }: { item?: NoteSection; onSav
   return <SimpleForm onSubmit={() => onSave({ heading: heading.trim(), body: body.trim(), example: example.trim(), order })} onCancel={onCancel}><Field label="Heading" value={heading} setValue={setHeading} /><TextField label="Body" value={body} setValue={setBody} /><TextField label="Example" value={example} setValue={setExample} /><NumberField label="Order" value={order} setValue={setOrder} /></SimpleForm>;
 }
 
-function FlashcardForm({ item, allowStatusChange, onSave, onCancel }: { item?: Flashcard; allowStatusChange: boolean; onSave: (input: FlashcardInput) => Promise<void>; onCancel: () => void }) {
+function FlashcardForm({ item, statusOptions, onSave, onCancel }: { item?: Flashcard; statusOptions: readonly ModuleStatus[]; onSave: (input: FlashcardInput) => Promise<void>; onCancel: () => void }) {
   const [front, setFront] = useState(item?.front ?? ""); const [back, setBack] = useState(item?.back ?? ""); const [hint, setHint] = useState(item?.hint ?? ""); const [order, setOrder] = useState(item?.order ?? 1); const [status, setStatus] = useState<ModuleStatus>(item?.status ?? "draft");
-  return <SimpleForm onSubmit={() => onSave({ front: front.trim(), back: back.trim(), hint: hint.trim(), order, status })} onCancel={onCancel}><TextField label="Front" value={front} setValue={setFront} /><TextField label="Back" value={back} setValue={setBack} /><Field label="Hint" value={hint} setValue={setHint} required={false} /><NumberField label="Order" value={order} setValue={setOrder} />{allowStatusChange && <StatusField value={status} setValue={setStatus} />}</SimpleForm>;
+  return <SimpleForm onSubmit={() => onSave({ front: front.trim(), back: back.trim(), hint: hint.trim(), order, status })} onCancel={onCancel}><TextField label="Front" value={front} setValue={setFront} /><TextField label="Back" value={back} setValue={setBack} /><Field label="Hint" value={hint} setValue={setHint} required={false} /><NumberField label="Order" value={order} setValue={setOrder} />{statusOptions.length > 1 && <StatusField options={statusOptions} value={status} setValue={setStatus} />}</SimpleForm>;
 }
 
-function PracticeForm({ item, allowStatusChange, onSave, onCancel }: { item?: PracticeItem; allowStatusChange: boolean; onSave: (input: PracticeItemInput) => Promise<void>; onCancel: () => void }) {
+function PracticeForm({ item, statusOptions, onSave, onCancel }: { item?: PracticeItem; statusOptions: readonly ModuleStatus[]; onSave: (input: PracticeItemInput) => Promise<void>; onCancel: () => void }) {
   const initialOptions = normalizePracticeOptions(item);
   const [question, setQuestion] = useState(item?.question ?? "");
   const [optionA, setOptionA] = useState(initialOptions[0]);
@@ -170,10 +171,10 @@ function PracticeForm({ item, allowStatusChange, onSave, onCancel }: { item?: Pr
     if (correctAnswerIndex < 0 || correctAnswerIndex > 3) throw new Error("Choose the correct answer.");
     await onSave({ question: question.trim(), options, correctAnswerIndex, explanation: explanation.trim(), hint: hint.trim(), topic: topic.trim(), difficulty, order, status });
   }
-  return <SimpleForm onSubmit={save} onCancel={onCancel}><TextField label="Question" value={question} setValue={setQuestion} /><Field label="Option A" value={optionA} setValue={setOptionA} /><Field label="Option B" value={optionB} setValue={setOptionB} /><Field label="Option C" value={optionC} setValue={setOptionC} /><Field label="Option D" value={optionD} setValue={setOptionD} /><CorrectAnswerField value={correctAnswerIndex} setValue={setCorrectAnswerIndex} /><Field label="Topic tag" value={topic} setValue={setTopic} required={false} /><TextField label="Explanation" value={explanation} setValue={setExplanation} /><Field label="Hint" value={hint} setValue={setHint} required={false} /><DifficultyField value={difficulty} setValue={setDifficulty} /><NumberField label="Order" value={order} setValue={setOrder} />{allowStatusChange && <StatusField value={status} setValue={setStatus} />}</SimpleForm>;
+  return <SimpleForm onSubmit={save} onCancel={onCancel}><TextField label="Question" value={question} setValue={setQuestion} /><Field label="Option A" value={optionA} setValue={setOptionA} /><Field label="Option B" value={optionB} setValue={setOptionB} /><Field label="Option C" value={optionC} setValue={setOptionC} /><Field label="Option D" value={optionD} setValue={setOptionD} /><CorrectAnswerField value={correctAnswerIndex} setValue={setCorrectAnswerIndex} /><Field label="Topic tag" value={topic} setValue={setTopic} required={false} /><TextField label="Explanation" value={explanation} setValue={setExplanation} /><Field label="Hint" value={hint} setValue={setHint} required={false} /><DifficultyField value={difficulty} setValue={setDifficulty} /><NumberField label="Order" value={order} setValue={setOrder} />{statusOptions.length > 1 && <StatusField options={statusOptions} value={status} setValue={setStatus} />}</SimpleForm>;
 }
 
-function QuizForm({ item, allowStatusChange, onSave, onCancel }: { item?: QuizQuestion; allowStatusChange: boolean; onSave: (input: QuizQuestionInput) => Promise<void>; onCancel: () => void }) {
+function QuizForm({ item, statusOptions, onSave, onCancel }: { item?: QuizQuestion; statusOptions: readonly ModuleStatus[]; onSave: (input: QuizQuestionInput) => Promise<void>; onCancel: () => void }) {
   const initialOptions = normalizeQuizOptions(item);
   const [question, setQuestion] = useState(item?.question ?? "");
   const [optionA, setOptionA] = useState(initialOptions[0]);
@@ -238,7 +239,7 @@ function QuizForm({ item, allowStatusChange, onSave, onCancel }: { item?: QuizQu
           <div className="grid gap-4 md:grid-cols-3">
             <QuizSelect error={errors.difficulty} label="Difficulty" value={difficulty} values={moduleDifficulties} onChange={(value) => setDifficulty(value as ModuleDifficulty)} />
             <QuizNumberInput error={errors.order} label="Order" value={order} onChange={setOrder} />
-            {allowStatusChange && <QuizSelect error={errors.status} label="Status" value={status} values={moduleStatuses} onChange={(value) => setStatus(value as ModuleStatus)} />}
+            {statusOptions.length > 1 && <QuizSelect error={errors.status} label="Status" value={status} values={statusOptions} onChange={(value) => setStatus(value as ModuleStatus)} />}
           </div>
         </FormSection>
       </div>
@@ -321,7 +322,7 @@ function SimpleForm({ onSubmit, onCancel, children }: { onSubmit: () => Promise<
 function Field({ label, value, setValue, required = true }: { label: string; value: string; setValue: (value: string) => void; required?: boolean }) { return <label className="field-label">{label}<input className="field mt-2" required={required} value={value} onChange={(event) => setValue(event.target.value)} /></label>; }
 function TextField({ label, value, setValue }: { label: string; value: string; setValue: (value: string) => void }) { return <label className="field-label sm:col-span-2">{label}<textarea className="field mt-2 min-h-28 resize-y" required value={value} onChange={(event) => setValue(event.target.value)} /></label>; }
 function NumberField({ label, value, setValue, min = 1 }: { label: string; value: number; setValue: (value: number) => void; min?: number }) { return <label className="field-label">{label}<input className="field mt-2" type="number" min={min} required value={value} onChange={(event) => setValue(Number(event.target.value))} /></label>; }
-function StatusField({ value, setValue }: { value: ModuleStatus; setValue: (value: ModuleStatus) => void }) { return <label className="field-label">Status<select className="field mt-2" value={value} onChange={(event) => setValue(event.target.value as ModuleStatus)}>{moduleStatuses.map((status) => <option key={status} value={status}>{titleCase(status)}</option>)}</select></label>; }
+function StatusField({ value, setValue, options }: { value: ModuleStatus; setValue: (value: ModuleStatus) => void; options: readonly ModuleStatus[] }) { return <label className="field-label">Status<select className="field mt-2" value={value} onChange={(event) => setValue(event.target.value as ModuleStatus)}>{options.map((status) => <option key={status} value={status}>{titleCase(status)}</option>)}</select></label>; }
 function DifficultyField({ value, setValue }: { value: ModuleDifficulty; setValue: (value: ModuleDifficulty) => void }) { return <label className="field-label">Difficulty<select className="field mt-2" value={value} onChange={(event) => setValue(event.target.value as ModuleDifficulty)}>{moduleDifficulties.map((difficulty) => <option key={difficulty} value={difficulty}>{titleCase(difficulty)}</option>)}</select></label>; }
 function CorrectAnswerField({ value, setValue }: { value: number; setValue: (value: number) => void }) { return <label className="field-label">Correct answer<select className="field mt-2" value={value} onChange={(event) => setValue(Number(event.target.value))}>{["A", "B", "C", "D"].map((label, index) => <option key={label} value={index}>{label}</option>)}</select></label>; }
 function Placeholder({ text }: { text: string }) { return <div className="rounded-2xl bg-[#f5f7f5] px-6 py-12 text-center font-semibold text-slate-500">{text}</div>; }

@@ -9,8 +9,8 @@ import {
 } from "./form2Curriculum.ts";
 
 const expectedSubjects = {
-  bahasa_melayu: ["bahasaMelayu", "unit", "Unit", "Units"],
-  english: ["english", "unit", "Unit", "Units"],
+  bahasa_melayu: ["bahasaMelayu", "section", "Section", "Sections"],
+  english: ["english", "section", "Section", "Sections"],
   math: ["mathematics", "chapter", "Chapter", "Chapters"],
   science: ["science", "chapter", "Chapter", "Chapters"],
   sejarah: ["sejarah", "chapter", "Chapter", "Chapters"],
@@ -78,8 +78,6 @@ test("uses valid structure types and draft items with unique order and titles", 
         subject.firestoreSubjectId === "pjk"
           ? ["Unit 1", "Unit 2", "Unit 3", "Unit 4", "Unit 5", "Unit 6",
               "Unit 7", "Unit 8", "Unit 1", "Unit 2", "Unit 3"][index]
-          : subject.firestoreSubjectId === "english"
-            ? ["Unit 6", "Unit 7", "Unit 8", "Unit 9"][index]
           : subject.firestoreSubjectId === "math"
           ? String(index + 1)
           : `${
@@ -87,6 +85,8 @@ test("uses valid structure types and draft items with unique order and titles", 
                 ? "Pelajaran"
                 : subject.structureType === "topic"
                   ? "Tajuk"
+                  : subject.structureType === "section"
+                    ? "Section"
                   : subject.structureType === "unit"
                     ? "Unit"
                     : "Chapter"
@@ -102,8 +102,8 @@ test("uses valid structure types and draft items with unique order and titles", 
 
 test("includes the verified textbook chapter counts for the populated subjects", () => {
   const expectedItemCounts = {
-    bahasa_melayu: 36,
-    english: 4,
+    bahasa_melayu: 3,
+    english: 3,
     math: 13,
     science: 13,
     sejarah: 10,
@@ -180,9 +180,21 @@ test("keeps the existing Mathematics seed sequence unchanged", () => {
   );
 });
 
-test("maps the verified 36 Bahasa Melayu units to 18 ordered Tema pairs", () => {
+test("uses three deterministic Bahasa Melayu sections and retains all textbook units as references", () => {
   const curriculum = getForm2Curriculum("bahasa_melayu");
   assert.ok(curriculum);
+  assert.deepEqual(
+    curriculum.items.map((item) => [item.id, item.title]),
+    [
+      ["pemahaman", "Pemahaman"],
+      ["tatabahasa", "Tatabahasa"],
+      ["penulisan", "Penulisan"],
+    ],
+  );
+  assert.equal(new Set(curriculum.items.map((item) => item.id)).size, 3);
+  assert.ok(curriculum.referenceScopeNote);
+  assert.ok(curriculum.referenceItems);
+  const references = curriculum.referenceItems;
   const expectedThemes = [
     ["Kesihatan dan Kebersihan", "Anda Sihat Anda Ceria", "Kebersihan Lambang Keperibadian"],
     ["Menimba Ilmu", "Indahnya Menuntut Ilmu", "Ilmu Penyuluh Hidup"],
@@ -203,13 +215,13 @@ test("maps the verified 36 Bahasa Melayu units to 18 ordered Tema pairs", () => 
     ["Era Baharu Industri", "Industri Berdaya Saing", "Industri Berdaya Maju"],
     ["Pentadbiran dan Politik", "Patriot Bangsa", "Pemimpin Berjasa, Negara Berjaya"],
   ];
-  assert.equal(curriculum.items.length, 36);
-  assert.equal(new Set(curriculum.items.map((item) => item.order)).size, 36);
-  assert.equal(new Set(curriculum.items.map((item) => item.title)).size, 36);
-  assert.equal(new Set(curriculum.items.map((item) => item.group)).size, 18);
+  assert.equal(references.length, 36);
+  assert.equal(new Set(references.map((item) => item.order)).size, 36);
+  assert.equal(new Set(references.map((item) => item.title)).size, 36);
+  assert.equal(new Set(references.map((item) => item.group)).size, 18);
   for (const [index, [theme, first, second]] of expectedThemes.entries()) {
     const group = `Tema ${index + 1}: ${theme}`;
-    const items = curriculum.items.filter((item) => item.group === group);
+    const items = references.filter((item) => item.group === group);
     assert.equal(items.length, 2);
     assert.deepEqual(items.map((item) => item.title), [first, second]);
     assert.deepEqual(
@@ -220,7 +232,7 @@ test("maps the verified 36 Bahasa Melayu units to 18 ordered Tema pairs", () => 
       }),
     );
   }
-  assert.ok(curriculum.items.every((item) => item.group?.trim()));
+  assert.ok(references.every((item) => item.group?.trim()));
 });
 
 test("preserves the complete PJK unit list and section-local numbering", () => {
@@ -255,19 +267,28 @@ test("preserves the complete PJK unit list and section-local numbering", () => {
   assert.ok(curriculum.items.every((item) => item.title.trim()));
 });
 
-test("preserves only the approved English textbook units and SoW themes", () => {
+test("uses three deterministic English sections and preserves Pulse 2 references", () => {
   const english = getForm2Curriculum("english");
   assert.ok(english);
   assert.deepEqual(
-    english.items,
+    english.items.map((item) => [item.id, item.title]),
     [
-      { order: 1, sequenceLabel: "Unit 6", title: "Money", group: "Consumerism and Financial Awareness", status: "draft" },
-      { order: 2, sequenceLabel: "Unit 7", title: "Journeys", group: "People and Culture", status: "draft" },
-      { order: 3, sequenceLabel: "Unit 8", title: "Good luck, bad luck", group: "People and Culture", status: "draft" },
-      { order: 4, sequenceLabel: "Unit 9", title: "Take care", group: "Health and Environment", status: "draft" },
+      ["grammar", "Grammar"],
+      ["literature", "Literature"],
+      ["essay_writing", "Essay Writing"],
     ],
   );
-  for (const item of english.items) {
+  assert.ok(english.referenceScopeNote);
+  assert.deepEqual(
+    english.referenceItems,
+    [
+      { id: "unit_06", order: 1, sequenceLabel: "Unit 6", title: "Money", group: "Consumerism and Financial Awareness", status: "draft" },
+      { id: "unit_07", order: 2, sequenceLabel: "Unit 7", title: "Journeys", group: "People and Culture", status: "draft" },
+      { id: "unit_08", order: 3, sequenceLabel: "Unit 8", title: "Good luck, bad luck", group: "People and Culture", status: "draft" },
+      { id: "unit_09", order: 4, sequenceLabel: "Unit 9", title: "Take care", group: "Health and Environment", status: "draft" },
+    ],
+  );
+  for (const item of english.referenceItems ?? []) {
     assert.notEqual(item.sequenceLabel, `Unit ${item.order}`);
     assert.equal(item.contentStandards, undefined);
     assert.equal(item.learningStandards, undefined);
@@ -281,7 +302,7 @@ test("has no empty subjects and limits grouping to the approved subjects", () =>
     form2Curriculum
       .filter((subject) => subject.items.some((item) => item.group !== undefined))
       .map((subject) => subject.firestoreSubjectId),
-    ["bahasa_melayu", "english", "pendidikan_islam", "pjk"],
+    ["pendidikan_islam", "pjk"],
   );
 });
 

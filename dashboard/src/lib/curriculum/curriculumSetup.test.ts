@@ -4,11 +4,12 @@ import { form2Curriculum } from "./form2Curriculum.ts";
 import {
   getCurriculumSetupDefinition,
   getCurriculumSetupStatus,
+  curriculumDocumentIdFromTitle,
 } from "./curriculumSetup.ts";
 
 const expectedCounts: Record<string, number> = {
-  bahasa_melayu: 36,
-  english: 4,
+  bahasa_melayu: 3,
+  english: 3,
   math: 13,
   science: 13,
   sejarah: 10,
@@ -34,32 +35,19 @@ test("builds unique deterministic setup IDs for all ten subjects", () => {
   }
 });
 
-test("preserves Mathematics IDs and English Pulse 2 numbering", () => {
+test("preserves Mathematics IDs and uses stable language section IDs", () => {
   assert.deepEqual(
     getCurriculumSetupDefinition("math").items.map((item) => item.id),
     Array.from({ length: 13 }, (_, index) =>
       `chapter-${(index + 1).toString().padStart(2, "0")}`,
     ),
   );
-  const english = getCurriculumSetupDefinition("english").items;
-  assert.deepEqual(english.map((item) => item.id), [
-    "unit_06",
-    "unit_07",
-    "unit_08",
-    "unit_09",
-  ]);
-  assert.deepEqual(english.map((item) => item.chapter.chapterNumber), [6, 7, 8, 9]);
-  assert.deepEqual(english.map((item) => item.sequenceLabel), [
-    "Unit 6",
-    "Unit 7",
-    "Unit 8",
-    "Unit 9",
-  ]);
+  assert.deepEqual(getCurriculumSetupDefinition("bahasa_melayu").items.map((item) => item.id), ["pemahaman", "tatabahasa", "penulisan"]);
+  assert.deepEqual(getCurriculumSetupDefinition("english").items.map((item) => item.id), ["grammar", "literature", "essay_writing"]);
 });
 
 test("uses the approved structure prefix for every remaining subject", () => {
   const expectedRanges: Record<string, [string, number]> = {
-    bahasa_melayu: ["unit", 36],
     science: ["chapter", 13],
     sejarah: ["chapter", 10],
     geography: ["chapter", 11],
@@ -93,8 +81,6 @@ test("uses section-specific PJK IDs without collisions", () => {
 
 test("maps grouping metadata and starts every generated item as draft", () => {
   for (const subjectId of [
-    "bahasa_melayu",
-    "english",
     "pendidikan_islam",
     "pjk",
   ]) {
@@ -107,6 +93,28 @@ test("maps grouping metadata and starts every generated item as draft", () => {
       (item) => item.chapter.group === undefined,
     ),
   );
+});
+
+test("classifies empty legacy language units as replaceable", () => {
+  const status = getCurriculumSetupStatus("english", ["unit_06", "unit_07"]);
+  assert.equal(status.migration.state, "replaceable");
+  assert.deepEqual(status.migration.legacyDocumentIds, ["unit_06", "unit_07"]);
+  assert.deepEqual(status.migration.authoredLegacyDocumentIds, []);
+});
+
+test("blocks language replacement when a legacy unit has authored content", () => {
+  const status = getCurriculumSetupStatus(
+    "bahasa_melayu",
+    ["unit_01", "unit_02"],
+    ["unit_02"],
+  );
+  assert.equal(status.migration.state, "blocked");
+  assert.deepEqual(status.migration.authoredLegacyDocumentIds, ["unit_02"]);
+});
+
+test("creates stable section IDs without auto-ID", () => {
+  assert.equal(curriculumDocumentIdFromTitle("Essay Writing"), "essay_writing");
+  assert.equal(curriculumDocumentIdFromTitle("Tatabahasa"), "tatabahasa");
 });
 
 test("classifies empty, partial and complete setup without scheduling existing IDs", () => {

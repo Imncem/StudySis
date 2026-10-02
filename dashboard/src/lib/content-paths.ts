@@ -1,5 +1,11 @@
 export const CURRENT_CURRICULUM_ID = "form2";
 
+export type CurriculumContentLocation = {
+  subjectId: string;
+  chapterId: string;
+  topicId?: string;
+};
+
 export const contentPaths = {
   subjects: () => `curriculum/${CURRENT_CURRICULUM_ID}/subjects`,
   subject: (subjectId: string) =>
@@ -8,31 +14,36 @@ export const contentPaths = {
     `${contentPaths.subject(subjectId)}/chapters`,
   chapter: (subjectId: string, chapterId: string) =>
     `${contentPaths.chapters(subjectId)}/${chapterId}`,
-  practiceQuestions: (subjectId: string, chapterId: string) =>
-    `${contentPaths.chapter(subjectId, chapterId)}/practice_questions`,
+  topics: (subjectId: string, chapterId: string) =>
+    `${contentPaths.chapter(subjectId, chapterId)}/topics`,
+  topic: (subjectId: string, chapterId: string, topicId: string) =>
+    `${contentPaths.topics(subjectId, chapterId)}/${topicId}`,
+  contentParent: ({ subjectId, chapterId, topicId }: CurriculumContentLocation) =>
+    topicId
+      ? contentPaths.topic(subjectId, chapterId, topicId)
+      : contentPaths.chapter(subjectId, chapterId),
+  practiceQuestions: (location: CurriculumContentLocation) =>
+    `${contentPaths.contentParent(location)}/practice_questions`,
   practiceQuestion: (
-    subjectId: string,
-    chapterId: string,
+    location: CurriculumContentLocation,
     questionId: string,
   ) =>
-    `${contentPaths.practiceQuestions(subjectId, chapterId)}/${questionId}`,
-  modules: (subjectId: string, chapterId: string) =>
-    `${contentPaths.chapter(subjectId, chapterId)}/modules`,
-  module: (subjectId: string, chapterId: string, moduleId: string) =>
-    `${contentPaths.modules(subjectId, chapterId)}/${moduleId}`,
+    `${contentPaths.practiceQuestions(location)}/${questionId}`,
+  modules: (location: CurriculumContentLocation) =>
+    `${contentPaths.contentParent(location)}/modules`,
+  module: (location: CurriculumContentLocation, moduleId: string) =>
+    `${contentPaths.modules(location)}/${moduleId}`,
   moduleContent: (
-    subjectId: string,
-    chapterId: string,
+    location: CurriculumContentLocation,
     moduleId: string,
     collectionName: string,
   ) =>
-    `${contentPaths.module(subjectId, chapterId, moduleId)}/${collectionName}`,
+    `${contentPaths.module(location, moduleId)}/${collectionName}`,
   moduleContentItem: (
-    subjectId: string,
-    chapterId: string,
+    location: CurriculumContentLocation,
     moduleId: string,
     collectionName: string,
     itemId: string,
   ) =>
-    `${contentPaths.moduleContent(subjectId, chapterId, moduleId, collectionName)}/${itemId}`,
+    `${contentPaths.moduleContent(location, moduleId, collectionName)}/${itemId}`,
 };

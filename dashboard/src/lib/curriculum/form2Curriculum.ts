@@ -8,6 +8,8 @@ export type Form2Curriculum = CurriculumMetadata & {
   subjectKey: Form2SubjectKey;
   firestoreSubjectId: string;
   items: Form2CurriculumItem[];
+  referenceItems?: Form2CurriculumItem[];
+  referenceScopeNote?: string;
   curriculumSource?: string;
   curriculumSourceNote?: string;
 };
@@ -35,7 +37,7 @@ const mathematicsItems: CurriculumItem[] = mathematicsChapterSeed.map(
   }),
 );
 
-function draftBahasaMelayuUnits(): CurriculumItem[] {
+function draftBahasaMelayuUnits(): Form2CurriculumItem[] {
   const themes: readonly [string, string, string][] = [
     ["Kesihatan dan Kebersihan", "Anda Sihat Anda Ceria", "Kebersihan Lambang Keperibadian"],
     ["Menimba Ilmu", "Indahnya Menuntut Ilmu", "Ilmu Penyuluh Hidup"],
@@ -61,6 +63,7 @@ function draftBahasaMelayuUnits(): CurriculumItem[] {
     [firstUnit, secondUnit].map((title, unitIndex) => {
       const order = themeIndex * 2 + unitIndex + 1;
       return {
+        id: `unit_${order.toString().padStart(2, "0")}`,
         order,
         sequenceLabel: `Unit ${order}`,
         title,
@@ -70,6 +73,53 @@ function draftBahasaMelayuUnits(): CurriculumItem[] {
     }),
   );
 }
+
+function draftLanguageSections(
+  sections: readonly { id: string; title: string }[],
+): Form2CurriculumItem[] {
+  return sections.map(({ id, title }, index) => ({
+    id,
+    order: index + 1,
+    sequenceLabel: `Section ${index + 1}`,
+    title,
+    status: "draft",
+  }));
+}
+
+const englishTextbookUnits: Form2CurriculumItem[] = [
+  {
+    id: "unit_06",
+    order: 1,
+    sequenceLabel: "Unit 6",
+    title: "Money",
+    group: "Consumerism and Financial Awareness",
+    status: "draft",
+  },
+  {
+    id: "unit_07",
+    order: 2,
+    sequenceLabel: "Unit 7",
+    title: "Journeys",
+    group: "People and Culture",
+    status: "draft",
+  },
+  {
+    id: "unit_08",
+    order: 3,
+    sequenceLabel: "Unit 8",
+    title: "Good luck, bad luck",
+    group: "People and Culture",
+    status: "draft",
+  },
+  {
+    id: "unit_09",
+    order: 4,
+    sequenceLabel: "Unit 9",
+    title: "Take care",
+    group: "Health and Environment",
+    status: "draft",
+  },
+];
 
 function draftPjkUnits(): CurriculumItem[] {
   const sections = [
@@ -144,55 +194,40 @@ export const form2Curriculum: readonly Form2Curriculum[] = [
     firestoreSubjectId: "bahasa_melayu",
     curriculum: "KSSM",
     form: 2,
-    structureType: "unit",
-    structureLabelSingular: "Unit",
-    structureLabelPlural: "Units",
+    structureType: "section",
+    structureLabelSingular: "Section",
+    structureLabelPlural: "Sections",
     curriculumSource: "KSSM Form 2 Bahasa Melayu textbook",
     curriculumSourceNote:
-      "Tema and Unit sequence verified against textbook contents pages iv-v and introduction page vi: https://fliphtml5.com/lmvnm/vzks/BUKU_TEKS_KSSM_BAHASA_MELAYU_TINGKATAN_2/; Ministry-linked textbook listing: https://sites.google.com/moe-dl.edu.my/bm-t2-smektas/buku-teks-digital.",
-    items: draftBahasaMelayuUnits(),
+      "The textbook Tema and Unit sequence is retained as authoring reference metadata, not StudySis navigation. It was verified against textbook contents pages iv-v and introduction page vi: https://fliphtml5.com/lmvnm/vzks/BUKU_TEKS_KSSM_BAHASA_MELAYU_TINGKATAN_2/; Ministry-linked textbook listing: https://sites.google.com/moe-dl.edu.my/bm-t2-smektas/buku-teks-digital.",
+    referenceScopeNote:
+      "The verified 18 Tema and 36 Unit remain textbook references for authoring. They are not StudySis navigation sections.",
+    referenceItems: draftBahasaMelayuUnits(),
+    items: draftLanguageSections([
+      { id: "pemahaman", title: "Pemahaman" },
+      { id: "tatabahasa", title: "Tatabahasa" },
+      { id: "penulisan", title: "Penulisan" },
+    ]),
   },
   {
     subjectKey: "english",
     firestoreSubjectId: "english",
     curriculum: "KSSM",
     form: 2,
-    structureType: "unit",
-    structureLabelSingular: "Unit",
-    structureLabelPlural: "Units",
+    structureType: "section",
+    structureLabelSingular: "Section",
+    structureLabelPlural: "Sections",
     curriculumSource: "Pulse 2 textbook and Secondary Form 2 English Scheme of Work",
     curriculumSourceNote:
-      "Pulse 2 supplies textbook Unit identity (Units 6-9): https://anyflip.com/ipgjv/xibd/basic; Ministry-linked Form 2 resource: https://sites.google.com/moe-dl.edu.my/englishyoume/home/form-2. Theme groups come from the Secondary Form 2 Scheme of Work: https://alia.samsulzamzuri.com/wp-content/uploads/2024/08/SOW-Form-2.pdf; Ministry-linked SoW library: https://sites.google.com/moe-dl.edu.my/englishpanelsmkb/dskp-sow-bahasa-inggeris/scheme-of-work-sow. These four items cover the textbook component only, not the complete SoW. KSSM/CEFR standards are separate from textbook numbering; SK/SP mappings are not populated.",
-    items: [
-      {
-        order: 1,
-        sequenceLabel: "Unit 6",
-        title: "Money",
-        group: "Consumerism and Financial Awareness",
-        status: "draft",
-      },
-      {
-        order: 2,
-        sequenceLabel: "Unit 7",
-        title: "Journeys",
-        group: "People and Culture",
-        status: "draft",
-      },
-      {
-        order: 3,
-        sequenceLabel: "Unit 8",
-        title: "Good luck, bad luck",
-        group: "People and Culture",
-        status: "draft",
-      },
-      {
-        order: 4,
-        sequenceLabel: "Unit 9",
-        title: "Take care",
-        group: "Health and Environment",
-        status: "draft",
-      },
-    ],
+      "Pulse 2 Units 6-9 are retained as source/reference metadata rather than StudySis navigation: https://anyflip.com/ipgjv/xibd/basic; Ministry-linked Form 2 resource: https://sites.google.com/moe-dl.edu.my/englishyoume/home/form-2. Theme context comes from the Secondary Form 2 Scheme of Work: https://alia.samsulzamzuri.com/wp-content/uploads/2024/08/SOW-Form-2.pdf; Ministry-linked SoW library: https://sites.google.com/moe-dl.edu.my/englishpanelsmkb/dskp-sow-bahasa-inggeris/scheme-of-work-sow. These references cover the textbook component only, not the complete SoW. KSSM/CEFR standards remain separate; SK/SP mappings are not populated.",
+    referenceScopeNote:
+      "Pulse 2 Units 6-9 and their Scheme-of-Work themes remain source context. They are not StudySis navigation sections.",
+    referenceItems: englishTextbookUnits,
+    items: draftLanguageSections([
+      { id: "grammar", title: "Grammar" },
+      { id: "literature", title: "Literature" },
+      { id: "essay_writing", title: "Essay Writing" },
+    ]),
   },
   {
     subjectKey: "mathematics",

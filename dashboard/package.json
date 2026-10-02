@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint .",
-    "test": "node --experimental-strip-types --test src/lib/curriculum/form2Curriculum.test.ts src/lib/curriculum/curriculumSetup.test.ts src/lib/dashboard-access.test.ts src/lib/dashboard-identity.test.ts src/lib/firestore-errors.test.ts src/lib/repositories/subject-mapper.test.ts src/lib/repositories/chapter-mapper.test.ts"
+    "test": "node --experimental-strip-types --test src/lib/curriculum/form2Curriculum.test.ts src/lib/curriculum/curriculumSetup.test.ts src/lib/content-paths.test.ts src/lib/content-status-permissions.test.ts src/lib/dashboard-access.test.ts src/lib/dashboard-identity.test.ts src/lib/firestore-errors.test.ts src/lib/repositories/subject-mapper.test.ts src/lib/repositories/chapter-mapper.test.ts src/lib/repositories/topic-mapper.test.ts"
   },
   "dependencies": {
     "react": "^19.2.0",

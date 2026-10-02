@@ -15,6 +15,7 @@ export const curriculumStructureTypes = [
   "unit",
   "lesson",
   "topic",
+  "section",
 ] as const;
 export type CurriculumStructureType = (typeof curriculumStructureTypes)[number];
 
@@ -27,6 +28,7 @@ export type CurriculumMetadata = {
 };
 
 export type CurriculumItem = {
+  id?: string;
   group?: string;
   order: number;
   sequenceLabel: string;
@@ -67,6 +69,17 @@ export type Chapter = {
 };
 
 export type ChapterInput = Omit<Chapter, "id" | "createdAt" | "updatedAt">;
+
+export type Topic = {
+  id: string;
+  title: string;
+  order: number;
+  status: ChapterStatus;
+  createdAt: Timestamp | null;
+  updatedAt: Timestamp | null;
+};
+
+export type TopicInput = Omit<Topic, "id" | "createdAt" | "updatedAt">;
 
 export const moduleTypes = [
   "notes",

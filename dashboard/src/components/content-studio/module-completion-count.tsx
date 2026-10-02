@@ -3,18 +3,19 @@
 import { useEffect, useState } from "react";
 import type { StructuredContentRepository } from "@/lib/repositories/structured-content-repository";
 import type { LearningModule } from "@/lib/types";
+import type { CurriculumContentLocation } from "@/lib/content-paths";
 
-export function ModuleCompletionCount({ repository, subjectId, chapterId, module }: { repository: StructuredContentRepository; subjectId: string; chapterId: string; module: LearningModule }) {
+export function ModuleCompletionCount({ repository, location, module }: { repository: StructuredContentRepository; location: CurriculumContentLocation; module: LearningModule }) {
   const [count, setCount] = useState(0);
 
   useEffect(
     () => repository.watchCompletionCount(
-      { subjectId, chapterId },
+      location,
       module,
       setCount,
       () => setCount(0),
     ),
-    [chapterId, module, repository, subjectId],
+    [location, module, repository],
   );
 
   const labels: Record<string, string> = {
