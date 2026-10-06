@@ -389,25 +389,48 @@ export class ContentRepository {
     location: CurriculumContentLocation,
     moduleId: string,
   ): Promise<void> {
-    const batch = writeBatch(this.db);
-    batch.update(doc(this.db, contentPaths.chapter(location.subjectId, location.chapterId)), {
-      status: "active",
-      updatedAt: serverTimestamp(),
-    });
-    if (location.topicId) {
-      batch.update(
-        doc(
+    const chapterReference = doc(
+      this.db,
+      contentPaths.chapter(location.subjectId, location.chapterId),
+    );
+    const topicReference = location.topicId
+      ? doc(
           this.db,
           contentPaths.topic(location.subjectId, location.chapterId, location.topicId),
-        ),
-        { status: "active", updatedAt: serverTimestamp() },
-      );
-    }
-    batch.update(
-      doc(this.db, contentPaths.module(location, moduleId)),
-      { status: "active", updatedAt: serverTimestamp() },
-    );
-    await batch.commit();
+        )
+      : null;
+    const moduleReference = doc(this.db, contentPaths.module(location, moduleId));
+
+    await runTransaction(this.db, async (transaction) => {
+      const chapterSnapshot = await transaction.get(chapterReference);
+      const topicSnapshot = topicReference
+        ? await transaction.get(topicReference)
+        : null;
+      const moduleSnapshot = await transaction.get(moduleReference);
+
+      assertActivatableParent(chapterSnapshot.data()?.status, "curriculum container");
+      if (topicSnapshot) assertActivatableParent(topicSnapshot.data()?.status, "topic");
+      assertActivatableModule(moduleSnapshot.data()?.status);
+
+      if (chapterSnapshot.data()?.status === "draft") {
+        transaction.update(chapterReference, {
+          status: "active",
+          updatedAt: serverTimestamp(),
+        });
+      }
+      if (topicReference && topicSnapshot?.data()?.status === "draft") {
+        transaction.update(topicReference, {
+          status: "active",
+          updatedAt: serverTimestamp(),
+        });
+      }
+      if (moduleSnapshot.data()?.status === "draft") {
+        transaction.update(moduleReference, {
+          status: "active",
+          updatedAt: serverTimestamp(),
+        });
+      }
+    });
   }
 
   private async findAuthoredLegacyDocuments(
@@ -454,4 +477,16 @@ function mapModule(item: QueryDocumentSnapshot<DocumentData>): LearningModule {
 
 function mapTopic(item: QueryDocumentSnapshot<DocumentData>): Topic {
   return mapTopicDocument(item.id, item.data());
+}
+
+function assertActivatableParent(status: unknown, label: string): void {
+  if (status !== "draft" && status !== "active") {
+    throw new Error(`The ${label} must be Draft or Active before activating a module.`);
+  }
+}
+
+function assertActivatableModule(status: unknown): void {
+  if (status !== "draft" && status !== "active") {
+    throw new Error("The module must be Draft or Active before activation.");
+  }
 }

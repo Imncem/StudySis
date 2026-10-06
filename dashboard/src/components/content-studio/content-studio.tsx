@@ -9,6 +9,10 @@ import {
   type CurriculumSetupStatus,
 } from "@/lib/curriculum/curriculumSetup";
 import { getCurriculumPresentation } from "@/lib/curriculum/curriculumPresentation";
+import {
+  getCurriculumContainerActions,
+  markContainerActive,
+} from "@/lib/curriculum/containerActivation";
 import type { CurriculumContentLocation } from "@/lib/content-paths";
 import { contentStatusOptions } from "@/lib/content-status-permissions";
 import { getFirebaseDb } from "@/lib/firebase";
@@ -45,7 +49,6 @@ export function ContentStudio({ access }: { access: DashboardAccess }) {
 
   const visibleSubjects = useMemo(() => filterAccessibleSubjects(subjects, access), [access, subjects]);
   const selectedSubject = subjects.find((subject) => subject.id === subjectId) ?? null;
-  const isAdmin = access.role === "admin";
   const setupDefinition = useMemo(() => subjectId ? getCurriculumSetupDefinition(subjectId) : null, [subjectId]);
   const setupPresentation = useMemo(
     () => setupDefinition && setupStatus
@@ -146,7 +149,7 @@ export function ContentStudio({ access }: { access: DashboardAccess }) {
   }
 
   async function saveChapter(input: ChapterInput) {
-    if (!subjectId || !isAdmin) return;
+    if (!subjectId) return;
     if (chapterEditor && chapterEditor !== "new") {
       await repository.updateChapter(subjectId, chapterEditor.id, input);
       setNotice(`${structureSingular} updated.`);
@@ -159,7 +162,7 @@ export function ContentStudio({ access }: { access: DashboardAccess }) {
   }
 
   async function saveTopic(input: TopicInput) {
-    if (!subjectId || !selectedChapterId || !isAdmin) return;
+    if (!subjectId || !selectedChapterId) return;
     if (topicEditor && topicEditor !== "new") {
       await repository.updateTopic(subjectId, selectedChapterId, topicEditor.id, input);
       setNotice("Topic updated.");
@@ -171,7 +174,7 @@ export function ContentStudio({ access }: { access: DashboardAccess }) {
   }
 
   async function setupCurriculum() {
-    if (!subjectId || !isAdmin || !setupStatus || setupStatus.migration.state === "blocked") return;
+    if (!subjectId || !setupStatus || setupStatus.migration.state === "blocked") return;
     setIsSettingUp(true);
     setError("");
     setNotice("");
@@ -188,14 +191,11 @@ export function ContentStudio({ access }: { access: DashboardAccess }) {
 
   async function saveModule(input: LearningModuleInput) {
     if (!moduleLocation) return;
-    const allowedInput = !isAdmin && moduleEditor === "new"
-      ? { ...input, status: "draft" as const }
-      : input;
     if (moduleEditor && moduleEditor !== "new") {
-      await repository.updateModule(moduleLocation, moduleEditor.id, allowedInput);
+      await repository.updateModule(moduleLocation, moduleEditor.id, input);
       setNotice("Module updated.");
     } else {
-      await repository.createModule(moduleLocation, allowedInput);
+      await repository.createModule(moduleLocation, input);
       setNotice("Module created.");
     }
     setModuleEditor(null);
@@ -235,20 +235,75 @@ export function ContentStudio({ access }: { access: DashboardAccess }) {
     } catch (nextError) { setError(errorMessage(nextError)); }
   }
 
+  async function publishChapterContainer(chapter: Chapter) {
+    if (!subjectId) return;
+    setError("");
+    try {
+      await repository.publishChapter(subjectId, chapter.id);
+      setChapters((current) => markContainerActive(current, chapter.id));
+      setNotice(`${structureSingular} activated.`);
+    } catch (nextError) {
+      setError(errorMessage(nextError));
+    }
+  }
+
+  async function publishTopicContainer(topic: Topic) {
+    if (!subjectId || !selectedChapterId) return;
+    setError("");
+    try {
+      await repository.setTopicStatus(
+        subjectId,
+        selectedChapterId,
+        topic.id,
+        "active",
+      );
+      setTopics((current) => markContainerActive(current, topic.id));
+      setNotice("Topic activated.");
+    } catch (nextError) {
+      setError(errorMessage(nextError));
+    }
+  }
+
   function moduleWorkspace() {
     if (!moduleLocation) return <div className="panel text-center text-sm text-slate-500">{isLanguageSubject ? "Select or create a topic to manage learning modules." : `Select or create a ${structureSingular.toLowerCase()} to manage modules.`}</div>;
     if (moduleEditor) return <ModuleForm statusOptions={contentStatusOptions(access.role, moduleEditor === "new" ? undefined : moduleEditor.status)} module={moduleEditor === "new" ? undefined : moduleEditor} key={moduleEditor === "new" ? `new-${moduleLocation.chapterId}-${moduleLocation.topicId ?? "root"}` : moduleEditor.id} onCancel={() => setModuleEditor(null)} onSave={saveModule} />;
-    if (structuredModule) return <StructuredModuleEditor location={moduleLocation} module={structuredModule} onBack={() => setStructuredModuleId(null)} onEditDetails={() => { setModuleEditor(structuredModule); setStructuredModuleId(null); }} onPublish={() => publishModule(structuredModule)} canActivate={structuredModule.status === "draft"} canEdit={isAdmin || structuredModule.status === "draft"} canManageStatus={isAdmin} repository={structuredRepository} />;
+    if (structuredModule) return <StructuredModuleEditor location={moduleLocation} module={structuredModule} onBack={() => setStructuredModuleId(null)} onEditDetails={() => { setModuleEditor(structuredModule); setStructuredModuleId(null); }} onPublish={() => publishModule(structuredModule)} canActivate={structuredModule.status === "draft"} canEdit canManageStatus repository={structuredRepository} />;
     return <div className="panel">
       <div className="flex flex-wrap items-start justify-between gap-4"><div><p className="eyebrow">{isLanguageSubject ? `TOPIC / ${selectedTopic?.title ?? ""}` : `${structureSingular.toUpperCase()} ${selectedChapter?.chapterNumber ?? ""}`}</p><h2 className="mt-1 text-xl font-bold text-[#293930]">Learning modules</h2><p className="mt-1 text-sm text-slate-500">{selectedTopic?.title ?? selectedChapter?.title}</p></div><button className="primary-button" onClick={() => setModuleEditor("new")} type="button">Add module</button></div>
       <div className="mt-6 space-y-3">
         {modules.map((module) => <article className="rounded-2xl border border-[#e8ebe7] p-4" key={module.id}>
           <button className="w-full text-left" onClick={() => setStructuredModuleId(module.id)} type="button"><div className="flex flex-wrap items-start justify-between gap-3"><div><p className="text-xs font-semibold uppercase tracking-wide text-[#668071]">{titleCase(module.type)} / {module.estimatedMinutes} min</p><h3 className="mt-1 font-bold text-[#293930]">{module.title}</h3><p className="mt-2 text-sm font-medium text-[#60766a]"><ModuleCompletionCount location={moduleLocation} module={module} repository={structuredRepository} /></p></div><Status value={module.status} /></div></button>
-          <div className="mt-4 flex flex-wrap gap-2 border-t border-[#e8ebe7] pt-3">{(isAdmin || module.status === "draft") && <button className="small-button" onClick={() => setModuleEditor(module)} type="button">Edit</button>}{module.status === "draft" && <button className="small-button" onClick={() => publishModule(module)} type="button">Activate</button>}{(isAdmin || module.status === "draft") && <button className="small-button danger" onClick={() => deleteModule(module)} type="button">Delete</button>}</div>
+          <div className="mt-4 flex flex-wrap gap-2 border-t border-[#e8ebe7] pt-3"><button className="small-button" onClick={() => setModuleEditor(module)} type="button">Edit</button>{module.status === "draft" && <button className="small-button" onClick={() => publishModule(module)} type="button">Activate</button>}<button className="small-button danger" onClick={() => deleteModule(module)} type="button">Delete</button></div>
         </article>)}
         {!modules.length && <p className="rounded-2xl bg-[#f7f8f6] px-4 py-7 text-center text-sm text-slate-500">No learning modules here yet.</p>}
       </div>
     </div>;
+  }
+
+  function chapterCard(chapter: Chapter) {
+    const actions = getCurriculumContainerActions(access.role, chapter.status);
+    return <article className={`rounded-2xl border p-4 ${selectedChapterId === chapter.id ? "border-[#70917f] bg-[#f4f8f5]" : "border-[#e8ebe7]"}`} key={chapter.id}>
+      <button className="w-full text-left" onClick={() => selectChapter(chapter.id)} type="button"><div className="flex items-start justify-between gap-3"><div><p className="text-xs font-semibold uppercase tracking-wide text-[#668071]">{structureSingular} {chapter.chapterNumber}</p><h3 className="mt-1 font-bold text-[#293930]">{chapter.title}</h3></div><Status value={chapter.status} /></div></button>
+      {(actions.canPublish || actions.canManageStructure) && <div className="mt-4 flex flex-wrap gap-2 border-t border-[#e3e9e5] pt-3">
+        {actions.canManageStructure && <button className="small-button" onClick={() => setChapterEditor(chapter)} type="button">Edit</button>}
+        {actions.canPublish && <button className="small-button" onClick={() => publishChapterContainer(chapter)} type="button">Publish</button>}
+        {actions.canManageStructure && <button className="small-button" disabled={chapter.status === "archived"} onClick={() => repository.archiveChapter(subjectId!, chapter.id)} type="button">Archive</button>}
+        {actions.canManageStructure && <button className="small-button danger" onClick={() => deleteChapter(chapter)} type="button">Delete</button>}
+      </div>}
+    </article>;
+  }
+
+  function topicCard(topic: Topic) {
+    const actions = getCurriculumContainerActions(access.role, topic.status);
+    return <article className={`rounded-2xl border p-4 ${selectedTopicId === topic.id ? "border-[#70917f] bg-[#f4f8f5]" : "border-[#e8ebe7]"}`} key={topic.id}>
+      <button className="w-full text-left" onClick={() => selectTopic(topic.id)} type="button"><div className="flex items-start justify-between gap-3"><div><p className="text-xs font-semibold uppercase tracking-wide text-[#668071]">Topic {topic.order}</p><h3 className="mt-1 font-bold text-[#293930]">{topic.title}</h3></div><Status value={topic.status} /></div></button>
+      {(actions.canPublish || actions.canManageStructure) && <div className="mt-4 flex flex-wrap gap-2 border-t border-[#e3e9e5] pt-3">
+        {actions.canManageStructure && <button className="small-button" onClick={() => setTopicEditor(topic)} type="button">Edit</button>}
+        {actions.canPublish && <button className="small-button" onClick={() => publishTopicContainer(topic)} type="button">Publish</button>}
+        {actions.canManageStructure && <button className="small-button" disabled={topic.status === "archived"} onClick={() => repository.setTopicStatus(subjectId!, selectedChapterId!, topic.id, "archived")} type="button">Archive</button>}
+        {actions.canManageStructure && <button className="small-button danger" onClick={() => deleteTopic(topic)} type="button">Delete</button>}
+      </div>}
+    </article>;
   }
 
   if (!subjectId) return <section><p className="eyebrow">CONTENT STUDIO / FORM 2</p><h1 className="page-title">All subjects</h1><p className="page-description">Build learning content within the verified KSSM structure.</p>{subjectError && <p className="error-banner">{subjectError}</p>}<div className="mt-8 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">{visibleSubjects.map((subject) => <article className="panel flex min-h-44 flex-col" key={subject.id}><div className="mb-5 h-2 w-14 rounded-full" style={{ backgroundColor: subject.themeColor || "#7B8F72" }} /><h2 className="text-lg font-bold text-[#293930]">{subject.displayName}</h2><p className="mt-1 text-sm text-slate-500">{subject.shortName}</p><div className="mt-auto pt-6"><button className="primary-button w-full" onClick={() => openSubject(subject.id)} type="button">Open content</button></div></article>)}{!visibleSubjects.length && !subjectError && <div className="panel text-sm text-slate-500">No subjects are available.</div>}</div></section>;
@@ -258,9 +313,9 @@ export function ContentStudio({ access }: { access: DashboardAccess }) {
   return <section>
     <button className="mb-5 text-sm font-semibold text-[#496a5a] hover:underline" onClick={() => setSubjectId(null)} type="button">Back to all Form 2 subjects</button>
     <p className="eyebrow">CONTENT STUDIO / FORM 2 / {selectedSubject?.shortName ?? subjectId}</p>
-    <div className="flex flex-wrap items-end justify-between gap-4"><div><h1 className="page-title">{selectedSubject?.displayName ?? subjectId}</h1><p className="page-description">Create draft learning content within the verified curriculum structure.</p></div>{isAdmin && setupPresentation?.showAddAction && <button className="primary-button" onClick={() => { setChapterEditor("new"); setTopicEditor(null); }} type="button">{setupPresentation.addLabel}</button>}</div>
+    <div className="flex flex-wrap items-end justify-between gap-4"><div><h1 className="page-title">{selectedSubject?.displayName ?? subjectId}</h1><p className="page-description">Create and manage learning content within the verified curriculum structure.</p></div>{setupPresentation?.showAddAction && <button className="primary-button" onClick={() => { setChapterEditor("new"); setTopicEditor(null); }} type="button">{setupPresentation.addLabel}</button>}</div>
 
-    {isAdmin && setupStatus && <div className="mt-6 rounded-2xl border border-[#dfe7e1] bg-white/80 px-5 py-4">
+    {setupStatus && <div className="mt-6 rounded-2xl border border-[#dfe7e1] bg-white/80 px-5 py-4">
       <div className="flex flex-wrap items-center justify-between gap-4"><div><p className="text-sm font-bold text-[#293930]">{setupPresentation?.heading}</p>{setupStatus.unexpectedIds.length > 0 && setupStatus.state !== "migrationRequired" && <p className="mt-1 text-xs text-slate-500">{setupStatus.unexpectedIds.length} additional document{setupStatus.unexpectedIds.length === 1 ? "" : "s"} detected and preserved.</p>}</div>{setupActionAvailable && setupPresentation?.migrationActionLabel && <button className="secondary-button" onClick={() => setShowSetupPreview(true)} type="button">{setupPresentation.migrationActionLabel}</button>}{setupActionAvailable && !setupPresentation?.migrationActionLabel && <button className="secondary-button" onClick={() => setShowSetupPreview(true)} type="button">{setupStatus.state === "partiallyConfigured" ? "Complete setup" : "Set up curriculum"}</button>}</div>
       {setupStatus.state === "migrationRequired" && <div className="mt-4 grid gap-3 sm:grid-cols-2"><div className="rounded-xl bg-[#f7f8f6] p-4"><p className="text-xs font-bold uppercase tracking-wide text-[#668071]">Current structure</p><p className="mt-1 font-bold text-[#293930]">{setupStatus.migration.legacyDocuments.length} legacy Units</p></div><div className="rounded-xl bg-[#f0f5f1] p-4"><p className="text-xs font-bold uppercase tracking-wide text-[#668071]">New structure</p><p className="mt-1 font-bold text-[#293930]">{setupDefinition?.items.length} {structurePlural}</p><p className="mt-1 text-sm text-slate-600">{setupDefinition?.items.map((item) => item.chapter.title).join(", ")}</p></div></div>}
       {setupStatus.migration.state === "blocked" && <div className="error-banner mt-4"><p>Textbook-unit documents contain authored content. Automatic replacement is disabled.</p><ul className="mt-2 list-disc pl-5">{setupStatus.migration.authoredLegacyDocuments.map((item) => <li key={item.id}>{item.id}: {item.title}</li>)}</ul></div>}
@@ -269,8 +324,8 @@ export function ContentStudio({ access }: { access: DashboardAccess }) {
     {(error || subjectError) && <p className="error-banner">{error || subjectError}</p>}{notice && <p className="notice-banner mt-5" aria-live="polite">{notice}</p>}
 
     {chapterEditor ? <div className="mt-8"><ChapterForm chapter={chapterEditor === "new" ? undefined : chapterEditor} structureSingular={structureSingular} key={chapterEditor === "new" ? "new" : chapterEditor.id} onCancel={() => setChapterEditor(null)} onSave={saveChapter} /></div> : <div className="mt-8 grid gap-6 xl:grid-cols-[minmax(18rem,0.8fr)_minmax(0,1.4fr)]">
-      <section className="panel h-fit"><div className="mb-5 flex items-center justify-between"><h2 className="text-xl font-bold text-[#293930]">{structurePlural}</h2><span className="status-pill bg-[#edf3ef] text-[#496a5a]">{displayedChapters.length}</span></div><div className="space-y-3">{displayedChapters.map((chapter) => <article className={`rounded-2xl border p-4 ${selectedChapterId === chapter.id ? "border-[#70917f] bg-[#f4f8f5]" : "border-[#e8ebe7]"}`} key={chapter.id}><button className="w-full text-left" onClick={() => selectChapter(chapter.id)} type="button"><div className="flex items-start justify-between gap-3"><div><p className="text-xs font-semibold uppercase tracking-wide text-[#668071]">{structureSingular} {chapter.chapterNumber}</p><h3 className="mt-1 font-bold text-[#293930]">{chapter.title}</h3></div><Status value={chapter.status} /></div></button>{isAdmin && <div className="mt-4 flex flex-wrap gap-2 border-t border-[#e3e9e5] pt-3"><button className="small-button" onClick={() => setChapterEditor(chapter)} type="button">Edit</button>{chapter.status !== "active" && <button className="small-button" onClick={() => repository.publishChapter(subjectId, chapter.id)} type="button">Publish</button>}<button className="small-button" disabled={chapter.status === "archived"} onClick={() => repository.archiveChapter(subjectId, chapter.id)} type="button">Archive</button><button className="small-button danger" onClick={() => deleteChapter(chapter)} type="button">Delete</button></div>}</article>)}{!displayedChapters.length && <p className="rounded-2xl bg-[#f7f8f6] px-4 py-7 text-center text-sm text-slate-500">No {structurePlural.toLowerCase()} are configured yet.</p>}</div></section>
-      <section className="space-y-6">{!selectedChapter ? <div className="panel text-center text-sm text-slate-500">Select or create a {structureSingular.toLowerCase()}.</div> : isLanguageSubject && topicEditor ? <TopicForm topic={topicEditor === "new" ? undefined : topicEditor} key={topicEditor === "new" ? `new-${selectedChapter.id}` : topicEditor.id} onCancel={() => setTopicEditor(null)} onSave={saveTopic} /> : <>{isLanguageSubject && <div className="panel"><div className="mb-5 flex flex-wrap items-center justify-between gap-3"><div><p className="eyebrow">{selectedChapter.title}</p><h2 className="mt-1 text-xl font-bold text-[#293930]">Topics</h2></div>{isAdmin && <button className="primary-button" onClick={() => setTopicEditor("new")} type="button">Add topic</button>}</div><div className="space-y-3">{topics.map((topic) => <article className={`rounded-2xl border p-4 ${selectedTopicId === topic.id ? "border-[#70917f] bg-[#f4f8f5]" : "border-[#e8ebe7]"}`} key={topic.id}><button className="w-full text-left" onClick={() => selectTopic(topic.id)} type="button"><div className="flex items-start justify-between gap-3"><div><p className="text-xs font-semibold uppercase tracking-wide text-[#668071]">Topic {topic.order}</p><h3 className="mt-1 font-bold text-[#293930]">{topic.title}</h3></div><Status value={topic.status} /></div></button>{isAdmin && <div className="mt-4 flex flex-wrap gap-2 border-t border-[#e3e9e5] pt-3"><button className="small-button" onClick={() => setTopicEditor(topic)} type="button">Edit</button>{topic.status !== "active" && <button className="small-button" onClick={() => repository.setTopicStatus(subjectId, selectedChapter.id, topic.id, "active")} type="button">Publish</button>}<button className="small-button" disabled={topic.status === "archived"} onClick={() => repository.setTopicStatus(subjectId, selectedChapter.id, topic.id, "archived")} type="button">Archive</button><button className="small-button danger" onClick={() => deleteTopic(topic)} type="button">Delete</button></div>}</article>)}{!topics.length && <p className="rounded-2xl bg-[#f7f8f6] px-4 py-7 text-center text-sm text-slate-500">No topics in this section yet.</p>}</div></div>}{moduleWorkspace()}</>}</section>
+      <section className="panel h-fit"><div className="mb-5 flex items-center justify-between"><h2 className="text-xl font-bold text-[#293930]">{structurePlural}</h2><span className="status-pill bg-[#edf3ef] text-[#496a5a]">{displayedChapters.length}</span></div><div className="space-y-3">{displayedChapters.map(chapterCard)}{!displayedChapters.length && <p className="rounded-2xl bg-[#f7f8f6] px-4 py-7 text-center text-sm text-slate-500">No {structurePlural.toLowerCase()} are configured yet.</p>}</div></section>
+      <section className="space-y-6">{!selectedChapter ? <div className="panel text-center text-sm text-slate-500">Select or create a {structureSingular.toLowerCase()}.</div> : isLanguageSubject && topicEditor ? <TopicForm topic={topicEditor === "new" ? undefined : topicEditor} key={topicEditor === "new" ? `new-${selectedChapter.id}` : topicEditor.id} onCancel={() => setTopicEditor(null)} onSave={saveTopic} /> : <>{isLanguageSubject && <div className="panel"><div className="mb-5 flex flex-wrap items-center justify-between gap-3"><div><p className="eyebrow">{selectedChapter.title}</p><h2 className="mt-1 text-xl font-bold text-[#293930]">Topics</h2></div><button className="primary-button" onClick={() => setTopicEditor("new")} type="button">Add topic</button></div><div className="space-y-3">{topics.map(topicCard)}{!topics.length && <p className="rounded-2xl bg-[#f7f8f6] px-4 py-7 text-center text-sm text-slate-500">No topics in this section yet.</p>}</div></div>}{moduleWorkspace()}</>}</section>
     </div>}
 
     {showSetupPreview && setupDefinition && setupStatus && selectedSubject && <CurriculumSetupDialog definition={setupDefinition} onCancel={() => setShowSetupPreview(false)} onConfirm={setupCurriculum} saving={isSettingUp} status={setupStatus} subjectName={selectedSubject.displayName} />}

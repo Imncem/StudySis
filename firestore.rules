@@ -57,53 +57,6 @@ service cloud.firestore {
         && get(/databases/$(database)/documents/dashboard_access/$(request.auth.uid)).data.role in ['admin', 'editor'];
     }
 
-    function isDashboardEditor() {
-      return isDashboardUser()
-        && get(/databases/$(database)/documents/dashboard_access/$(request.auth.uid)).data.role == 'editor';
-    }
-
-    function isEditorDraftWriteOrActivation() {
-      return isDashboardEditor()
-        && resource.data.status == 'draft'
-        && request.resource.data.status in ['draft', 'active'];
-    }
-
-    function isEditorParentActivation() {
-      return isDashboardEditor()
-        && resource.data.status in ['draft', 'active']
-        && request.resource.data.status == 'active'
-        && request.resource.data.diff(resource.data).affectedKeys()
-          .hasOnly(['status', 'updatedAt']);
-    }
-
-    function isDraftModule(subjectId, chapterId, moduleId, moduleType) {
-      let modulePath = /databases/$(database)/documents/curriculum/form2/subjects/$(subjectId)/chapters/$(chapterId)/modules/$(moduleId);
-      return exists(modulePath)
-        && get(modulePath).data.status == 'draft'
-        && get(modulePath).data.type == moduleType;
-    }
-
-    function isDraftTopicModule(subjectId, chapterId, topicId, moduleId, moduleType) {
-      let modulePath = /databases/$(database)/documents/curriculum/form2/subjects/$(subjectId)/chapters/$(chapterId)/topics/$(topicId)/modules/$(moduleId);
-      return exists(modulePath)
-        && get(modulePath).data.status == 'draft'
-        && get(modulePath).data.type == moduleType;
-    }
-
-    function isAuthorableModule(subjectId, chapterId, moduleId, moduleType) {
-      let modulePath = /databases/$(database)/documents/curriculum/form2/subjects/$(subjectId)/chapters/$(chapterId)/modules/$(moduleId);
-      return exists(modulePath)
-        && get(modulePath).data.status in ['draft', 'active']
-        && get(modulePath).data.type == moduleType;
-    }
-
-    function isAuthorableTopicModule(subjectId, chapterId, topicId, moduleId, moduleType) {
-      let modulePath = /databases/$(database)/documents/curriculum/form2/subjects/$(subjectId)/chapters/$(chapterId)/topics/$(topicId)/modules/$(moduleId);
-      return exists(modulePath)
-        && get(modulePath).data.status in ['draft', 'active']
-        && get(modulePath).data.type == moduleType;
-    }
-
     function isSignedIn() {
       return request.auth != null;
     }
@@ -910,221 +863,111 @@ service cloud.firestore {
 
       match /chapters/{chapterId} {
         allow read: if true;
-        allow create: if isDashboardAdmin()
-          && isVerifiedSubjectId(subjectId)
-          && validChapter();
-        allow update: if isVerifiedSubjectId(subjectId)
-          && validChapter()
-          && (isDashboardAdmin() || isEditorParentActivation());
-        allow delete: if isDashboardAdmin() && isVerifiedSubjectId(subjectId);
+        allow create, update: if canEditSubject(subjectId) && validChapter();
+        allow delete: if canEditSubject(subjectId);
 
         match /topics/{topicId} {
           allow read: if true;
-          allow create: if isDashboardAdmin()
+          allow create, update: if canEditSubject(subjectId)
             && isLanguageSubjectId(subjectId)
             && validTopic();
-          allow update: if isLanguageSubjectId(subjectId)
-            && validTopic()
-            && (isDashboardAdmin() || isEditorParentActivation());
-          allow delete: if isDashboardAdmin() && isLanguageSubjectId(subjectId);
+          allow delete: if canEditSubject(subjectId)
+            && isLanguageSubjectId(subjectId);
 
           match /practice_questions/{questionId} {
             allow read: if true;
-            allow create: if canEditSubject(subjectId)
+            allow create, update: if canEditSubject(subjectId)
               && isLanguageSubjectId(subjectId)
-              && validPracticeItem()
-              && (isDashboardAdmin() || request.resource.data.status == 'draft');
-            allow update: if canEditSubject(subjectId)
-              && isLanguageSubjectId(subjectId)
-              && validPracticeItem()
-              && (isDashboardAdmin()
-                || isEditorDraftWriteOrActivation());
+              && validPracticeItem();
             allow delete: if canEditSubject(subjectId)
-              && isLanguageSubjectId(subjectId)
-              && (isDashboardAdmin() || resource.data.status == 'draft');
+              && isLanguageSubjectId(subjectId);
           }
 
           match /modules/{moduleId} {
             allow read: if true;
-            allow create: if canEditSubject(subjectId)
+            allow create, update: if canEditSubject(subjectId)
               && isLanguageSubjectId(subjectId)
-              && validModule()
-              && (isDashboardAdmin() || request.resource.data.status == 'draft');
-            allow update: if canEditSubject(subjectId)
-              && isLanguageSubjectId(subjectId)
-              && validModule()
-              && (isDashboardAdmin()
-                || isEditorDraftWriteOrActivation());
+              && validModule();
             allow delete: if canEditSubject(subjectId)
-              && isLanguageSubjectId(subjectId)
-              && (isDashboardAdmin() || resource.data.status == 'draft');
+              && isLanguageSubjectId(subjectId);
 
             match /sections/{sectionId} {
               allow read: if true;
               allow create, update: if canEditSubject(subjectId)
                 && isLanguageSubjectId(subjectId)
-                && (isDashboardAdmin()
-                  || isDraftTopicModule(subjectId, chapterId, topicId, moduleId, 'notes'))
                 && validNoteSection();
               allow delete: if canEditSubject(subjectId)
-                && isLanguageSubjectId(subjectId)
-                && (isDashboardAdmin()
-                  || isDraftTopicModule(subjectId, chapterId, topicId, moduleId, 'notes'));
+                && isLanguageSubjectId(subjectId);
             }
 
             match /cards/{cardId} {
               allow read: if true;
-              allow create: if canEditSubject(subjectId)
+              allow create, update: if canEditSubject(subjectId)
                 && isLanguageSubjectId(subjectId)
-                && validFlashcard()
-                && (isDashboardAdmin()
-                  || (isDraftTopicModule(subjectId, chapterId, topicId, moduleId, 'flashcards')
-                    && request.resource.data.status == 'draft'));
-              allow update: if canEditSubject(subjectId)
-                && isLanguageSubjectId(subjectId)
-                && validFlashcard()
-                && (isDashboardAdmin()
-                  || (isAuthorableTopicModule(subjectId, chapterId, topicId, moduleId, 'flashcards')
-                    && isEditorDraftWriteOrActivation()));
+                && validFlashcard();
               allow delete: if canEditSubject(subjectId)
-                && isLanguageSubjectId(subjectId)
-                && (isDashboardAdmin()
-                  || (isDraftTopicModule(subjectId, chapterId, topicId, moduleId, 'flashcards')
-                    && resource.data.status == 'draft'));
+                && isLanguageSubjectId(subjectId);
             }
 
             match /items/{itemId} {
               allow read: if true;
-              allow create: if canEditSubject(subjectId)
+              allow create, update: if canEditSubject(subjectId)
                 && isLanguageSubjectId(subjectId)
-                && validPracticeItem()
-                && (isDashboardAdmin()
-                  || (isDraftTopicModule(subjectId, chapterId, topicId, moduleId, 'practice')
-                    && request.resource.data.status == 'draft'));
-              allow update: if canEditSubject(subjectId)
-                && isLanguageSubjectId(subjectId)
-                && validPracticeItem()
-                && (isDashboardAdmin()
-                  || (isAuthorableTopicModule(subjectId, chapterId, topicId, moduleId, 'practice')
-                    && isEditorDraftWriteOrActivation()));
+                && validPracticeItem();
               allow delete: if canEditSubject(subjectId)
-                && isLanguageSubjectId(subjectId)
-                && (isDashboardAdmin()
-                  || (isDraftTopicModule(subjectId, chapterId, topicId, moduleId, 'practice')
-                    && resource.data.status == 'draft'));
+                && isLanguageSubjectId(subjectId);
             }
 
             match /questions/{questionId} {
               allow read: if true;
-              allow create: if canEditSubject(subjectId)
+              allow create, update: if canEditSubject(subjectId)
                 && isLanguageSubjectId(subjectId)
-                && validQuizQuestion()
-                && (isDashboardAdmin()
-                  || (isDraftTopicModule(subjectId, chapterId, topicId, moduleId, 'quiz')
-                    && request.resource.data.status == 'draft'));
-              allow update: if canEditSubject(subjectId)
-                && isLanguageSubjectId(subjectId)
-                && validQuizQuestion()
-                && (isDashboardAdmin()
-                  || (isAuthorableTopicModule(subjectId, chapterId, topicId, moduleId, 'quiz')
-                    && isEditorDraftWriteOrActivation()));
+                && validQuizQuestion();
               allow delete: if canEditSubject(subjectId)
-                && isLanguageSubjectId(subjectId)
-                && (isDashboardAdmin()
-                  || (isDraftTopicModule(subjectId, chapterId, topicId, moduleId, 'quiz')
-                    && resource.data.status == 'draft'));
+                && isLanguageSubjectId(subjectId);
             }
           }
         }
 
         match /practice_questions/{questionId} {
           allow read: if true;
-          allow create: if canEditSubject(subjectId)
-            && validPracticeItem()
-            && (isDashboardAdmin() || request.resource.data.status == 'draft');
-          allow update: if canEditSubject(subjectId)
-            && validPracticeItem()
-            && (isDashboardAdmin()
-              || isEditorDraftWriteOrActivation());
-          allow delete: if canEditSubject(subjectId)
-            && (isDashboardAdmin() || resource.data.status == 'draft');
+          allow create, update: if canEditSubject(subjectId)
+            && validPracticeItem();
+          allow delete: if canEditSubject(subjectId);
         }
 
         match /modules/{moduleId} {
           allow read: if true;
-          allow create: if canEditSubject(subjectId)
-            && validModule()
-            && (isDashboardAdmin() || request.resource.data.status == 'draft');
-          allow update: if canEditSubject(subjectId)
-            && validModule()
-            && (isDashboardAdmin()
-              || isEditorDraftWriteOrActivation());
-          allow delete: if canEditSubject(subjectId)
-            && (isDashboardAdmin() || resource.data.status == 'draft');
+          allow create, update: if canEditSubject(subjectId)
+            && validModule();
+          allow delete: if canEditSubject(subjectId);
 
           match /sections/{sectionId} {
             allow read: if true;
             allow create, update: if canEditSubject(subjectId)
-              && (isDashboardAdmin()
-                || isDraftModule(subjectId, chapterId, moduleId, 'notes'))
               && validNoteSection();
-            allow delete: if canEditSubject(subjectId)
-              && (isDashboardAdmin()
-                || isDraftModule(subjectId, chapterId, moduleId, 'notes'));
+            allow delete: if canEditSubject(subjectId);
           }
 
           match /cards/{cardId} {
             allow read: if true;
-            allow create: if canEditSubject(subjectId)
-              && validFlashcard()
-              && (isDashboardAdmin()
-                || (isDraftModule(subjectId, chapterId, moduleId, 'flashcards')
-                  && request.resource.data.status == 'draft'));
-            allow update: if canEditSubject(subjectId)
-              && validFlashcard()
-              && (isDashboardAdmin()
-                || (isAuthorableModule(subjectId, chapterId, moduleId, 'flashcards')
-                  && isEditorDraftWriteOrActivation()));
-            allow delete: if canEditSubject(subjectId)
-              && (isDashboardAdmin()
-                || (isDraftModule(subjectId, chapterId, moduleId, 'flashcards')
-                  && resource.data.status == 'draft'));
+            allow create, update: if canEditSubject(subjectId)
+              && validFlashcard();
+            allow delete: if canEditSubject(subjectId);
           }
 
           match /items/{itemId} {
             allow read: if true;
-            allow create: if canEditSubject(subjectId)
-              && validPracticeItem()
-              && (isDashboardAdmin()
-                || (isDraftModule(subjectId, chapterId, moduleId, 'practice')
-                  && request.resource.data.status == 'draft'));
-            allow update: if canEditSubject(subjectId)
-              && validPracticeItem()
-              && (isDashboardAdmin()
-                || (isAuthorableModule(subjectId, chapterId, moduleId, 'practice')
-                  && isEditorDraftWriteOrActivation()));
-            allow delete: if canEditSubject(subjectId)
-              && (isDashboardAdmin()
-                || (isDraftModule(subjectId, chapterId, moduleId, 'practice')
-                  && resource.data.status == 'draft'));
+            allow create, update: if canEditSubject(subjectId)
+              && validPracticeItem();
+            allow delete: if canEditSubject(subjectId);
           }
 
           match /questions/{questionId} {
             allow read: if true;
-            allow create: if canEditSubject(subjectId)
-              && validQuizQuestion()
-              && (isDashboardAdmin()
-                || (isDraftModule(subjectId, chapterId, moduleId, 'quiz')
-                  && request.resource.data.status == 'draft'));
-            allow update: if canEditSubject(subjectId)
-              && validQuizQuestion()
-              && (isDashboardAdmin()
-                || (isAuthorableModule(subjectId, chapterId, moduleId, 'quiz')
-                  && isEditorDraftWriteOrActivation()));
-            allow delete: if canEditSubject(subjectId)
-              && (isDashboardAdmin()
-                || (isDraftModule(subjectId, chapterId, moduleId, 'quiz')
-                  && resource.data.status == 'draft'));
+            allow create, update: if canEditSubject(subjectId)
+              && validQuizQuestion();
+            allow delete: if canEditSubject(subjectId);
           }
         }
       }

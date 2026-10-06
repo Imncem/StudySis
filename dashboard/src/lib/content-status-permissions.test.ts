@@ -6,15 +6,19 @@ import {
   contentStatusOptions,
 } from "./content-status-permissions.ts";
 
-test("editors may keep a draft or activate existing draft content", () => {
-  assert.deepEqual(contentStatusOptions("editor", "draft"), ["draft", "active"]);
+test("editors receive the complete trusted-collaborator status model", () => {
+  assert.deepEqual(contentStatusOptions("editor", "draft"), [
+    "draft",
+    "active",
+    "archived",
+  ]);
   assert.equal(canActivateContent("draft"), true);
 });
 
-test("editors cannot create active content or withdraw active content", () => {
-  assert.deepEqual(contentStatusOptions("editor"), ["draft"]);
-  assert.deepEqual(contentStatusOptions("editor", "active"), ["active"]);
-  assert.deepEqual(contentStatusOptions("editor", "archived"), ["archived"]);
+test("editors can create and revise any valid content status", () => {
+  assert.deepEqual(contentStatusOptions("editor"), ["draft", "active", "archived"]);
+  assert.deepEqual(contentStatusOptions("editor", "active"), ["draft", "active", "archived"]);
+  assert.deepEqual(contentStatusOptions("editor", "archived"), ["draft", "active", "archived"]);
   assert.equal(canActivateContent("active"), false);
 });
 

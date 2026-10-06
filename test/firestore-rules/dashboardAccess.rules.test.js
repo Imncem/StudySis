@@ -106,16 +106,97 @@ test('admin manages language topics and may publish topic modules', async () => 
   ));
 });
 
-test('editor authors another editor draft inside a language topic but cannot change structure', async () => {
+test('admin publishes Bahasa Melayu Section and Topic containers', async () => {
+  const db = dashboardDb(adminUid);
+
+  await assertSucceeds(updateDoc(
+    chapterRef(db, 'bahasa_melayu', 'tatabahasa'),
+    {status: 'active', updatedAt: later},
+  ));
+  await assertSucceeds(updateDoc(
+    topicRef(db, 'bahasa_melayu', 'tatabahasa', 'kata_nama'),
+    {status: 'active', updatedAt: later},
+  ));
+});
+
+test('editor explicitly publishes BM and English Section and Topic containers', async () => {
+  const db = dashboardDb(editorUid);
+
+  for (const [subjectId, sectionId, topicId] of [
+    ['bahasa_melayu', 'tatabahasa', 'kata_nama'],
+    ['english', 'grammar', 'verbs'],
+  ]) {
+    await assertSucceeds(updateDoc(
+      chapterRef(db, subjectId, sectionId),
+      {status: 'active', updatedAt: later},
+    ));
+    await assertSucceeds(updateDoc(
+      topicRef(db, subjectId, sectionId, topicId),
+      {status: 'active', updatedAt: later},
+    ));
+  }
+});
+
+test('editor fully manages Bahasa Melayu and English Sections and Topics', async () => {
+  const db = dashboardDb(editorUid);
+
+  for (const [subjectId, sectionId, sectionTitle, topicId, topicTitle] of [
+    ['bahasa_melayu', 'penulisan', 'Penulisan', 'karangan', 'Karangan'],
+    ['english', 'essay_writing', 'Essay Writing', 'argumentative', 'Argumentative Essays'],
+  ]) {
+    const section = chapterRef(db, subjectId, sectionId);
+    const topic = topicRef(db, subjectId, sectionId, topicId);
+
+    await assertSucceeds(setDoc(section, chapterData({
+      title: sectionTitle,
+      textbookChapterTitle: sectionTitle,
+      chapterNumber: 3,
+      order: 3,
+    })));
+    await assertSucceeds(updateDoc(section, {
+      title: `${sectionTitle} Skills`,
+      textbookChapterTitle: `${sectionTitle} Skills`,
+      status: 'active',
+      updatedAt: later,
+    }));
+    await assertSucceeds(updateDoc(section, {status: 'archived', updatedAt: later}));
+
+    await assertSucceeds(setDoc(topic, topicData({title: topicTitle})));
+    await assertSucceeds(updateDoc(topic, {
+      title: `${topicTitle} Basics`,
+      order: 2,
+      status: 'active',
+      updatedAt: later,
+    }));
+    await assertSucceeds(updateDoc(topic, {status: 'archived', updatedAt: later}));
+    await assertSucceeds(deleteDoc(topic));
+    await assertSucceeds(deleteDoc(section));
+  }
+});
+
+test('editor activates existing normal curriculum containers for every subject type', async () => {
+  const db = dashboardDb(editorUid);
+
+  for (const subjectId of verifiedSubjectIds.filter(
+    (id) => id !== 'bahasa_melayu' && id !== 'english',
+  )) {
+    await assertSucceeds(updateDoc(
+      chapterRef(db, subjectId, 'chapter-01'),
+      {status: 'active', updatedAt: later},
+    ));
+  }
+});
+
+test('editor collaborates on language structure and content created by another editor', async () => {
   const db = dashboardDb(editorUid);
   const topic = topicRef(db, 'bahasa_melayu', 'tatabahasa', 'kata_nama');
   const notes = topicModuleRef(db, 'bahasa_melayu', 'tatabahasa', 'kata_nama', 'notes');
 
-  await assertFails(setDoc(
+  await assertSucceeds(setDoc(
     topicRef(db, 'bahasa_melayu', 'tatabahasa', 'kata_kerja'),
     topicData({title: 'Kata Kerja', order: 2}),
   ));
-  await assertFails(updateDoc(topic, {title: 'Changed', updatedAt: later}));
+  await assertSucceeds(updateDoc(topic, {title: 'Kata Nama Am', updatedAt: later}));
   await assertSucceeds(updateDoc(notes, {
     summary: 'Collaboratively updated topic notes',
     updatedAt: later,
@@ -214,6 +295,21 @@ test('active editor can create and edit draft module content', async () => {
   ));
 });
 
+test('active editor creates, edits, publishes, archives and deletes modules', async () => {
+  const db = dashboardDb(editorUid);
+  const module = moduleRef(db, 'science', 'chapter-01', 'editor-lifecycle');
+
+  await assertSucceeds(setDoc(module, moduleData()));
+  await assertSucceeds(updateDoc(module, {
+    title: 'Collaborative Notes',
+    status: 'active',
+    updatedAt: later,
+  }));
+  await assertSucceeds(updateDoc(module, {status: 'archived', updatedAt: later}));
+  await assertSucceeds(updateDoc(module, {status: 'draft', updatedAt: later}));
+  await assertSucceeds(deleteDoc(module));
+});
+
 test('active editor can author a draft module in every verified subject', async () => {
   const db = dashboardDb(editorUid);
 
@@ -275,6 +371,18 @@ test('inactive editor, missing access record and anonymous student fail closed',
     status: 'active',
     updatedAt: later,
   }));
+  await assertFails(updateDoc(chapterRef(inactiveDb, 'science', 'chapter-01'), {
+    status: 'active',
+    updatedAt: later,
+  }));
+  await assertFails(updateDoc(chapterRef(missingDb, 'science', 'chapter-01'), {
+    status: 'active',
+    updatedAt: later,
+  }));
+  await assertFails(updateDoc(chapterRef(anonymousDb, 'science', 'chapter-01'), {
+    status: 'active',
+    updatedAt: later,
+  }));
   await assertFails(setDoc(chapterRef(inactiveDb, 'science', 'chapter_02'), chapterData()));
   await assertFails(setDoc(chapterRef(missingDb, 'science', 'chapter_02'), chapterData()));
   await assertFails(setDoc(chapterRef(anonymousDb, 'science', 'chapter_02'), chapterData()));
@@ -311,67 +419,98 @@ test('dashboard access documents cannot be updated by clients', async () => {
   await assertFails(updateDoc(accessRef(db, editorUid), {active: false}));
   await assertFails(updateDoc(accessRef(db, editorUid), {displayName: 'Changed'}));
   await assertFails(updateDoc(accessRef(db, otherUid), {subjectIds: ['science']}));
+  await assertFails(setDoc(accessRef(db, 'new-editor'), access()));
+  await assertFails(deleteDoc(accessRef(db, otherUid)));
+  await assertFails(updateDoc(accessRef(db, otherUid), {role: 'admin'}));
+  await assertFails(updateDoc(accessRef(db, otherUid), {active: false}));
   await assertFails(updateDoc(accessRef(dashboardDb(adminUid), adminUid), {
     subjectIds: ['science'],
   }));
 });
 
-test('editor cannot alter verified curriculum structure', async () => {
+test('editor creates, edits, reorders and deletes normal curriculum items', async () => {
   const db = dashboardDb(editorUid);
+  const created = chapterRef(db, 'science', 'chapter-02');
 
-  await assertFails(updateDoc(chapterRef(db, 'science', 'chapter-01'), {
+  await assertSucceeds(setDoc(created, chapterData({
+    chapterNumber: 2,
+    order: 2,
+    title: 'Ecosystems',
+    textbookChapterTitle: 'Ecosystems',
+  })));
+  await assertSucceeds(updateDoc(created, {
     title: 'Changed by editor',
+    textbookChapterTitle: 'Changed by editor',
     updatedAt: later,
   }));
-  await assertFails(updateDoc(chapterRef(db, 'science', 'chapter-01'), {
+  await assertSucceeds(updateDoc(created, {
     order: 9,
     updatedAt: later,
   }));
-  await assertFails(updateDoc(chapterRef(db, 'science', 'chapter-01'), {
+  await assertSucceeds(updateDoc(created, {
     group: 'Changed group',
     updatedAt: later,
   }));
-  await assertFails(setDoc(chapterRef(db, 'science', 'chapter-02'), chapterData()));
-  await assertFails(deleteDoc(chapterRef(db, 'science', 'chapter-01')));
-  await assertFails(deleteDoc(topicRef(db, 'bahasa_melayu', 'tatabahasa', 'kata_nama')));
+  await assertSucceeds(deleteDoc(created));
 });
 
-test('editor cannot archive content or withdraw active content to draft', async () => {
+test('editor has full Draft, Active and Archived content status control', async () => {
   const db = dashboardDb(editorUid);
 
-  await assertFails(setDoc(
+  await assertSucceeds(setDoc(
     moduleRef(db, 'science', 'chapter-01', 'created-active'),
     moduleData({status: 'active'}),
   ));
-  await assertFails(setDoc(
+  await assertSucceeds(setDoc(
     doc(moduleRef(db, 'science', 'chapter-01', 'flashcards'), 'cards', 'created-active'),
     flashcardData({status: 'active'}),
   ));
-  await assertFails(updateDoc(moduleRef(db, 'science', 'chapter-01', 'notes'), {
+  await assertSucceeds(updateDoc(moduleRef(db, 'science', 'chapter-01', 'notes'), {
     status: 'archived',
     updatedAt: later,
   }));
-  await assertFails(updateDoc(moduleRef(db, 'science', 'chapter-01', 'active-notes'), {
+  await assertSucceeds(updateDoc(moduleRef(db, 'science', 'chapter-01', 'active-notes'), {
     status: 'archived',
     updatedAt: later,
   }));
-  await assertFails(updateDoc(moduleRef(db, 'science', 'chapter-01', 'active-notes'), {
+  await assertSucceeds(updateDoc(moduleRef(db, 'science', 'chapter-01', 'active-notes'), {
     status: 'draft',
     updatedAt: later,
   }));
-  await assertFails(updateDoc(chapterRef(db, 'science', 'active-chapter'), {
+  await assertSucceeds(updateDoc(chapterRef(db, 'science', 'active-chapter'), {
     status: 'draft',
+    updatedAt: later,
+  }));
+  await assertSucceeds(updateDoc(chapterRef(db, 'science', 'chapter-01'), {
+    status: 'archived',
     updatedAt: later,
   }));
 });
 
-test('editor cannot edit active module content', async () => {
+test('editor manages Notes, Flashcards, Practice and Quiz in active modules', async () => {
   const db = dashboardDb(editorUid);
+  const note = doc(moduleRef(db, 'science', 'chapter-01', 'active-notes'), 'sections', 'section-01');
+  const card = doc(moduleRef(db, 'science', 'chapter-01', 'flashcards'), 'cards', 'card-01');
+  const practice = doc(moduleRef(db, 'science', 'chapter-01', 'practice'), 'items', 'item-01');
+  const quiz = doc(moduleRef(db, 'science', 'chapter-01', 'quiz'), 'questions', 'question-01');
 
-  await assertFails(setDoc(
-    doc(moduleRef(db, 'science', 'chapter-01', 'active-notes'), 'sections', 'section-01'),
-    noteData(),
+  await assertSucceeds(setDoc(note, noteData()));
+  await assertSucceeds(updateDoc(
+    card,
+    {front: 'Updated question', status: 'archived', updatedAt: later},
   ));
+  await assertSucceeds(updateDoc(
+    practice,
+    {question: 'Updated practice question?', status: 'active', updatedAt: later},
+  ));
+  await assertSucceeds(updateDoc(
+    quiz,
+    {question: 'Updated quiz question?', status: 'archived', updatedAt: later},
+  ));
+  await assertSucceeds(deleteDoc(note));
+  await assertSucceeds(deleteDoc(card));
+  await assertSucceeds(deleteDoc(practice));
+  await assertSucceeds(deleteDoc(quiz));
 });
 
 test('Mathematics editor regression retains draft authoring access', async () => {
