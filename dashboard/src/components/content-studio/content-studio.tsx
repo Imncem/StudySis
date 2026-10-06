@@ -8,6 +8,7 @@ import {
   getCurriculumSetupDefinition,
   type CurriculumSetupStatus,
 } from "@/lib/curriculum/curriculumSetup";
+import { getCurriculumPresentation } from "@/lib/curriculum/curriculumPresentation";
 import type { CurriculumContentLocation } from "@/lib/content-paths";
 import { contentStatusOptions } from "@/lib/content-status-permissions";
 import { getFirebaseDb } from "@/lib/firebase";
@@ -46,6 +47,12 @@ export function ContentStudio({ access }: { access: DashboardAccess }) {
   const selectedSubject = subjects.find((subject) => subject.id === subjectId) ?? null;
   const isAdmin = access.role === "admin";
   const setupDefinition = useMemo(() => subjectId ? getCurriculumSetupDefinition(subjectId) : null, [subjectId]);
+  const setupPresentation = useMemo(
+    () => setupDefinition && setupStatus
+      ? getCurriculumPresentation(setupDefinition, setupStatus)
+      : null,
+    [setupDefinition, setupStatus],
+  );
   const isLanguageSubject = setupDefinition?.structureType === "section";
   const expectedChapterIds = useMemo(() => new Set(setupDefinition?.items.map((item) => item.id) ?? []), [setupDefinition]);
   const displayedChapters = isLanguageSubject
@@ -251,11 +258,12 @@ export function ContentStudio({ access }: { access: DashboardAccess }) {
   return <section>
     <button className="mb-5 text-sm font-semibold text-[#496a5a] hover:underline" onClick={() => setSubjectId(null)} type="button">Back to all Form 2 subjects</button>
     <p className="eyebrow">CONTENT STUDIO / FORM 2 / {selectedSubject?.shortName ?? subjectId}</p>
-    <div className="flex flex-wrap items-end justify-between gap-4"><div><h1 className="page-title">{selectedSubject?.displayName ?? subjectId}</h1><p className="page-description">Create draft learning content within the verified curriculum structure.</p></div>{isAdmin && <button className="primary-button" onClick={() => { setChapterEditor("new"); setTopicEditor(null); }} type="button">Add {structureSingular}</button>}</div>
+    <div className="flex flex-wrap items-end justify-between gap-4"><div><h1 className="page-title">{selectedSubject?.displayName ?? subjectId}</h1><p className="page-description">Create draft learning content within the verified curriculum structure.</p></div>{isAdmin && setupPresentation?.showAddAction && <button className="primary-button" onClick={() => { setChapterEditor("new"); setTopicEditor(null); }} type="button">{setupPresentation.addLabel}</button>}</div>
 
     {isAdmin && setupStatus && <div className="mt-6 rounded-2xl border border-[#dfe7e1] bg-white/80 px-5 py-4">
-      <div className="flex flex-wrap items-center justify-between gap-4"><div><p className="text-sm font-bold text-[#293930]">{setupStatus.state === "configured" ? "Curriculum configured" : setupStatus.state === "notConfigured" ? "Curriculum not configured" : `${setupStatus.existing} of ${setupStatus.expected} ${structurePlural.toLowerCase()} configured`}</p>{setupStatus.unexpectedIds.length > 0 && <p className="mt-1 text-xs text-slate-500">{setupStatus.unexpectedIds.length} additional document{setupStatus.unexpectedIds.length === 1 ? "" : "s"} detected and preserved.</p>}</div>{setupActionAvailable && <button className="secondary-button" onClick={() => setShowSetupPreview(true)} type="button">{setupStatus.migration.state === "replaceable" ? "Replace empty textbook units" : setupStatus.state === "partiallyConfigured" ? "Complete setup" : "Set up curriculum"}</button>}</div>
-      {setupStatus.migration.state === "blocked" && <p className="error-banner mt-4">Textbook-unit documents contain authored content. Automatic replacement is disabled. Manually migrate the content from: {setupStatus.migration.authoredLegacyDocumentIds.join(", ")}.</p>}
+      <div className="flex flex-wrap items-center justify-between gap-4"><div><p className="text-sm font-bold text-[#293930]">{setupPresentation?.heading}</p>{setupStatus.unexpectedIds.length > 0 && setupStatus.state !== "migrationRequired" && <p className="mt-1 text-xs text-slate-500">{setupStatus.unexpectedIds.length} additional document{setupStatus.unexpectedIds.length === 1 ? "" : "s"} detected and preserved.</p>}</div>{setupActionAvailable && setupPresentation?.migrationActionLabel && <button className="secondary-button" onClick={() => setShowSetupPreview(true)} type="button">{setupPresentation.migrationActionLabel}</button>}{setupActionAvailable && !setupPresentation?.migrationActionLabel && <button className="secondary-button" onClick={() => setShowSetupPreview(true)} type="button">{setupStatus.state === "partiallyConfigured" ? "Complete setup" : "Set up curriculum"}</button>}</div>
+      {setupStatus.state === "migrationRequired" && <div className="mt-4 grid gap-3 sm:grid-cols-2"><div className="rounded-xl bg-[#f7f8f6] p-4"><p className="text-xs font-bold uppercase tracking-wide text-[#668071]">Current structure</p><p className="mt-1 font-bold text-[#293930]">{setupStatus.migration.legacyDocuments.length} legacy Units</p></div><div className="rounded-xl bg-[#f0f5f1] p-4"><p className="text-xs font-bold uppercase tracking-wide text-[#668071]">New structure</p><p className="mt-1 font-bold text-[#293930]">{setupDefinition?.items.length} {structurePlural}</p><p className="mt-1 text-sm text-slate-600">{setupDefinition?.items.map((item) => item.chapter.title).join(", ")}</p></div></div>}
+      {setupStatus.migration.state === "blocked" && <div className="error-banner mt-4"><p>Textbook-unit documents contain authored content. Automatic replacement is disabled.</p><ul className="mt-2 list-disc pl-5">{setupStatus.migration.authoredLegacyDocuments.map((item) => <li key={item.id}>{item.id}: {item.title}</li>)}</ul></div>}
     </div>}
 
     {(error || subjectError) && <p className="error-banner">{error || subjectError}</p>}{notice && <p className="notice-banner mt-5" aria-live="polite">{notice}</p>}

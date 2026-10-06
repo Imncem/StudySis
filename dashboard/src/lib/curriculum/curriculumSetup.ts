@@ -24,7 +24,8 @@ export type CurriculumSetupDefinition = {
 export type CurriculumSetupState =
   | "notConfigured"
   | "partiallyConfigured"
-  | "configured";
+  | "configured"
+  | "migrationRequired";
 
 export type CurriculumSetupStatus = {
   state: CurriculumSetupState;
@@ -41,6 +42,13 @@ export type LanguageMigrationStatus = {
   state: "notApplicable" | "none" | "replaceable" | "blocked";
   legacyDocumentIds: string[];
   authoredLegacyDocumentIds: string[];
+  legacyDocuments: LegacyCurriculumDocument[];
+  authoredLegacyDocuments: LegacyCurriculumDocument[];
+};
+
+export type LegacyCurriculumDocument = {
+  id: string;
+  title: string;
 };
 
 export type CurriculumSetupResult = {
@@ -104,13 +112,14 @@ export function getCurriculumSetupStatus(
   subjectId: string,
   existingDocumentIds: Iterable<string>,
   authoredLegacyDocumentIds: Iterable<string> = [],
+  legacyDocumentTitles: ReadonlyMap<string, string> = new Map(),
 ): CurriculumSetupStatus {
   const definition = getCurriculumSetupDefinition(subjectId);
   const existingIds = new Set(existingDocumentIds);
   const expectedIds = new Set(definition.items.map((item) => item.id));
   const missingItems = definition.items.filter((item) => !existingIds.has(item.id));
   const existing = definition.items.length - missingItems.length;
-  const state = existing === 0
+  const configuredState: CurriculumSetupState = existing === 0
     ? "notConfigured"
     : missingItems.length === 0
       ? "configured"
@@ -120,7 +129,11 @@ export function getCurriculumSetupStatus(
     subjectId,
     existingIds,
     authoredLegacyDocumentIds,
+    legacyDocumentTitles,
   );
+  const state = migration.state === "replaceable" || migration.state === "blocked"
+    ? "migrationRequired"
+    : configuredState;
 
   return {
     state,
@@ -140,6 +153,7 @@ export function getLanguageMigrationStatus(
   subjectId: string,
   existingDocumentIds: Iterable<string>,
   authoredLegacyDocumentIds: Iterable<string> = [],
+  legacyDocumentTitles: ReadonlyMap<string, string> = new Map(),
 ): LanguageMigrationStatus {
   const curriculum = getForm2Curriculum(subjectId);
   if (!curriculum?.referenceItems?.length) {
@@ -147,6 +161,8 @@ export function getLanguageMigrationStatus(
       state: "notApplicable",
       legacyDocumentIds: [],
       authoredLegacyDocumentIds: [],
+      legacyDocuments: [],
+      authoredLegacyDocuments: [],
     };
   }
 
@@ -160,6 +176,14 @@ export function getLanguageMigrationStatus(
   const authoredIds = [...new Set(authoredLegacyDocumentIds)]
     .filter((id) => existingLegacyIds.has(id))
     .sort();
+  const referenceTitles = new Map(
+    curriculum.referenceItems.flatMap((item) => item.id ? [[item.id, item.title] as const] : []),
+  );
+  const legacyDocuments = legacyDocumentIds.map((id) => ({
+    id,
+    title: legacyDocumentTitles.get(id) ?? referenceTitles.get(id) ?? id,
+  }));
+  const authoredIdSet = new Set(authoredIds);
 
   return {
     state: legacyDocumentIds.length === 0
@@ -169,6 +193,8 @@ export function getLanguageMigrationStatus(
         : "replaceable",
     legacyDocumentIds,
     authoredLegacyDocumentIds: authoredIds,
+    legacyDocuments,
+    authoredLegacyDocuments: legacyDocuments.filter((item) => authoredIdSet.has(item.id)),
   };
 }
 

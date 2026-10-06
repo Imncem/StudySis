@@ -135,9 +135,17 @@ export class ContentRepository {
     const snapshot = await getDocs(
       collection(this.db, contentPaths.chapters(subjectId)),
     );
+    const legacyDocumentTitles = new Map(
+      snapshot.docs.map((item) => [
+        item.id,
+        typeof item.data().title === "string" ? item.data().title : item.id,
+      ]),
+    );
     const initialStatus = calculateCurriculumSetupStatus(
       subjectId,
       snapshot.docs.map((item) => item.id),
+      [],
+      legacyDocumentTitles,
     );
     if (initialStatus.migration.state !== "replaceable") return initialStatus;
     const authoredIds = await this.findAuthoredLegacyDocuments(
@@ -148,6 +156,7 @@ export class ContentRepository {
       subjectId,
       snapshot.docs.map((item) => item.id),
       authoredIds,
+      legacyDocumentTitles,
     );
   }
 

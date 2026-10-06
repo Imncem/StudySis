@@ -97,6 +97,7 @@ test("maps grouping metadata and starts every generated item as draft", () => {
 
 test("classifies empty legacy language units as replaceable", () => {
   const status = getCurriculumSetupStatus("english", ["unit_06", "unit_07"]);
+  assert.equal(status.state, "migrationRequired");
   assert.equal(status.migration.state, "replaceable");
   assert.deepEqual(status.migration.legacyDocumentIds, ["unit_06", "unit_07"]);
   assert.deepEqual(status.migration.authoredLegacyDocumentIds, []);
@@ -109,7 +110,21 @@ test("blocks language replacement when a legacy unit has authored content", () =
     ["unit_02"],
   );
   assert.equal(status.migration.state, "blocked");
+  assert.equal(status.state, "migrationRequired");
   assert.deepEqual(status.migration.authoredLegacyDocumentIds, ["unit_02"]);
+});
+
+test("reports persisted legacy titles for blocked manual migration", () => {
+  const status = getCurriculumSetupStatus(
+    "english",
+    ["unit_06"],
+    ["unit_06"],
+    new Map([["unit_06", "Edited Money title"]]),
+  );
+
+  assert.deepEqual(status.migration.authoredLegacyDocuments, [
+    { id: "unit_06", title: "Edited Money title" },
+  ]);
 });
 
 test("creates stable section IDs without auto-ID", () => {
