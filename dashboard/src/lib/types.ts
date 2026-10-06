@@ -81,6 +81,21 @@ export type Topic = {
 
 export type TopicInput = Omit<Topic, "id" | "createdAt" | "updatedAt">;
 
+export type Subchapter = {
+  id: string;
+  number: string;
+  title: string;
+  order: number;
+  status: ChapterStatus;
+  createdAt: Timestamp | null;
+  updatedAt: Timestamp | null;
+};
+
+export type SubchapterInput = Omit<
+  Subchapter,
+  "id" | "createdAt" | "updatedAt"
+>;
+
 export const moduleTypes = [
   "notes",
   "flashcards",
@@ -140,10 +155,7 @@ export type Flashcard = {
   createdAt: Timestamp | null;
   updatedAt: Timestamp | null;
 };
-export type FlashcardInput = Omit<
-  Flashcard,
-  "id" | "createdAt" | "updatedAt"
->;
+export type FlashcardInput = Omit<Flashcard, "id" | "createdAt" | "updatedAt">;
 
 export type PracticeItem = {
   id: string;

@@ -4,12 +4,12 @@ export type CurriculumContentLocation = {
   subjectId: string;
   chapterId: string;
   topicId?: string;
+  subchapterId?: string;
 };
 
 export const contentPaths = {
   subjects: () => `curriculum/${CURRENT_CURRICULUM_ID}/subjects`,
-  subject: (subjectId: string) =>
-    `${contentPaths.subjects()}/${subjectId}`,
+  subject: (subjectId: string) => `${contentPaths.subjects()}/${subjectId}`,
   chapters: (subjectId: string) =>
     `${contentPaths.subject(subjectId)}/chapters`,
   chapter: (subjectId: string, chapterId: string) =>
@@ -18,16 +18,24 @@ export const contentPaths = {
     `${contentPaths.chapter(subjectId, chapterId)}/topics`,
   topic: (subjectId: string, chapterId: string, topicId: string) =>
     `${contentPaths.topics(subjectId, chapterId)}/${topicId}`,
-  contentParent: ({ subjectId, chapterId, topicId }: CurriculumContentLocation) =>
+  subchapters: (subjectId: string, chapterId: string) =>
+    `${contentPaths.chapter(subjectId, chapterId)}/subchapters`,
+  subchapter: (subjectId: string, chapterId: string, subchapterId: string) =>
+    `${contentPaths.subchapters(subjectId, chapterId)}/${subchapterId}`,
+  contentParent: ({
+    subjectId,
+    chapterId,
+    topicId,
+    subchapterId,
+  }: CurriculumContentLocation) =>
     topicId
       ? contentPaths.topic(subjectId, chapterId, topicId)
-      : contentPaths.chapter(subjectId, chapterId),
+      : subchapterId
+        ? contentPaths.subchapter(subjectId, chapterId, subchapterId)
+        : contentPaths.chapter(subjectId, chapterId),
   practiceQuestions: (location: CurriculumContentLocation) =>
     `${contentPaths.contentParent(location)}/practice_questions`,
-  practiceQuestion: (
-    location: CurriculumContentLocation,
-    questionId: string,
-  ) =>
+  practiceQuestion: (location: CurriculumContentLocation, questionId: string) =>
     `${contentPaths.practiceQuestions(location)}/${questionId}`,
   modules: (location: CurriculumContentLocation) =>
     `${contentPaths.contentParent(location)}/modules`,
@@ -37,8 +45,7 @@ export const contentPaths = {
     location: CurriculumContentLocation,
     moduleId: string,
     collectionName: string,
-  ) =>
-    `${contentPaths.module(location, moduleId)}/${collectionName}`,
+  ) => `${contentPaths.module(location, moduleId)}/${collectionName}`,
   moduleContentItem: (
     location: CurriculumContentLocation,
     moduleId: string,

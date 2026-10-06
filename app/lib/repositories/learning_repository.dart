@@ -9,6 +9,7 @@ import '../models/learning_module.dart';
 import '../models/note_section.dart';
 import '../models/practice_question.dart';
 import '../models/quiz_question.dart';
+import '../models/subchapter.dart';
 
 class LearningRepository {
   LearningRepository({FirebaseFirestore? firestore})
@@ -57,6 +58,151 @@ class LearningRepository {
     return chapterSnapshot.docs
         .map((chapter) => Chapter.fromMap(chapter.id, chapter.data()))
         .where((chapter) => chapter.isActive)
+        .toList(growable: false);
+  }
+
+  Future<List<Subchapter>> getActiveSubchapters({
+    required String subjectId,
+    required String chapterId,
+  }) async {
+    final snapshot = await _firestore
+        .collection(ContentPaths.subchapters(subjectId, chapterId))
+        .where('status', isEqualTo: 'active')
+        .get();
+    final items = snapshot.docs
+        .map((item) => Subchapter.fromMap(item.id, item.data()))
+        .where((item) => item.isActive)
+        .toList(growable: false);
+    items.sort((left, right) => left.order.compareTo(right.order));
+    return items;
+  }
+
+  Future<List<LearningModule>> getActiveSubchapterModules({
+    required String subjectId,
+    required String chapterId,
+    required String subchapterId,
+  }) async {
+    final snapshot = await _firestore
+        .collection(ContentPaths.subchapterModules(
+          subjectId,
+          chapterId,
+          subchapterId,
+        ))
+        .where('status', isEqualTo: 'active')
+        .get();
+    final items = snapshot.docs
+        .map((item) => LearningModule.fromMap(item.id, item.data()))
+        .where((item) => item.isActive)
+        .toList(growable: false);
+    items.sort((left, right) => left.order.compareTo(right.order));
+    return items;
+  }
+
+  Future<LearningContent?> getSubchapterNotesContent({
+    required String subjectId,
+    required String chapterId,
+    required String subchapterId,
+    required String moduleId,
+  }) async {
+    final chapter =
+        await getChapter(subjectId: subjectId, chapterId: chapterId);
+    if (chapter == null) return null;
+    final moduleSnapshot = await _firestore
+        .doc(ContentPaths.subchapterModule(
+          subjectId,
+          chapterId,
+          subchapterId,
+          moduleId,
+        ))
+        .get();
+    final moduleData = moduleSnapshot.data();
+    if (moduleData == null) return null;
+    final module = LearningModule.fromMap(moduleSnapshot.id, moduleData);
+    if (!module.isActive || module.type != 'notes') return null;
+    final sectionSnapshot = await _firestore
+        .collection(ContentPaths.subchapterModuleContent(
+          subjectId,
+          chapterId,
+          subchapterId,
+          moduleId,
+          'sections',
+        ))
+        .orderBy('order')
+        .get();
+    return LearningContent(
+      subjectId: subjectId,
+      subjectName: await getSubjectName(subjectId),
+      chapter: chapter,
+      module: module,
+      noteSections: sectionSnapshot.docs
+          .map((item) => NoteSection.fromMap(item.id, item.data()))
+          .toList(growable: false),
+    );
+  }
+
+  Future<List<Flashcard>> getActiveSubchapterFlashcards({
+    required String subjectId,
+    required String chapterId,
+    required String subchapterId,
+    required String moduleId,
+  }) async {
+    final snapshot = await _firestore
+        .collection(ContentPaths.subchapterModuleContent(
+          subjectId,
+          chapterId,
+          subchapterId,
+          moduleId,
+          'cards',
+        ))
+        .orderBy('order')
+        .get();
+    return snapshot.docs
+        .map((item) => Flashcard.fromMap(item.id, item.data()))
+        .where((item) => item.isActive)
+        .toList(growable: false);
+  }
+
+  Future<List<PracticeQuestion>> getActiveSubchapterPractice({
+    required String subjectId,
+    required String chapterId,
+    required String subchapterId,
+    required String moduleId,
+  }) async {
+    final snapshot = await _firestore
+        .collection(ContentPaths.subchapterModuleContent(
+          subjectId,
+          chapterId,
+          subchapterId,
+          moduleId,
+          'items',
+        ))
+        .orderBy('order')
+        .get();
+    return snapshot.docs
+        .map((item) => PracticeQuestion.fromMap(item.id, item.data()))
+        .where((item) => item.isPublished)
+        .toList(growable: false);
+  }
+
+  Future<List<QuizQuestion>> getActiveSubchapterQuiz({
+    required String subjectId,
+    required String chapterId,
+    required String subchapterId,
+    required String moduleId,
+  }) async {
+    final snapshot = await _firestore
+        .collection(ContentPaths.subchapterModuleContent(
+          subjectId,
+          chapterId,
+          subchapterId,
+          moduleId,
+          'questions',
+        ))
+        .orderBy('order')
+        .get();
+    return snapshot.docs
+        .map((item) => QuizQuestion.fromMap(item.id, item.data()))
+        .where((item) => item.isActive)
         .toList(growable: false);
   }
 
@@ -124,6 +270,7 @@ class LearningRepository {
             .map((section) => NoteSection.fromMap(section.id, section.data()))
             .toList(growable: false);
         return LearningContent(
+          subjectId: subjectId,
           subjectName: subjectName,
           chapter: chapter,
           module: module,
@@ -218,6 +365,7 @@ class LearningRepository {
             'sections=${sections.length}',
           );
           return LearningContent(
+            subjectId: subjectId,
             subjectName: subjectName,
             chapter: chapter,
             module: module,

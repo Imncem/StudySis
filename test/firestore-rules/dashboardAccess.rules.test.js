@@ -106,6 +106,32 @@ test('admin manages language topics and may publish topic modules', async () => 
   ));
 });
 
+test('editor manages Sejarah subchapters and their modules', async () => {
+  const db = dashboardDb(editorUid);
+  const subchapter = subchapterRef(db, 'sejarah', 'chapter-01', 'subchapter_01_04');
+
+  await assertSucceeds(setDoc(subchapter, subchapterData()));
+  await assertSucceeds(updateDoc(subchapter, {status: 'active', updatedAt: later}));
+  await assertSucceeds(setDoc(
+    subchapterModuleRef(db, 'sejarah', 'chapter-01', 'subchapter_01_04', 'notes'),
+    moduleData({status: 'active'}),
+  ));
+  await assertSucceeds(updateDoc(subchapter, {status: 'archived', updatedAt: later}));
+  await assertSucceeds(deleteDoc(subchapter));
+});
+
+test('subchapters are Sejarah-only and require valid numbered data', async () => {
+  const db = dashboardDb(adminUid);
+  await assertFails(setDoc(
+    subchapterRef(db, 'science', 'chapter-01', 'subchapter_01_01'),
+    subchapterData(),
+  ));
+  await assertFails(setDoc(
+    subchapterRef(db, 'sejarah', 'chapter-01', 'subchapter_01_01'),
+    subchapterData({number: 'Chapter 1'}),
+  ));
+});
+
 test('admin publishes Bahasa Melayu Section and Topic containers', async () => {
   const db = dashboardDb(adminUid);
 
@@ -650,6 +676,18 @@ function topicData(overrides = {}) {
   };
 }
 
+function subchapterData(overrides = {}) {
+  return {
+    number: '1.4',
+    title: 'Kerajaan Alam Melayu dan Kerajaan Luar yang Sezaman',
+    order: 4,
+    status: 'draft',
+    createdAt: now,
+    updatedAt: now,
+    ...overrides,
+  };
+}
+
 function noteData(overrides = {}) {
   return {
     heading: 'Key idea',
@@ -725,6 +763,14 @@ function topicRef(db, subjectId, chapterId, topicId) {
 
 function topicModuleRef(db, subjectId, chapterId, topicId, moduleId) {
   return doc(topicRef(db, subjectId, chapterId, topicId), 'modules', moduleId);
+}
+
+function subchapterRef(db, subjectId, chapterId, subchapterId) {
+  return doc(chapterRef(db, subjectId, chapterId), 'subchapters', subchapterId);
+}
+
+function subchapterModuleRef(db, subjectId, chapterId, subchapterId, moduleId) {
+  return doc(subchapterRef(db, subjectId, chapterId, subchapterId), 'modules', moduleId);
 }
 
 function practiceRef(db, subjectId, chapterId, questionId) {

@@ -22,6 +22,7 @@ class FlashcardScreen extends StatefulWidget {
     this.repository,
     this.muffinService,
     this.savedFlashcardService,
+    this.cardsFuture,
     super.key,
   });
 
@@ -35,6 +36,7 @@ class FlashcardScreen extends StatefulWidget {
   final LearningRepository? repository;
   final MuffinService? muffinService;
   final SavedFlashcardService? savedFlashcardService;
+  final Future<List<Flashcard>>? cardsFuture;
 
   @override
   State<FlashcardScreen> createState() => _FlashcardScreenState();
@@ -56,10 +58,11 @@ class _FlashcardScreenState extends State<FlashcardScreen> {
     _repository = widget.repository ?? LearningRepository();
     _savedFlashcardService =
         widget.savedFlashcardService ?? SavedFlashcardServiceFactory.create();
-    _cards = _repository.getActiveFlashcards(
-      widget.chapter.id,
-      subjectId: widget.subjectId,
-    );
+    _cards = widget.cardsFuture ??
+        _repository.getActiveFlashcards(
+          widget.chapter.id,
+          subjectId: widget.subjectId,
+        );
     _completedCards.addAll(widget.initialCompletedCardIds);
   }
 
@@ -265,10 +268,11 @@ class _FlashcardScreenState extends State<FlashcardScreen> {
   void _reload() {
     setState(() {
       _currentIndex = 0;
-      _cards = _repository.getActiveFlashcards(
-        widget.chapter.id,
-        subjectId: widget.subjectId,
-      );
+      _cards = widget.cardsFuture ??
+          _repository.getActiveFlashcards(
+            widget.chapter.id,
+            subjectId: widget.subjectId,
+          );
     });
   }
 

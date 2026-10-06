@@ -19,6 +19,18 @@ class Subject {
 
   bool get isComingSoon => contentStatus == 'coming_soon';
 
+  Subject withReadiness(bool isReady) {
+    return Subject(
+      id: id,
+      displayName: displayName,
+      shortName: shortName,
+      contentStatus: isReady ? 'ready' : 'coming_soon',
+      iconName: iconName,
+      themeColor: themeColor,
+      order: order,
+    );
+  }
+
   factory Subject.fromMap(String id, Map<String, dynamic> data) {
     return Subject(
       id: id,

@@ -4,6 +4,80 @@ import 'package:studysis/config/content_paths.dart';
 import 'package:studysis/repositories/learning_repository.dart';
 
 void main() {
+  test('loads only active Sejarah subchapters and modules in order', () async {
+    final firestore = FakeFirebaseFirestore();
+    final subchapters = firestore.collection(
+      ContentPaths.subchapters('sejarah', 'chapter-01'),
+    );
+    await subchapters.doc('subchapter_01_02').set({
+      'number': '1.2',
+      'title': 'Second',
+      'order': 2,
+      'status': 'active',
+    });
+    await subchapters.doc('subchapter_01_01').set({
+      'number': '1.1',
+      'title': 'First',
+      'order': 1,
+      'status': 'active',
+    });
+    await subchapters.doc('subchapter_01_03').set({
+      'number': '1.3',
+      'title': 'Draft',
+      'order': 3,
+      'status': 'draft',
+    });
+    final modules = firestore.collection(ContentPaths.subchapterModules(
+      'sejarah',
+      'chapter-01',
+      'subchapter_01_01',
+    ));
+    await modules.doc('quiz').set({
+      'title': 'Quiz',
+      'type': 'quiz',
+      'content': '',
+      'summary': '',
+      'estimatedMinutes': 5,
+      'difficulty': 'easy',
+      'order': 2,
+      'status': 'active',
+    });
+    await modules.doc('notes').set({
+      'title': 'Notes',
+      'type': 'notes',
+      'content': '',
+      'summary': '',
+      'estimatedMinutes': 5,
+      'difficulty': 'easy',
+      'order': 1,
+      'status': 'active',
+    });
+    await modules.doc('draft').set({
+      'title': 'Draft',
+      'type': 'practice',
+      'content': '',
+      'summary': '',
+      'estimatedMinutes': 5,
+      'difficulty': 'easy',
+      'order': 3,
+      'status': 'draft',
+    });
+
+    final repository = LearningRepository(firestore: firestore);
+    final activeSubchapters = await repository.getActiveSubchapters(
+      subjectId: 'sejarah',
+      chapterId: 'chapter-01',
+    );
+    final activeModules = await repository.getActiveSubchapterModules(
+      subjectId: 'sejarah',
+      chapterId: 'chapter-01',
+      subchapterId: 'subchapter_01_01',
+    );
+
+    expect(activeSubchapters.map((item) => item.number), ['1.1', '1.2']);
+    expect(activeModules.map((item) => item.id), ['notes', 'quiz']);
+  });
+
   test('loads only published practice questions ordered by order', () async {
     final firestore = FakeFirebaseFirestore();
     final collection = firestore

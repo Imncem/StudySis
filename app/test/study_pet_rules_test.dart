@@ -4,7 +4,8 @@ import 'package:flutter_test/flutter_test.dart';
 
 void main() {
   test('Firestore rules contain owned Study Pet state access', () {
-    final rules = File('../firestore.rules').readAsStringSync();
+    final rules =
+        File('../firestore.rules').readAsStringSync().replaceAll('\r\n', '\n');
 
     expect(rules, contains('match /student_progress/{uid}/pet/{stateId}'));
     expect(rules, contains('request.auth.uid == uid'));
@@ -23,7 +24,9 @@ void main() {
     late String rules;
 
     setUpAll(() {
-      rules = File('../firestore.rules').readAsStringSync();
+      rules = File('../firestore.rules')
+          .readAsStringSync()
+          .replaceAll('\r\n', '\n');
     });
 
     test('owner can change forest to farm', () {
@@ -91,7 +94,9 @@ void main() {
     late String rules;
 
     setUpAll(() {
-      rules = File('../firestore.rules').readAsStringSync();
+      rules = File('../firestore.rules')
+          .readAsStringSync()
+          .replaceAll('\r\n', '\n');
     });
 
     test('owner can evolve when XP and time are valid', () {

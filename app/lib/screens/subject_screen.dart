@@ -8,6 +8,7 @@ import '../repositories/student_progress_repository.dart';
 import '../repositories/study_pet_repository.dart';
 import '../theme/app_theme.dart';
 import 'chapter_overview_screen.dart';
+import 'sejarah_subchapter_screen.dart';
 
 class SubjectScreen extends StatefulWidget {
   const SubjectScreen({
@@ -133,16 +134,23 @@ class _SubjectScreenState extends State<SubjectScreen> {
                           onTap: () {
                             Navigator.of(context).push(
                               MaterialPageRoute<void>(
-                                builder: (_) => ChapterOverviewScreen(
-                                  subjectId: widget.subject.id,
-                                  subjectName: widget.subject.displayName,
-                                  chapter: chapter,
-                                  repository: _repository,
-                                  progressRepository: widget.progressRepository,
-                                  engagementRepository:
-                                      widget.engagementRepository,
-                                  petRepository: widget.petRepository,
-                                ),
+                                builder: (_) => widget.subject.id == 'sejarah'
+                                    ? SejarahSubchapterScreen(
+                                        chapter: chapter,
+                                        subjectName: widget.subject.displayName,
+                                        repository: _repository,
+                                      )
+                                    : ChapterOverviewScreen(
+                                        subjectId: widget.subject.id,
+                                        subjectName: widget.subject.displayName,
+                                        chapter: chapter,
+                                        repository: _repository,
+                                        progressRepository:
+                                            widget.progressRepository,
+                                        engagementRepository:
+                                            widget.engagementRepository,
+                                        petRepository: widget.petRepository,
+                                      ),
                               ),
                             );
                           },

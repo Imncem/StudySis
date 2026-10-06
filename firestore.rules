@@ -686,6 +686,25 @@ service cloud.firestore {
         && data.updatedAt is timestamp;
     }
 
+    function validSubchapter() {
+      let data = request.resource.data;
+      return data.keys().hasOnly([
+          'number', 'title', 'order', 'status', 'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasAll([
+          'number', 'title', 'order', 'status', 'createdAt', 'updatedAt'
+        ])
+        && data.number is string
+        && data.number.matches('^[0-9]+[.][0-9]+$')
+        && data.title is string
+        && data.title.size() > 0
+        && data.order is int
+        && data.order >= 1
+        && data.status in ['draft', 'active', 'archived']
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
     function validNoteSection() {
       let data = request.resource.data;
       return data.keys().hasOnly([
@@ -855,6 +874,12 @@ service cloud.firestore {
       allow list, create, update, delete: if false;
     }
 
+    // Subject readiness uses one status-filtered collection-group query instead
+    // of reading every chapter's module collection independently.
+    match /{path=**}/modules/{moduleId} {
+      allow list: if resource.data.status == 'active';
+    }
+
     // `form2` is the current curriculum catalog ID. Future catalogs can use
     // sibling IDs without changing the subjects/chapters/modules structure.
     match /curriculum/form2/subjects/{subjectId} {
@@ -925,6 +950,88 @@ service cloud.firestore {
                 && validQuizQuestion();
               allow delete: if canEditSubject(subjectId)
                 && isLanguageSubjectId(subjectId);
+            }
+          }
+        }
+
+        match /subchapters/{subchapterId} {
+          allow read: if isDashboardUser()
+            || (subjectId == 'sejarah'
+              && resource.data.status == 'active'
+              && get(/databases/$(database)/documents/curriculum/form2/subjects/$(subjectId)/chapters/$(chapterId)).data.status == 'active');
+          allow create, update: if subjectId == 'sejarah'
+            && canEditSubject(subjectId)
+            && validSubchapter();
+          allow delete: if subjectId == 'sejarah'
+            && canEditSubject(subjectId);
+
+          match /practice_questions/{questionId} {
+            allow read: if isDashboardUser();
+            allow create, update: if subjectId == 'sejarah'
+              && canEditSubject(subjectId)
+              && validPracticeItem();
+            allow delete: if subjectId == 'sejarah'
+              && canEditSubject(subjectId);
+          }
+
+          match /modules/{moduleId} {
+            allow read: if isDashboardUser()
+              || (subjectId == 'sejarah'
+                && resource.data.status == 'active'
+                && get(/databases/$(database)/documents/curriculum/form2/subjects/$(subjectId)/chapters/$(chapterId)).data.status == 'active'
+                && get(/databases/$(database)/documents/curriculum/form2/subjects/$(subjectId)/chapters/$(chapterId)/subchapters/$(subchapterId)).data.status == 'active');
+            allow create, update: if subjectId == 'sejarah'
+              && canEditSubject(subjectId)
+              && validModule();
+            allow delete: if subjectId == 'sejarah'
+              && canEditSubject(subjectId);
+
+            match /sections/{sectionId} {
+              allow read: if isDashboardUser()
+                || (subjectId == 'sejarah'
+                  && get(/databases/$(database)/documents/curriculum/form2/subjects/$(subjectId)/chapters/$(chapterId)/subchapters/$(subchapterId)).data.status == 'active'
+                  && get(/databases/$(database)/documents/curriculum/form2/subjects/$(subjectId)/chapters/$(chapterId)/subchapters/$(subchapterId)/modules/$(moduleId)).data.status == 'active');
+              allow create, update: if subjectId == 'sejarah'
+                && canEditSubject(subjectId)
+                && validNoteSection();
+              allow delete: if subjectId == 'sejarah'
+                && canEditSubject(subjectId);
+            }
+
+            match /cards/{cardId} {
+              allow read: if isDashboardUser()
+                || (subjectId == 'sejarah'
+                  && get(/databases/$(database)/documents/curriculum/form2/subjects/$(subjectId)/chapters/$(chapterId)/subchapters/$(subchapterId)).data.status == 'active'
+                  && get(/databases/$(database)/documents/curriculum/form2/subjects/$(subjectId)/chapters/$(chapterId)/subchapters/$(subchapterId)/modules/$(moduleId)).data.status == 'active');
+              allow create, update: if subjectId == 'sejarah'
+                && canEditSubject(subjectId)
+                && validFlashcard();
+              allow delete: if subjectId == 'sejarah'
+                && canEditSubject(subjectId);
+            }
+
+            match /items/{itemId} {
+              allow read: if isDashboardUser()
+                || (subjectId == 'sejarah'
+                  && get(/databases/$(database)/documents/curriculum/form2/subjects/$(subjectId)/chapters/$(chapterId)/subchapters/$(subchapterId)).data.status == 'active'
+                  && get(/databases/$(database)/documents/curriculum/form2/subjects/$(subjectId)/chapters/$(chapterId)/subchapters/$(subchapterId)/modules/$(moduleId)).data.status == 'active');
+              allow create, update: if subjectId == 'sejarah'
+                && canEditSubject(subjectId)
+                && validPracticeItem();
+              allow delete: if subjectId == 'sejarah'
+                && canEditSubject(subjectId);
+            }
+
+            match /questions/{questionId} {
+              allow read: if isDashboardUser()
+                || (subjectId == 'sejarah'
+                  && get(/databases/$(database)/documents/curriculum/form2/subjects/$(subjectId)/chapters/$(chapterId)/subchapters/$(subchapterId)).data.status == 'active'
+                  && get(/databases/$(database)/documents/curriculum/form2/subjects/$(subjectId)/chapters/$(chapterId)/subchapters/$(subchapterId)/modules/$(moduleId)).data.status == 'active');
+              allow create, update: if subjectId == 'sejarah'
+                && canEditSubject(subjectId)
+                && validQuizQuestion();
+              allow delete: if subjectId == 'sejarah'
+                && canEditSubject(subjectId);
             }
           }
         }

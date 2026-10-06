@@ -25,3 +25,19 @@ test("stores language modules and content beneath a topic", () => {
     "curriculum/form2/subjects/bahasa_melayu/chapters/tatabahasa/topics/kata_nama/modules/notes/sections",
   );
 });
+
+test("stores Sejarah modules and content beneath a subchapter", () => {
+  const location = {
+    subjectId: "sejarah",
+    chapterId: "chapter_01",
+    subchapterId: "subchapter_01_04",
+  };
+  assert.equal(
+    contentPaths.modules(location),
+    "curriculum/form2/subjects/sejarah/chapters/chapter_01/subchapters/subchapter_01_04/modules",
+  );
+  assert.equal(
+    contentPaths.moduleContent(location, "notes", "sections"),
+    "curriculum/form2/subjects/sejarah/chapters/chapter_01/subchapters/subchapter_01_04/modules/notes/sections",
+  );
+});

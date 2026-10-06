@@ -28,7 +28,7 @@ class ModuleReaderScreen extends StatelessWidget {
     return MuffinContext(
       studentProfileId: 'qidah',
       preferredLanguage: 'Mixed',
-      subjectId: 'math',
+      subjectId: learningContent.subjectId,
       subjectTitle: learningContent.subjectName,
       chapterId: learningContent.chapter.id,
       chapterTitle: learningContent.chapter.title,
@@ -66,7 +66,7 @@ class ModuleReaderScreen extends StatelessWidget {
           context:
               _contextForSection(learningContent.noteSections.first).copyWith(
             contextKey:
-                'learn_math_${chapter.id}_section_${learningContent.noteSections.first.id}',
+                'learn_${learningContent.subjectId}_${chapter.id}_section_${learningContent.noteSections.first.id}',
           ),
           actions: [
             const MuffinActionConfig(

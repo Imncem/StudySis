@@ -11,6 +11,28 @@ class ContentPaths {
   static String modules(String subjectId, String chapterId) =>
       '${chapters(subjectId)}/$chapterId/modules';
 
+  static String topics(String subjectId, String sectionId) =>
+      '${chapters(subjectId)}/$sectionId/topics';
+
+  static String topicModules(
+          String subjectId, String sectionId, String topicId) =>
+      '${topics(subjectId, sectionId)}/$topicId/modules';
+
+  static String subchapters(String subjectId, String chapterId) =>
+      '${chapters(subjectId)}/$chapterId/subchapters';
+
+  static String subchapterModules(
+          String subjectId, String chapterId, String subchapterId) =>
+      '${subchapters(subjectId, chapterId)}/$subchapterId/modules';
+
+  static String subchapterModule(String subjectId, String chapterId,
+          String subchapterId, String moduleId) =>
+      '${subchapterModules(subjectId, chapterId, subchapterId)}/$moduleId';
+
+  static String subchapterModuleContent(String subjectId, String chapterId,
+          String subchapterId, String moduleId, String collectionName) =>
+      '${subchapterModule(subjectId, chapterId, subchapterId, moduleId)}/$collectionName';
+
   static String module(String subjectId, String chapterId, String moduleId) =>
       '${modules(subjectId, chapterId)}/$moduleId';
 
