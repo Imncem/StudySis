@@ -32,6 +32,7 @@ import type {
   TopicInput,
 } from "@/lib/types";
 import type { SejarahMigrationPlan } from "@/lib/curriculum/sejarahSubchapterMigration";
+import { resolveSejarahWorkspace } from "@/lib/curriculum/sejarahWorkspace";
 import { ChapterForm } from "./chapter-form";
 import { CurriculumSetupDialog } from "./curriculum-setup-dialog";
 import { ModuleCompletionCount } from "./module-completion-count";
@@ -119,6 +120,11 @@ export function ContentStudio({ access }: { access: DashboardAccess }) {
     topics.find((topic) => topic.id === selectedTopicId) ?? null;
   const selectedSubchapter =
     subchapters.find((item) => item.id === selectedSubchapterId) ?? null;
+  const sejarahWorkspace = resolveSejarahWorkspace(
+    subjectId,
+    selectedSubchapterId,
+    subchapters,
+  );
   const moduleLocation = useMemo<CurriculumContentLocation | null>(() => {
     if (!subjectId || !selectedChapterId) return null;
     if (isLanguageSubject && !selectedTopicId) return null;
@@ -215,7 +221,7 @@ export function ContentStudio({ access }: { access: DashboardAccess }) {
         setSelectedSubchapterId((current) =>
           current && nextSubchapters.some((item) => item.id === current)
             ? current
-            : (nextSubchapters[0]?.id ?? null),
+            : null,
         );
       },
       (nextError) => setError(nextError.message),
@@ -272,6 +278,12 @@ export function ContentStudio({ access }: { access: DashboardAccess }) {
 
   function selectSubchapter(subchapterId: string) {
     setSelectedSubchapterId(subchapterId);
+    setModuleEditor(null);
+    setStructuredModuleId(null);
+  }
+
+  function closeSubchapterWorkspace() {
+    setSelectedSubchapterId(null);
     setModuleEditor(null);
     setStructuredModuleId(null);
   }
@@ -655,6 +667,42 @@ export function ContentStudio({ access }: { access: DashboardAccess }) {
     );
   }
 
+  function sejarahSubchapterWorkspace() {
+    if (
+      !selectedChapter ||
+      sejarahWorkspace.view !== "subchapter" ||
+      !selectedSubchapter
+    )
+      return null;
+
+    return (
+      <div className="mt-8 space-y-5">
+        <button
+          className="text-sm font-semibold text-[#496a5a] hover:underline"
+          onClick={closeSubchapterWorkspace}
+          type="button"
+        >
+          &larr; Back to Chapter {selectedChapter.chapterNumber}
+        </button>
+        <div>
+          <p className="eyebrow">
+            SEJARAH / CHAPTER {selectedChapter.chapterNumber} / SUBCHAPTER{" "}
+            {selectedSubchapter.number}
+          </p>
+          <div className="mt-2 flex flex-wrap items-start justify-between gap-4">
+            <div>
+              <h2 className="text-2xl font-bold text-[#293930]">
+                {selectedSubchapter.number} {selectedSubchapter.title}
+              </h2>
+            </div>
+            <Status value={selectedSubchapter.status} />
+          </div>
+        </div>
+        {moduleWorkspace()}
+      </div>
+    );
+  }
+
   function chapterCard(chapter: Chapter) {
     const actions = getCurriculumContainerActions(access.role, chapter.status);
     return (
@@ -822,7 +870,15 @@ export function ContentStudio({ access }: { access: DashboardAccess }) {
                 {subchapter.title}
               </h3>
             </div>
-            <Status value={subchapter.status} />
+            <div className="flex items-center gap-3">
+              <Status value={subchapter.status} />
+              <span
+                aria-hidden="true"
+                className="text-2xl leading-none text-[#668071]"
+              >
+                &rsaquo;
+              </span>
+            </div>
           </div>
         </button>
         {(actions.canPublish || actions.canManageStructure) && (
@@ -1124,6 +1180,8 @@ export function ContentStudio({ access }: { access: DashboardAccess }) {
             onSave={saveChapter}
           />
         </div>
+      ) : isSejarah && sejarahWorkspace.view === "subchapter" ? (
+        sejarahSubchapterWorkspace()
       ) : (
         <div className="mt-8 grid gap-6 xl:grid-cols-[minmax(18rem,0.8fr)_minmax(0,1.4fr)]">
           <section className="panel h-fit">
@@ -1229,7 +1287,7 @@ export function ContentStudio({ access }: { access: DashboardAccess }) {
                     </div>
                   </div>
                 )}
-                {moduleWorkspace()}
+                {!isSejarah && moduleWorkspace()}
               </>
             )}
           </section>
