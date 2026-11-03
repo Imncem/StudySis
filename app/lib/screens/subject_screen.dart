@@ -8,6 +8,7 @@ import '../repositories/student_progress_repository.dart';
 import '../repositories/study_pet_repository.dart';
 import '../theme/app_theme.dart';
 import 'chapter_overview_screen.dart';
+import 'language_topic_screen.dart';
 import 'sejarah_subchapter_screen.dart';
 
 class SubjectScreen extends StatefulWidget {
@@ -140,17 +141,27 @@ class _SubjectScreenState extends State<SubjectScreen> {
                                         subjectName: widget.subject.displayName,
                                         repository: _repository,
                                       )
-                                    : ChapterOverviewScreen(
-                                        subjectId: widget.subject.id,
-                                        subjectName: widget.subject.displayName,
-                                        chapter: chapter,
-                                        repository: _repository,
-                                        progressRepository:
-                                            widget.progressRepository,
-                                        engagementRepository:
-                                            widget.engagementRepository,
-                                        petRepository: widget.petRepository,
-                                      ),
+                                    : widget.subject.id == 'bahasa_melayu' ||
+                                            widget.subject.id == 'english'
+                                        ? LanguageTopicScreen(
+                                            subjectId: widget.subject.id,
+                                            subjectName:
+                                                widget.subject.displayName,
+                                            section: chapter,
+                                            repository: _repository,
+                                          )
+                                        : ChapterOverviewScreen(
+                                            subjectId: widget.subject.id,
+                                            subjectName:
+                                                widget.subject.displayName,
+                                            chapter: chapter,
+                                            repository: _repository,
+                                            progressRepository:
+                                                widget.progressRepository,
+                                            engagementRepository:
+                                                widget.engagementRepository,
+                                            petRepository: widget.petRepository,
+                                          ),
                               ),
                             );
                           },

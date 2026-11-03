@@ -12,6 +12,63 @@ import 'package:studysis/theme/app_theme.dart';
 import 'package:studysis/widgets/page_translation_scope.dart';
 
 void main() {
+  testWidgets('module lesson content renders without structured sections',
+      (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.light,
+        home: const ModuleReaderScreen(learningContent: _moduleContent),
+      ),
+    );
+    await tester.pump();
+
+    expect(find.text('First paragraph.\n\nSecond paragraph.'), findsOneWidget);
+    expect(find.text('This lesson is being prepared.'), findsNothing);
+  });
+
+  testWidgets('module lesson content takes precedence over legacy sections',
+      (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.light,
+        home: const ModuleReaderScreen(
+          learningContent: _moduleContentWithLegacySection,
+        ),
+      ),
+    );
+    await tester.pump();
+
+    expect(find.text('Canonical lesson body.'), findsOneWidget);
+    expect(find.text('Legacy section body.'), findsNothing);
+  });
+
+  testWidgets('empty Notes module displays preparation message',
+      (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.light,
+        home: const ModuleReaderScreen(learningContent: _emptyContent),
+      ),
+    );
+    await tester.pump();
+
+    expect(find.text('This lesson is being prepared.'), findsOneWidget);
+  });
+
+  testWidgets('legacy structured Notes sections remain readable',
+      (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.light,
+        home: const ModuleReaderScreen(learningContent: _content),
+      ),
+    );
+    await tester.pump();
+
+    expect(find.text('A pattern follows a rule.'), findsOneWidget);
+    expect(find.text('This lesson is being prepared.'), findsNothing);
+  });
+
   testWidgets('Go to Flashcards returns action to persist Learn first',
       (tester) async {
     Object? result;
@@ -179,6 +236,92 @@ const _content = LearningContent(
       order: 1,
     ),
   ],
+);
+
+const _moduleContent = LearningContent(
+  subjectName: 'Sejarah',
+  chapter: Chapter(
+    id: 'chapter_01',
+    chapterNumber: 1,
+    title: 'Kerajaan Alam Melayu',
+    textbookChapterTitle: 'Kerajaan Alam Melayu',
+    learningObjectives: [],
+    estimatedMinutes: 30,
+    status: 'active',
+    order: 1,
+  ),
+  module: LearningModule(
+    id: 'notes',
+    title: 'Konsep Alam Melayu',
+    type: 'notes',
+    content: 'First paragraph.\n\nSecond paragraph.',
+    summary: 'Introduction',
+    estimatedMinutes: 10,
+    difficulty: 'easy',
+    order: 1,
+    status: 'active',
+  ),
+  noteSections: [],
+);
+
+const _moduleContentWithLegacySection = LearningContent(
+  subjectName: 'Mathematics',
+  chapter: Chapter(
+    id: 'chapter-1',
+    chapterNumber: 1,
+    title: 'Patterns',
+    textbookChapterTitle: 'Patterns',
+    learningObjectives: [],
+    estimatedMinutes: 30,
+    status: 'active',
+    order: 1,
+  ),
+  module: LearningModule(
+    id: 'notes',
+    title: 'Learn',
+    type: 'notes',
+    content: 'Canonical lesson body.',
+    summary: '',
+    estimatedMinutes: 10,
+    difficulty: 'easy',
+    order: 1,
+    status: 'active',
+  ),
+  noteSections: [
+    NoteSection(
+      id: 'legacy',
+      heading: 'Legacy',
+      body: 'Legacy section body.',
+      example: '',
+      order: 1,
+    ),
+  ],
+);
+
+const _emptyContent = LearningContent(
+  subjectName: 'Mathematics',
+  chapter: Chapter(
+    id: 'chapter-1',
+    chapterNumber: 1,
+    title: 'Patterns',
+    textbookChapterTitle: 'Patterns',
+    learningObjectives: [],
+    estimatedMinutes: 30,
+    status: 'active',
+    order: 1,
+  ),
+  module: LearningModule(
+    id: 'notes',
+    title: 'Learn',
+    type: 'notes',
+    content: '   ',
+    summary: '',
+    estimatedMinutes: 10,
+    difficulty: 'easy',
+    order: 1,
+    status: 'active',
+  ),
+  noteSections: [],
 );
 
 const _multiSectionContent = LearningContent(

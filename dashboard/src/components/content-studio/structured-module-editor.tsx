@@ -12,8 +12,6 @@ import {
   type LearningModule,
   type ModuleDifficulty,
   type ModuleStatus,
-  type NoteSection,
-  type NoteSectionInput,
   type PracticeItem,
   type PracticeItemInput,
   type QuizQuestion,
@@ -22,7 +20,7 @@ import {
 
 type Location = CurriculumContentLocation & { moduleId: string };
 
-export function StructuredModuleEditor({ repository, location: parentLocation, module, canEdit, canActivate, canManageStatus, onBack, onEditDetails, onPublish }: { repository: StructuredContentRepository; location: CurriculumContentLocation; module: LearningModule; canEdit: boolean; canActivate: boolean; canManageStatus: boolean; onBack: () => void; onEditDetails: () => void; onPublish: () => Promise<void> }) {
+export function StructuredModuleEditor({ repository, location: parentLocation, module, practiceModuleIds, canEdit, canActivate, canManageStatus, startAdding = false, onBack, onEditDetails, onPublish }: { repository: StructuredContentRepository; location: CurriculumContentLocation; module: LearningModule; practiceModuleIds: readonly string[]; canEdit: boolean; canActivate: boolean; canManageStatus: boolean; startAdding?: boolean; onBack: () => void; onEditDetails: () => void; onPublish: () => Promise<void> }) {
   const location = useMemo(
     () => ({ ...parentLocation, moduleId: module.id }),
     [module.id, parentLocation],
@@ -31,7 +29,7 @@ export function StructuredModuleEditor({ repository, location: parentLocation, m
     <div className="panel">
       <div className="flex flex-wrap items-start justify-between gap-4 border-b border-[#e6ebe7] pb-5">
         <div>
-          <button className="mb-3 text-sm font-semibold text-[#496a5a] hover:underline" onClick={onBack} type="button">← Module list</button>
+          <button className="mb-3 text-sm font-semibold text-[#496a5a] hover:underline" onClick={onBack} type="button">← Back to module list</button>
           <p className="eyebrow">{module.type.toUpperCase()} EDITOR</p>
           <h2 className="mt-1 text-2xl font-bold text-[#293930]">{module.title}</h2>
         </div>
@@ -41,39 +39,20 @@ export function StructuredModuleEditor({ repository, location: parentLocation, m
         </div>
       </div>
       <div className="pt-6">
-        {module.type === "notes" && <NotesEditor canEdit={canEdit} location={location} repository={repository} />}
-        {module.type === "flashcards" && <FlashcardsEditor canActivate={canActivate} canEdit={canEdit} canManageStatus={canManageStatus} location={location} repository={repository} />}
-        {module.type === "practice" && <PracticeEditor canActivate={canActivate} canEdit={canEdit} canManageStatus={canManageStatus} location={location} repository={repository} />}
-        {module.type === "quiz" && <QuizEditor canActivate={canActivate} canEdit={canEdit} canManageStatus={canManageStatus} location={location} repository={repository} />}
-        {module.type === "test" && <Placeholder text="Test builder coming later" />}
-        {module.type === "review" && <Placeholder text="Review engine coming later" />}
+        {module.type === "notes" && <Placeholder text="Lesson content is managed in module details." />}
+        {module.type === "flashcards" && <FlashcardsEditor canActivate={canActivate} canEdit={canEdit} canManageStatus={canManageStatus} location={location} repository={repository} startAdding={startAdding} />}
+        {module.type === "practice" && <PracticeEditor canActivate={canActivate} canEdit={canEdit} canManageStatus={canManageStatus} location={location} practiceModuleIds={practiceModuleIds} repository={repository} startAdding={startAdding} />}
+        {module.type === "quiz" && <QuizEditor canActivate={canActivate} canEdit={canEdit} canManageStatus={canManageStatus} location={location} repository={repository} startAdding={startAdding} />}
+        {module.type === "test" && <Placeholder text="Test modules do not have a structured authoring schema yet. Module metadata is saved, but test content cannot be authored here." />}
+        {module.type === "review" && <Placeholder text="Review modules do not have a structured authoring schema yet. Module metadata is saved, but review content cannot be authored here." />}
       </div>
     </div>
   );
 }
 
-function NotesEditor({ repository, location, canEdit }: EditorProps) {
-  const [items, setItems] = useState<NoteSection[]>([]);
-  const [editing, setEditing] = useState<NoteSection | "new" | null>(null);
-  const [error, setError] = useState("");
-  useEffect(() => repository.watchNoteSections(location, setItems, (next) => setError(next.message)), [location, repository]);
-
-  async function save(input: NoteSectionInput) {
-    if (editing && editing !== "new") await repository.updateNoteSection(location, editing.id, input);
-    else await repository.createNoteSection(location, input);
-    setEditing(null);
-  }
-
-  return <CollectionLayout title="Note sections" count={items.length} addLabel="Add section" onAdd={canEdit ? () => setEditing("new") : undefined} error={error}>
-    {editing && <NoteSectionForm item={editing === "new" ? undefined : editing} onCancel={() => setEditing(null)} onSave={save} />}
-    {!editing && items.map((item) => <ItemCard key={item.id} eyebrow={`SECTION ${item.order}`} title={item.heading} description={item.body} onEdit={canEdit ? () => setEditing(item) : undefined} onDelete={canEdit ? () => confirmDelete(item.heading) && repository.deleteNoteSection(location, item.id) : undefined} />)}
-    {!editing && !items.length && <Empty text="No note sections yet." />}
-  </CollectionLayout>;
-}
-
-function FlashcardsEditor({ repository, location, canEdit, canActivate = false, canManageStatus = false }: EditorProps) {
+function FlashcardsEditor({ repository, location, canEdit, canActivate = false, canManageStatus = false, startAdding = false }: EditorProps) {
   const [items, setItems] = useState<Flashcard[]>([]);
-  const [editing, setEditing] = useState<Flashcard | "new" | null>(null);
+  const [editing, setEditing] = useState<Flashcard | "new" | null>(startAdding ? "new" : null);
   const [error, setError] = useState("");
   useEffect(() => repository.watchFlashcards(location, setItems, (next) => setError(next.message)), [location, repository]);
   async function save(input: FlashcardInput) { const allowed = canManageStatus || (canActivate && editing !== "new") ? input : { ...input, status: "draft" as const }; if (editing && editing !== "new") await repository.updateFlashcard(location, editing.id, allowed); else await repository.createFlashcard(location, allowed); setEditing(null); }
@@ -84,11 +63,11 @@ function FlashcardsEditor({ repository, location, canEdit, canActivate = false, 
   </CollectionLayout>;
 }
 
-function PracticeEditor({ repository, location, canEdit, canActivate = false, canManageStatus = false }: EditorProps) {
+function PracticeEditor({ repository, location, practiceModuleIds = [], canEdit, canActivate = false, canManageStatus = false, startAdding = false }: EditorProps) {
   const [items, setItems] = useState<PracticeItem[]>([]);
-  const [editing, setEditing] = useState<PracticeItem | "new" | null>(null);
+  const [editing, setEditing] = useState<PracticeItem | "new" | null>(startAdding ? "new" : null);
   const [error, setError] = useState("");
-  useEffect(() => repository.watchPracticeItems(location, setItems, (next) => setError(next.message)), [location, repository]);
+  useEffect(() => repository.watchPracticeItems(location, practiceModuleIds, setItems, (next) => setError(next.message)), [location, practiceModuleIds, repository]);
   async function save(input: PracticeItemInput) { const allowed = canManageStatus || (canActivate && editing !== "new") ? input : { ...input, status: "draft" as const }; if (editing && editing !== "new") await repository.updatePracticeItem(location, editing.id, allowed); else await repository.createPracticeItem(location, allowed); setEditing(null); }
   return <CollectionLayout title="Practice questions" count={items.length} addLabel="Add question" onAdd={canEdit ? () => setEditing("new") : undefined} error={error}>
     {editing && <PracticeForm item={editing === "new" ? undefined : editing} statusOptions={contentStatusOptions(canManageStatus ? "admin" : "editor", editing === "new" ? undefined : editing.status)} onCancel={() => setEditing(null)} onSave={save} />}
@@ -97,9 +76,9 @@ function PracticeEditor({ repository, location, canEdit, canActivate = false, ca
   </CollectionLayout>;
 }
 
-function QuizEditor({ repository, location, canEdit, canActivate = false, canManageStatus = false }: EditorProps) {
+function QuizEditor({ repository, location, canEdit, canActivate = false, canManageStatus = false, startAdding = false }: EditorProps) {
   const [items, setItems] = useState<QuizQuestion[]>([]);
-  const [editing, setEditing] = useState<QuizQuestion | "new" | null>(null);
+  const [editing, setEditing] = useState<QuizQuestion | "new" | null>(startAdding ? "new" : null);
   const [error, setError] = useState("");
   useEffect(() => repository.watchQuizQuestions(location, setItems, (next) => setError(next.message)), [location, repository]);
   async function save(input: QuizQuestionInput) { const allowed = canManageStatus || (canActivate && editing !== "new") ? input : { ...input, status: "draft" as const }; if (editing && editing !== "new") await repository.updateQuizQuestion(location, editing.id, allowed); else await repository.createQuizQuestion(location, allowed); setEditing(null); }
@@ -110,7 +89,7 @@ function QuizEditor({ repository, location, canEdit, canActivate = false, canMan
   </CollectionLayout>;
 }
 
-type EditorProps = { repository: StructuredContentRepository; location: Location; canEdit: boolean; canActivate?: boolean; canManageStatus?: boolean };
+type EditorProps = { repository: StructuredContentRepository; location: Location; practiceModuleIds?: readonly string[]; canEdit: boolean; canActivate?: boolean; canManageStatus?: boolean; startAdding?: boolean };
 
 function CollectionLayout({ title, count, addLabel, onAdd, error, children }: { title: string; count: number; addLabel: string; onAdd?: () => void; error: string; children: React.ReactNode }) {
   return <div><div className="mb-5 flex flex-wrap items-center justify-between gap-3"><div><h3 className="text-xl font-bold text-[#293930]">{title}</h3><p className="mt-1 text-sm text-slate-500">{count} total</p></div>{onAdd && <button className="primary-button" onClick={onAdd} type="button">{addLabel}</button>}</div>{error && <p className="error-banner">{error}</p>}<div className="space-y-3">{children}</div></div>;
@@ -139,11 +118,6 @@ function QuizQuestionCard({ item, onEdit, onDelete }: { item: QuizQuestion; onEd
 
 function Badge({ children }: { children: React.ReactNode }) {
   return <span className="rounded-full border border-[#dce6df] bg-[#f5f8f6] px-2.5 py-1 text-xs font-bold text-[#40534a]">{children}</span>;
-}
-
-function NoteSectionForm({ item, onSave, onCancel }: { item?: NoteSection; onSave: (input: NoteSectionInput) => Promise<void>; onCancel: () => void }) {
-  const [heading, setHeading] = useState(item?.heading ?? ""); const [body, setBody] = useState(item?.body ?? ""); const [example, setExample] = useState(item?.example ?? ""); const [order, setOrder] = useState(item?.order ?? 1);
-  return <SimpleForm onSubmit={() => onSave({ heading: heading.trim(), body: body.trim(), example: example.trim(), order })} onCancel={onCancel}><Field label="Heading" value={heading} setValue={setHeading} /><TextField label="Body" value={body} setValue={setBody} /><TextField label="Example" value={example} setValue={setExample} /><NumberField label="Order" value={order} setValue={setOrder} /></SimpleForm>;
 }
 
 function FlashcardForm({ item, statusOptions, onSave, onCancel }: { item?: Flashcard; statusOptions: readonly ModuleStatus[]; onSave: (input: FlashcardInput) => Promise<void>; onCancel: () => void }) {

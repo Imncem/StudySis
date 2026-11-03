@@ -19,6 +19,8 @@ class PracticeScreen extends StatefulWidget {
     this.chapterTitle,
     this.muffinService,
     this.onComplete,
+    this.moduleNavigation,
+    this.moduleMetadata,
     super.key,
   });
 
@@ -32,6 +34,8 @@ class PracticeScreen extends StatefulWidget {
   final String? chapterTitle;
   final MuffinService? muffinService;
   final Future<void> Function(PracticeResult result)? onComplete;
+  final Widget? moduleNavigation;
+  final Widget? moduleMetadata;
 
   @override
   State<PracticeScreen> createState() => _PracticeScreenState();
@@ -156,10 +160,17 @@ class _PracticeScreenState extends State<PracticeScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      bottomNavigationBar: widget.moduleNavigation,
       appBar: AppBar(
         backgroundColor: Theme.of(context).scaffoldBackgroundColor,
         surfaceTintColor: Colors.transparent,
         title: Text(widget.title),
+        bottom: widget.moduleMetadata == null
+            ? null
+            : PreferredSize(
+                preferredSize: const Size.fromHeight(66),
+                child: widget.moduleMetadata!,
+              ),
       ),
       body: SafeArea(
         child: FutureBuilder<List<PracticeQuestion>>(

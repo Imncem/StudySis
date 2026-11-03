@@ -159,6 +159,7 @@ export type FlashcardInput = Omit<Flashcard, "id" | "createdAt" | "updatedAt">;
 
 export type PracticeItem = {
   id: string;
+  moduleId?: string;
   question: string;
   options: string[];
   correctAnswerIndex: number;
@@ -174,7 +175,7 @@ export type PracticeItem = {
 };
 export type PracticeItemInput = Omit<
   PracticeItem,
-  "id" | "createdAt" | "updatedAt"
+  "id" | "moduleId" | "createdAt" | "updatedAt"
 >;
 
 export type QuizQuestion = {

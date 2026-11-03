@@ -16,6 +16,7 @@ class ModuleReaderScreen extends StatelessWidget {
   const ModuleReaderScreen({
     required this.learningContent,
     this.muffinService,
+    this.moduleNavigation,
     super.key,
   });
 
@@ -23,6 +24,7 @@ class ModuleReaderScreen extends StatelessWidget {
 
   final LearningContent learningContent;
   final MuffinService? muffinService;
+  final Widget? moduleNavigation;
 
   MuffinContext _contextForSection(NoteSection section) {
     return MuffinContext(
@@ -47,6 +49,22 @@ class ModuleReaderScreen extends StatelessWidget {
     );
   }
 
+  MuffinContext _contextForModuleContent() {
+    return MuffinContext(
+      studentProfileId: 'qidah',
+      preferredLanguage: 'Mixed',
+      subjectId: learningContent.subjectId,
+      subjectTitle: learningContent.subjectName,
+      chapterId: learningContent.chapter.id,
+      chapterTitle: learningContent.chapter.title,
+      mode: MuffinMode.learn,
+      currentScreen: 'learn',
+      lessonHeading: learningContent.module.title,
+      lessonBody: learningContent.module.content,
+      originalScreenContent: learningContent.module.content,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final chapter = learningContent.chapter;
@@ -58,16 +76,18 @@ class ModuleReaderScreen extends StatelessWidget {
     final accent = subjectTheme.accent(context);
     final soft = subjectTheme.softSurface(context);
     _registerTranslationContent(context);
-    if (learningContent.noteSections.isNotEmpty) {
+    if (learningContent.hasLessonContent) {
+      final contextKey = learningContent.hasModuleLessonContent
+          ? 'learn_${learningContent.subjectId}_${chapter.id}_module_${module.id}'
+          : 'learn_${learningContent.subjectId}_${chapter.id}_section_${learningContent.noteSections.first.id}';
+      final muffinContext = learningContent.hasModuleLessonContent
+          ? _contextForModuleContent()
+          : _contextForSection(learningContent.noteSections.first);
       MuffinContextRegistry.instance.set(
         MuffinScreenContext(
           mode: MuffinMode.learn,
           subtitle: 'I can help explain this lesson gently.',
-          context:
-              _contextForSection(learningContent.noteSections.first).copyWith(
-            contextKey:
-                'learn_${learningContent.subjectId}_${chapter.id}_section_${learningContent.noteSections.first.id}',
-          ),
+          context: muffinContext.copyWith(contextKey: contextKey),
           actions: [
             const MuffinActionConfig(
               action: MuffinAction.explainSimply,
@@ -180,7 +200,24 @@ class ModuleReaderScreen extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 24),
-            if (learningContent.noteSections.isEmpty)
+            if (learningContent.hasModuleLessonContent)
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(22),
+                  child: SelectableText(
+                    PageTranslationScope.text(
+                      context,
+                      'moduleContent',
+                      module.content,
+                    ),
+                    style: Theme.of(context)
+                        .textTheme
+                        .bodyLarge
+                        ?.copyWith(height: 1.7),
+                  ),
+                ),
+              )
+            else if (!learningContent.hasLegacyNoteSections)
               const Card(
                 child: Padding(
                   padding: EdgeInsets.all(28),
@@ -257,14 +294,17 @@ class ModuleReaderScreen extends StatelessWidget {
                 const SizedBox(height: 12),
               ],
             const SizedBox(height: 12),
-            OutlinedButton.icon(
-              onPressed: () {
-                Navigator.of(context)
-                    .pop(ModuleReaderExitAction.goToFlashcards);
-              },
-              icon: const Icon(Icons.style_rounded),
-              label: const Text('Go to Flashcards'),
-            ),
+            if (moduleNavigation == null)
+              OutlinedButton.icon(
+                onPressed: () {
+                  Navigator.of(context)
+                      .pop(ModuleReaderExitAction.goToFlashcards);
+                },
+                icon: const Icon(Icons.style_rounded),
+                label: const Text('Go to Flashcards'),
+              )
+            else
+              moduleNavigation!,
           ],
         ),
       ),
@@ -298,30 +338,37 @@ class ModuleReaderScreen extends StatelessWidget {
         type: 'label',
         text: learningContent.module.typeLabel,
       ),
-      for (final section in learningContent.noteSections) ...[
+      if (learningContent.hasModuleLessonContent)
         PageTranslationField(
-          id: 'section_${section.id}_heading',
-          type: 'heading',
-          text: section.heading,
-        ),
-        PageTranslationField(
-          id: 'section_${section.id}_body',
+          id: 'moduleContent',
           type: 'paragraph',
-          text: section.body,
-        ),
-        if (section.example.isNotEmpty) ...[
+          text: learningContent.module.content,
+        )
+      else
+        for (final section in learningContent.noteSections) ...[
           PageTranslationField(
-            id: 'section_${section.id}_example_label',
-            type: 'label',
-            text: 'Example',
+            id: 'section_${section.id}_heading',
+            type: 'heading',
+            text: section.heading,
           ),
           PageTranslationField(
-            id: 'section_${section.id}_example_text',
-            type: 'example',
-            text: section.example,
+            id: 'section_${section.id}_body',
+            type: 'paragraph',
+            text: section.body,
           ),
+          if (section.example.isNotEmpty) ...[
+            PageTranslationField(
+              id: 'section_${section.id}_example_label',
+              type: 'label',
+              text: 'Example',
+            ),
+            PageTranslationField(
+              id: 'section_${section.id}_example_text',
+              type: 'example',
+              text: section.example,
+            ),
+          ],
         ],
-      ],
     ];
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (ModalRoute.of(context)?.isCurrent != true) return;

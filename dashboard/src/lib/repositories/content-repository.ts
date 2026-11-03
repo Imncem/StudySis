@@ -9,6 +9,7 @@ import {
   runTransaction,
   serverTimestamp,
   updateDoc,
+  where,
   writeBatch,
   type DocumentData,
   type Firestore,
@@ -466,12 +467,13 @@ export class ContentRepository {
   async createModule(
     location: CurriculumContentLocation,
     input: LearningModuleInput,
-  ): Promise<void> {
-    await addDoc(collection(this.db, contentPaths.modules(location)), {
+  ): Promise<string> {
+    const reference = await addDoc(collection(this.db, contentPaths.modules(location)), {
       ...input,
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
     });
+    return reference.id;
   }
 
   async updateModule(
@@ -489,26 +491,34 @@ export class ContentRepository {
     location: CurriculumContentLocation,
     moduleId: string,
   ): Promise<void> {
-    const nestedSnapshots = await Promise.all(
-      structuredCollections.map((collectionName) =>
+    const [nestedSnapshots, ownedPracticeSnapshot] = await Promise.all([
+      Promise.all(structuredCollections.map((collectionName) =>
         getDocs(
           collection(
             this.db,
             contentPaths.moduleContent(location, moduleId, collectionName),
           ),
         ),
-      ),
-    );
+      )),
+      getDocs(query(
+        collection(this.db, contentPaths.practiceQuestions(location)),
+        where("moduleId", "==", moduleId),
+      )),
+    ]);
     const nestedDocuments = nestedSnapshots.flatMap(
       (snapshot) => snapshot.docs,
     );
-    if (nestedDocuments.length >= 500) {
+    const contentDocuments = [
+      ...nestedDocuments,
+      ...ownedPracticeSnapshot.docs,
+    ];
+    if (contentDocuments.length >= 500) {
       throw new Error(
         "This module has too much content for a safe dashboard deletion.",
       );
     }
     const batch = writeBatch(this.db);
-    nestedDocuments.forEach((item) => batch.delete(item.ref));
+    contentDocuments.forEach((item) => batch.delete(item.ref));
     batch.delete(doc(this.db, contentPaths.module(location, moduleId)));
     await batch.commit();
   }

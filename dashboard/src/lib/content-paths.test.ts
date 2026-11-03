@@ -8,6 +8,18 @@ test("keeps existing chapter module paths unchanged", () => {
     contentPaths.modules(location),
     "curriculum/form2/subjects/science/chapters/chapter_01/modules",
   );
+  assert.equal(
+    contentPaths.moduleContent(location, "flashcards", "cards"),
+    "curriculum/form2/subjects/science/chapters/chapter_01/modules/flashcards/cards",
+  );
+  assert.equal(
+    contentPaths.moduleContent(location, "quiz", "questions"),
+    "curriculum/form2/subjects/science/chapters/chapter_01/modules/quiz/questions",
+  );
+  assert.equal(
+    contentPaths.practiceQuestions(location),
+    "curriculum/form2/subjects/science/chapters/chapter_01/practice_questions",
+  );
 });
 
 test("stores language modules and content beneath a topic", () => {
@@ -24,6 +36,14 @@ test("stores language modules and content beneath a topic", () => {
     contentPaths.moduleContent(location, "notes", "sections"),
     "curriculum/form2/subjects/bahasa_melayu/chapters/tatabahasa/topics/kata_nama/modules/notes/sections",
   );
+  assert.equal(
+    contentPaths.moduleContent(location, "quiz", "questions"),
+    "curriculum/form2/subjects/bahasa_melayu/chapters/tatabahasa/topics/kata_nama/modules/quiz/questions",
+  );
+  assert.equal(
+    contentPaths.practiceQuestions(location),
+    "curriculum/form2/subjects/bahasa_melayu/chapters/tatabahasa/topics/kata_nama/practice_questions",
+  );
 });
 
 test("stores Sejarah modules and content beneath a subchapter", () => {
@@ -39,5 +59,13 @@ test("stores Sejarah modules and content beneath a subchapter", () => {
   assert.equal(
     contentPaths.moduleContent(location, "notes", "sections"),
     "curriculum/form2/subjects/sejarah/chapters/chapter_01/subchapters/subchapter_01_04/modules/notes/sections",
+  );
+  assert.equal(
+    contentPaths.moduleContent(location, "flashcards", "cards"),
+    "curriculum/form2/subjects/sejarah/chapters/chapter_01/subchapters/subchapter_01_04/modules/flashcards/cards",
+  );
+  assert.equal(
+    contentPaths.practiceQuestions(location),
+    "curriculum/form2/subjects/sejarah/chapters/chapter_01/subchapters/subchapter_01_04/practice_questions",
   );
 });

@@ -19,6 +19,8 @@ class QuizScreen extends StatefulWidget {
     required this.questionsFuture,
     this.muffinService,
     this.onComplete,
+    this.moduleNavigation,
+    this.moduleMetadata,
     super.key,
   });
 
@@ -31,6 +33,8 @@ class QuizScreen extends StatefulWidget {
   final Future<List<QuizQuestion>> questionsFuture;
   final MuffinService? muffinService;
   final Future<void> Function(QuizResult result)? onComplete;
+  final Widget? moduleNavigation;
+  final Widget? moduleMetadata;
 
   @override
   State<QuizScreen> createState() => _QuizScreenState();
@@ -119,10 +123,17 @@ class _QuizScreenState extends State<QuizScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      bottomNavigationBar: widget.moduleNavigation,
       appBar: AppBar(
         backgroundColor: Theme.of(context).scaffoldBackgroundColor,
         surfaceTintColor: Colors.transparent,
         title: Text(widget.chapter.title),
+        bottom: widget.moduleMetadata == null
+            ? null
+            : PreferredSize(
+                preferredSize: const Size.fromHeight(66),
+                child: widget.moduleMetadata!,
+              ),
       ),
       body: SafeArea(
         child: FutureBuilder<List<QuizQuestion>>(

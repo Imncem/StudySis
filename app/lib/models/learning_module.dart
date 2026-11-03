@@ -11,6 +11,7 @@ class LearningModule {
     required this.difficulty,
     required this.order,
     required this.status,
+    this.hasValidOrder = true,
     this.createdAt,
     this.updatedAt,
   });
@@ -24,6 +25,7 @@ class LearningModule {
   final String difficulty;
   final int order;
   final String status;
+  final bool hasValidOrder;
   final DateTime? createdAt;
   final DateTime? updatedAt;
 
@@ -36,6 +38,8 @@ class LearningModule {
       .join(' ');
 
   factory LearningModule.fromMap(String id, Map<String, dynamic> data) {
+    final rawOrder = data['order'];
+    final parsedOrder = rawOrder is num ? rawOrder.toInt() : 0;
     return LearningModule(
       id: id,
       title: (data['title'] ?? 'Untitled module').toString(),
@@ -44,8 +48,9 @@ class LearningModule {
       summary: (data['summary'] ?? '').toString(),
       estimatedMinutes: (data['estimatedMinutes'] as num?)?.toInt() ?? 0,
       difficulty: (data['difficulty'] ?? 'medium').toString(),
-      order: (data['order'] as num?)?.toInt() ?? 0,
+      order: parsedOrder,
       status: (data['status'] ?? 'draft').toString(),
+      hasValidOrder: rawOrder is num && parsedOrder >= 0,
       createdAt: (data['createdAt'] as Timestamp?)?.toDate(),
       updatedAt: (data['updatedAt'] as Timestamp?)?.toDate(),
     );

@@ -1,7 +1,7 @@
 {
   "scripts": {
     "test": "npm run test:rules:emulator",
-    "test:rules": "node --test test/firestore-rules/*.test.js",
+    "test:rules": "node --test --test-concurrency=1 test/firestore-rules/*.test.js",
     "test:rules:emulator": "firebase emulators:exec --only firestore \"npm run test:rules\""
   },
   "devDependencies": {

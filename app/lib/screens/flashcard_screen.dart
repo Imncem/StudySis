@@ -23,6 +23,8 @@ class FlashcardScreen extends StatefulWidget {
     this.muffinService,
     this.savedFlashcardService,
     this.cardsFuture,
+    this.moduleNavigation,
+    this.moduleMetadata,
     super.key,
   });
 
@@ -37,6 +39,8 @@ class FlashcardScreen extends StatefulWidget {
   final MuffinService? muffinService;
   final SavedFlashcardService? savedFlashcardService;
   final Future<List<Flashcard>>? cardsFuture;
+  final Widget? moduleNavigation;
+  final Widget? moduleMetadata;
 
   @override
   State<FlashcardScreen> createState() => _FlashcardScreenState();
@@ -75,6 +79,7 @@ class _FlashcardScreenState extends State<FlashcardScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      bottomNavigationBar: widget.moduleNavigation,
       body: SafeArea(
         child: FutureBuilder<List<Flashcard>>(
           future: _cards,
@@ -163,6 +168,7 @@ class _FlashcardScreenState extends State<FlashcardScreen> {
                       padding: EdgeInsets.fromLTRB(16, 8, 16, 0),
                       child: PageTranslationBanner(),
                     ),
+                    if (widget.moduleMetadata != null) widget.moduleMetadata!,
                     _FlashcardHeader(
                       subjectName: widget.subjectName,
                       chapterTitle: widget.chapter.title,

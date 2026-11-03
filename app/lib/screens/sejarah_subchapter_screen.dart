@@ -5,10 +5,8 @@ import '../models/learning_module.dart';
 import '../models/subchapter.dart';
 import '../repositories/learning_repository.dart';
 import '../theme/app_theme.dart';
-import 'flashcard_screen.dart';
-import 'module_reader_screen.dart';
-import 'practice_screen.dart';
-import 'quiz_screen.dart';
+import '../models/learning_module_sequence.dart';
+import 'learning_module_sequence_screen.dart';
 
 class SejarahSubchapterScreen extends StatefulWidget {
   const SejarahSubchapterScreen({
@@ -170,7 +168,7 @@ class _SejarahModulesScreenState extends State<SejarahModulesScreen> {
                   subtitle:
                       '${module.typeLabel} · ${module.estimatedMinutes} min',
                   theme: theme,
-                  onTap: () => _openModule(module),
+                  onTap: () => _openModule(module, modules),
                 ),
                 const SizedBox(height: 12),
               ],
@@ -181,75 +179,27 @@ class _SejarahModulesScreenState extends State<SejarahModulesScreen> {
     );
   }
 
-  Future<void> _openModule(LearningModule module) async {
-    final repository = widget.repository;
-    final location = (
-      subjectId: 'sejarah',
-      chapterId: widget.chapter.id,
-      subchapterId: widget.subchapter.id,
-      moduleId: module.id,
+  Future<void> _openModule(
+    LearningModule module,
+    List<LearningModule> modules,
+  ) async {
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => LearningModuleSequenceScreen(
+          subjectName: widget.subjectName,
+          chapter: widget.chapter,
+          parent: LearningModuleParent.subchapter(
+            subjectId: 'sejarah',
+            chapterId: widget.chapter.id,
+            subchapterId: widget.subchapter.id,
+          ),
+          parentTitle: widget.subchapter.title,
+          modules: modules,
+          initialModuleId: module.id,
+          repository: widget.repository,
+        ),
+      ),
     );
-    Widget? screen;
-    if (module.type == 'notes') {
-      final content = await repository.getSubchapterNotesContent(
-        subjectId: location.subjectId,
-        chapterId: location.chapterId,
-        subchapterId: location.subchapterId,
-        moduleId: location.moduleId,
-      );
-      if (content != null) {
-        screen = ModuleReaderScreen(learningContent: content);
-      }
-    } else if (module.type == 'flashcards') {
-      screen = FlashcardScreen(
-        subjectId: location.subjectId,
-        subjectName: widget.subjectName,
-        chapter: widget.chapter,
-        repository: repository,
-        cardsFuture: repository.getActiveSubchapterFlashcards(
-          subjectId: location.subjectId,
-          chapterId: location.chapterId,
-          subchapterId: location.subchapterId,
-          moduleId: location.moduleId,
-        ),
-      );
-    } else if (module.type == 'practice') {
-      screen = PracticeScreen(
-        title: module.title,
-        subjectId: location.subjectId,
-        subjectTitle: widget.subjectName,
-        chapterId: location.chapterId,
-        chapterTitle: widget.subchapter.title,
-        questionsFuture: repository.getActiveSubchapterPractice(
-          subjectId: location.subjectId,
-          chapterId: location.chapterId,
-          subchapterId: location.subchapterId,
-          moduleId: location.moduleId,
-        ),
-      );
-    } else if (module.type == 'quiz' || module.type == 'test') {
-      screen = QuizScreen(
-        chapter: widget.chapter,
-        subjectId: location.subjectId,
-        subjectTitle: widget.subjectName,
-        title: module.title,
-        questionsFuture: repository.getActiveSubchapterQuiz(
-          subjectId: location.subjectId,
-          chapterId: location.chapterId,
-          subchapterId: location.subchapterId,
-          moduleId: location.moduleId,
-        ),
-      );
-    }
-    if (!mounted) return;
-    if (screen == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('This module type is being prepared.')),
-      );
-      return;
-    }
-    await Navigator.of(context)
-        .push(MaterialPageRoute<void>(builder: (_) => screen!));
   }
 }
 

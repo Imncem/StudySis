@@ -552,6 +552,70 @@ test('Mathematics editor regression retains draft authoring access', async () =>
   ));
 });
 
+test('parent-level Practice ownership accepts valid modules and legacy documents', async () => {
+  const db = dashboardDb(adminUid);
+
+  await assertSucceeds(setDoc(
+    practiceRef(db, 'science', 'chapter-01', 'owned'),
+    practiceData({moduleId: 'practice'}),
+  ));
+  await assertSucceeds(setDoc(
+    practiceRef(db, 'science', 'chapter-01', 'legacy-unassigned'),
+    practiceData(),
+  ));
+
+  await setDoc(
+    topicModuleRef(db, 'english', 'grammar', 'verbs', 'practice-a'),
+    moduleData({type: 'practice'}),
+  );
+  await assertSucceeds(setDoc(
+    topicPracticeRef(db, 'english', 'grammar', 'verbs', 'owned'),
+    practiceData({moduleId: 'practice-a'}),
+  ));
+
+  await setDoc(
+    subchapterRef(db, 'sejarah', 'chapter-01', 'subchapter-01'),
+    subchapterData(),
+  );
+  await setDoc(
+    subchapterModuleRef(
+      db,
+      'sejarah',
+      'chapter-01',
+      'subchapter-01',
+      'practice-a',
+    ),
+    moduleData({type: 'practice'}),
+  );
+  await assertSucceeds(setDoc(
+    subchapterPracticeRef(
+      db,
+      'sejarah',
+      'chapter-01',
+      'subchapter-01',
+      'owned',
+    ),
+    practiceData({moduleId: 'practice-a'}),
+  ));
+});
+
+test('Practice ownership rejects missing and non-Practice module links', async () => {
+  const db = dashboardDb(adminUid);
+
+  await assertFails(setDoc(
+    practiceRef(db, 'science', 'chapter-01', 'missing-module'),
+    practiceData({moduleId: 'does-not-exist'}),
+  ));
+  await assertFails(setDoc(
+    practiceRef(db, 'science', 'chapter-01', 'notes-module'),
+    practiceData({moduleId: 'notes'}),
+  ));
+  await assertFails(setDoc(
+    practiceRef(db, 'science', 'chapter-01', 'empty-module'),
+    practiceData({moduleId: ''}),
+  ));
+});
+
 function dashboardDb(uid) {
   return testEnv.authenticatedContext(uid, {
     email: `${uid}@example.test`,
@@ -775,4 +839,12 @@ function subchapterModuleRef(db, subjectId, chapterId, subchapterId, moduleId) {
 
 function practiceRef(db, subjectId, chapterId, questionId) {
   return doc(chapterRef(db, subjectId, chapterId), 'practice_questions', questionId);
+}
+
+function topicPracticeRef(db, subjectId, chapterId, topicId, questionId) {
+  return doc(topicRef(db, subjectId, chapterId, topicId), 'practice_questions', questionId);
+}
+
+function subchapterPracticeRef(db, subjectId, chapterId, subchapterId, questionId) {
+  return doc(subchapterRef(db, subjectId, chapterId, subchapterId), 'practice_questions', questionId);
 }

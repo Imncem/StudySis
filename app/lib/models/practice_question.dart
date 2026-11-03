@@ -13,6 +13,7 @@ class PracticeQuestion {
     required this.order,
     required this.status,
     required this.isPublished,
+    this.moduleId,
     this.createdAt,
     this.updatedAt,
   });
@@ -28,6 +29,7 @@ class PracticeQuestion {
   final int order;
   final String status;
   final bool isPublished;
+  final String? moduleId;
   final DateTime? createdAt;
   final DateTime? updatedAt;
 
@@ -47,6 +49,7 @@ class PracticeQuestion {
       parsedOptions.add(legacyAnswer);
     }
     final status = (data['status'] ?? '').toString();
+    final rawModuleId = (data['moduleId'] ?? '').toString().trim();
     return PracticeQuestion(
       id: id,
       question: (data['question'] ?? '').toString(),
@@ -63,6 +66,7 @@ class PracticeQuestion {
           ? (data['isPublished'] == true ? 'active' : 'draft')
           : status,
       isPublished: data['isPublished'] == true || status == 'active',
+      moduleId: rawModuleId.isEmpty ? null : rawModuleId,
       createdAt: (data['createdAt'] as Timestamp?)?.toDate(),
       updatedAt: (data['updatedAt'] as Timestamp?)?.toDate(),
     );

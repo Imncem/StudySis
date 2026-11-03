@@ -16,4 +16,8 @@ class LearningContent {
   final Chapter chapter;
   final LearningModule module;
   final List<NoteSection> noteSections;
+
+  bool get hasModuleLessonContent => module.content.trim().isNotEmpty;
+  bool get hasLegacyNoteSections => noteSections.isNotEmpty;
+  bool get hasLessonContent => hasModuleLessonContent || hasLegacyNoteSections;
 }

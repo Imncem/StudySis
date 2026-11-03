@@ -18,12 +18,28 @@ class ContentPaths {
           String subjectId, String sectionId, String topicId) =>
       '${topics(subjectId, sectionId)}/$topicId/modules';
 
+  static String topicPracticeQuestions(
+          String subjectId, String sectionId, String topicId) =>
+      '${topics(subjectId, sectionId)}/$topicId/practice_questions';
+
+  static String topicModule(String subjectId, String sectionId, String topicId,
+          String moduleId) =>
+      '${topicModules(subjectId, sectionId, topicId)}/$moduleId';
+
+  static String topicModuleContent(String subjectId, String sectionId,
+          String topicId, String moduleId, String collectionName) =>
+      '${topicModule(subjectId, sectionId, topicId, moduleId)}/$collectionName';
+
   static String subchapters(String subjectId, String chapterId) =>
       '${chapters(subjectId)}/$chapterId/subchapters';
 
   static String subchapterModules(
           String subjectId, String chapterId, String subchapterId) =>
       '${subchapters(subjectId, chapterId)}/$subchapterId/modules';
+
+  static String subchapterPracticeQuestions(
+          String subjectId, String chapterId, String subchapterId) =>
+      '${subchapters(subjectId, chapterId)}/$subchapterId/practice_questions';
 
   static String subchapterModule(String subjectId, String chapterId,
           String subchapterId, String moduleId) =>
@@ -35,6 +51,10 @@ class ContentPaths {
 
   static String module(String subjectId, String chapterId, String moduleId) =>
       '${modules(subjectId, chapterId)}/$moduleId';
+
+  static String moduleContent(String subjectId, String chapterId,
+          String moduleId, String collectionName) =>
+      '${module(subjectId, chapterId, moduleId)}/$collectionName';
 
   static String noteSections(
           String subjectId, String chapterId, String moduleId) =>

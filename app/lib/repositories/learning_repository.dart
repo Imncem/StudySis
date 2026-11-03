@@ -3,9 +3,11 @@ import 'package:flutter/foundation.dart';
 
 import '../config/content_paths.dart';
 import '../models/chapter.dart';
+import '../models/curriculum_topic.dart';
 import '../models/flashcard.dart';
 import '../models/learning_content.dart';
 import '../models/learning_module.dart';
+import '../models/learning_module_sequence.dart';
 import '../models/note_section.dart';
 import '../models/practice_question.dart';
 import '../models/quiz_question.dart';
@@ -77,6 +79,22 @@ class LearningRepository {
     return items;
   }
 
+  Future<List<CurriculumTopic>> getActiveTopics({
+    required String subjectId,
+    required String sectionId,
+  }) async {
+    final snapshot = await _firestore
+        .collection(ContentPaths.topics(subjectId, sectionId))
+        .where('status', isEqualTo: 'active')
+        .get();
+    final topics = snapshot.docs
+        .map((item) => CurriculumTopic.fromMap(item.id, item.data()))
+        .where((item) => item.isActive)
+        .toList();
+    topics.sort((left, right) => left.order.compareTo(right.order));
+    return topics;
+  }
+
   Future<List<LearningModule>> getActiveSubchapterModules({
     required String subjectId,
     required String chapterId,
@@ -92,10 +110,124 @@ class LearningRepository {
         .get();
     final items = snapshot.docs
         .map((item) => LearningModule.fromMap(item.id, item.data()))
+        .toList(growable: false);
+    return sequenceActiveLearningModules(
+      items,
+      parentLabel: '$subjectId/$chapterId/subchapters/$subchapterId',
+    );
+  }
+
+  Future<List<LearningModule>> getActiveChapterModules({
+    required String subjectId,
+    required String chapterId,
+  }) =>
+      getActiveModules(
+        LearningModuleParent.chapter(
+          subjectId: subjectId,
+          chapterId: chapterId,
+        ),
+      );
+
+  Future<List<LearningModule>> getActiveTopicModules({
+    required String subjectId,
+    required String sectionId,
+    required String topicId,
+  }) =>
+      getActiveModules(
+        LearningModuleParent.topic(
+          subjectId: subjectId,
+          chapterId: sectionId,
+          topicId: topicId,
+        ),
+      );
+
+  Future<List<LearningModule>> getActiveModules(
+    LearningModuleParent parent,
+  ) async {
+    final snapshot = await _firestore
+        .collection(_moduleCollectionPath(parent))
+        .where('status', isEqualTo: 'active')
+        .get();
+    return sequenceActiveLearningModules(
+      snapshot.docs.map(
+        (item) => LearningModule.fromMap(item.id, item.data()),
+      ),
+      parentLabel: parent.diagnosticLabel,
+    );
+  }
+
+  Future<LearningContent?> getNotesContentForModule({
+    required LearningModuleParent parent,
+    required String moduleId,
+  }) async {
+    final chapter = await getChapter(
+      subjectId: parent.subjectId,
+      chapterId: parent.chapterId,
+    );
+    if (chapter == null) return null;
+    final moduleSnapshot =
+        await _firestore.doc(_moduleDocumentPath(parent, moduleId)).get();
+    final moduleData = moduleSnapshot.data();
+    if (moduleData == null) return null;
+    final module = LearningModule.fromMap(moduleSnapshot.id, moduleData);
+    if (!module.isActive || module.type != 'notes') return null;
+    final sections = await _loadLegacyNoteSections(
+      module,
+      _moduleContentPath(parent, moduleId, 'sections'),
+    );
+    return LearningContent(
+      subjectId: parent.subjectId,
+      subjectName: await getSubjectName(parent.subjectId),
+      chapter: chapter,
+      module: module,
+      noteSections: sections,
+    );
+  }
+
+  Future<List<Flashcard>> getModuleFlashcards({
+    required LearningModuleParent parent,
+    required String moduleId,
+  }) async {
+    final snapshot = await _firestore
+        .collection(_moduleContentPath(parent, moduleId, 'cards'))
+        .orderBy('order')
+        .get();
+    return snapshot.docs
+        .map((item) => Flashcard.fromMap(item.id, item.data()))
         .where((item) => item.isActive)
         .toList(growable: false);
-    items.sort((left, right) => left.order.compareTo(right.order));
-    return items;
+  }
+
+  Future<List<PracticeQuestion>> getModulePractice({
+    required LearningModuleParent parent,
+    required String moduleId,
+    bool includeLegacyUnassigned = false,
+  }) async {
+    final snapshot = await _firestore
+        .collection(_practiceQuestionCollectionPath(parent))
+        .orderBy('order')
+        .get();
+    return snapshot.docs
+        .map((item) => PracticeQuestion.fromMap(item.id, item.data()))
+        .where((item) =>
+            item.isPublished &&
+            (item.moduleId == moduleId ||
+                (includeLegacyUnassigned && item.moduleId == null)))
+        .toList(growable: false);
+  }
+
+  Future<List<QuizQuestion>> getModuleQuiz({
+    required LearningModuleParent parent,
+    required String moduleId,
+  }) async {
+    final snapshot = await _firestore
+        .collection(_moduleContentPath(parent, moduleId, 'questions'))
+        .orderBy('order')
+        .get();
+    return snapshot.docs
+        .map((item) => QuizQuestion.fromMap(item.id, item.data()))
+        .where((item) => item.isActive)
+        .toList(growable: false);
   }
 
   Future<LearningContent?> getSubchapterNotesContent({
@@ -119,24 +251,70 @@ class LearningRepository {
     if (moduleData == null) return null;
     final module = LearningModule.fromMap(moduleSnapshot.id, moduleData);
     if (!module.isActive || module.type != 'notes') return null;
-    final sectionSnapshot = await _firestore
-        .collection(ContentPaths.subchapterModuleContent(
-          subjectId,
-          chapterId,
-          subchapterId,
-          moduleId,
-          'sections',
-        ))
-        .orderBy('order')
-        .get();
+    final sections = await _loadLegacyNoteSections(
+      module,
+      ContentPaths.subchapterModuleContent(
+        subjectId,
+        chapterId,
+        subchapterId,
+        moduleId,
+        'sections',
+      ),
+    );
     return LearningContent(
       subjectId: subjectId,
       subjectName: await getSubjectName(subjectId),
       chapter: chapter,
       module: module,
-      noteSections: sectionSnapshot.docs
-          .map((item) => NoteSection.fromMap(item.id, item.data()))
-          .toList(growable: false),
+      noteSections: sections,
+    );
+  }
+
+  Future<LearningContent?> getTopicNotesContent({
+    required String subjectId,
+    required String sectionId,
+    required String topicId,
+    required String moduleId,
+  }) async {
+    final chapter = await getChapter(
+      subjectId: subjectId,
+      chapterId: sectionId,
+    );
+    if (chapter == null) return null;
+    final topicSnapshot = await _firestore
+        .doc('${ContentPaths.topics(subjectId, sectionId)}/$topicId')
+        .get();
+    if (!topicSnapshot.exists || topicSnapshot.data()?['status'] != 'active') {
+      return null;
+    }
+    final moduleSnapshot = await _firestore
+        .doc(ContentPaths.topicModule(
+          subjectId,
+          sectionId,
+          topicId,
+          moduleId,
+        ))
+        .get();
+    final moduleData = moduleSnapshot.data();
+    if (moduleData == null) return null;
+    final module = LearningModule.fromMap(moduleSnapshot.id, moduleData);
+    if (!module.isActive || module.type != 'notes') return null;
+    final sections = await _loadLegacyNoteSections(
+      module,
+      ContentPaths.topicModuleContent(
+        subjectId,
+        sectionId,
+        topicId,
+        moduleId,
+        'sections',
+      ),
+    );
+    return LearningContent(
+      subjectId: subjectId,
+      subjectName: await getSubjectName(subjectId),
+      chapter: chapter,
+      module: module,
+      noteSections: sections,
     );
   }
 
@@ -168,20 +346,14 @@ class LearningRepository {
     required String subchapterId,
     required String moduleId,
   }) async {
-    final snapshot = await _firestore
-        .collection(ContentPaths.subchapterModuleContent(
-          subjectId,
-          chapterId,
-          subchapterId,
-          moduleId,
-          'items',
-        ))
-        .orderBy('order')
-        .get();
-    return snapshot.docs
-        .map((item) => PracticeQuestion.fromMap(item.id, item.data()))
-        .where((item) => item.isPublished)
-        .toList(growable: false);
+    return getModulePractice(
+      parent: LearningModuleParent.subchapter(
+        subjectId: subjectId,
+        chapterId: chapterId,
+        subchapterId: subchapterId,
+      ),
+      moduleId: moduleId,
+    );
   }
 
   Future<List<QuizQuestion>> getActiveSubchapterQuiz({
@@ -260,15 +432,10 @@ class LearningRepository {
       final module =
           LearningModule.fromMap(moduleDocument.id, moduleDocument.data());
       if (module.isActive && module.type == 'notes') {
-        final sectionSnapshot = await _firestore
-            .collection(
-              ContentPaths.noteSections(subjectId, chapter.id, module.id),
-            )
-            .orderBy('order')
-            .get();
-        final sections = sectionSnapshot.docs
-            .map((section) => NoteSection.fromMap(section.id, section.data()))
-            .toList(growable: false);
+        final sections = await _loadLegacyNoteSections(
+          module,
+          ContentPaths.noteSections(subjectId, chapter.id, module.id),
+        );
         return LearningContent(
           subjectId: subjectId,
           subjectName: subjectName,
@@ -350,15 +517,10 @@ class LearningRepository {
         final module =
             LearningModule.fromMap(moduleDocument.id, moduleDocument.data());
         if (module.isActive && module.type == 'notes') {
-          final sectionSnapshot = await _firestore
-              .collection(
-                ContentPaths.noteSections(subjectId, chapter.id, module.id),
-              )
-              .orderBy('order')
-              .get();
-          final sections = sectionSnapshot.docs
-              .map((section) => NoteSection.fromMap(section.id, section.data()))
-              .toList(growable: false);
+          final sections = await _loadLegacyNoteSections(
+            module,
+            ContentPaths.noteSections(subjectId, chapter.id, module.id),
+          );
           debugPrint(
             '[StudySis] Continue content: subject=$subjectId, '
             'chapter=${chapter.id}, module=${module.id}, '
@@ -378,4 +540,64 @@ class LearningRepository {
     debugPrint('[StudySis] No active Mathematics notes module found.');
     return null;
   }
+
+  Future<List<NoteSection>> _loadLegacyNoteSections(
+    LearningModule module,
+    String collectionPath,
+  ) async {
+    if (module.content.trim().isNotEmpty) return const [];
+    final snapshot =
+        await _firestore.collection(collectionPath).orderBy('order').get();
+    return snapshot.docs
+        .map((section) => NoteSection.fromMap(section.id, section.data()))
+        .toList(growable: false);
+  }
+
+  String _moduleCollectionPath(LearningModuleParent parent) =>
+      switch (parent.kind) {
+        LearningModuleParentKind.chapter =>
+          ContentPaths.modules(parent.subjectId, parent.chapterId),
+        LearningModuleParentKind.subchapter => ContentPaths.subchapterModules(
+            parent.subjectId,
+            parent.chapterId,
+            parent.subchapterId!,
+          ),
+        LearningModuleParentKind.topic => ContentPaths.topicModules(
+            parent.subjectId,
+            parent.chapterId,
+            parent.topicId!,
+          ),
+      };
+
+  String _moduleDocumentPath(
+    LearningModuleParent parent,
+    String moduleId,
+  ) =>
+      '${_moduleCollectionPath(parent)}/$moduleId';
+
+  String _practiceQuestionCollectionPath(LearningModuleParent parent) =>
+      switch (parent.kind) {
+        LearningModuleParentKind.chapter => ContentPaths.practiceQuestions(
+            parent.subjectId,
+            parent.chapterId,
+          ),
+        LearningModuleParentKind.subchapter =>
+          ContentPaths.subchapterPracticeQuestions(
+            parent.subjectId,
+            parent.chapterId,
+            parent.subchapterId!,
+          ),
+        LearningModuleParentKind.topic => ContentPaths.topicPracticeQuestions(
+            parent.subjectId,
+            parent.chapterId,
+            parent.topicId!,
+          ),
+      };
+
+  String _moduleContentPath(
+    LearningModuleParent parent,
+    String moduleId,
+    String collectionName,
+  ) =>
+      '${_moduleDocumentPath(parent, moduleId)}/$collectionName';
 }

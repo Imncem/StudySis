@@ -28,6 +28,7 @@ import type {
   QuizQuestion,
   QuizQuestionInput,
 } from "@/lib/types";
+import { filterPracticeItemsForModule } from "@/lib/practice-ownership";
 
 type ErrorHandler = (error: Error) => void;
 type Location = CurriculumContentLocation & { moduleId: string };
@@ -47,6 +48,7 @@ export class StructuredContentRepository {
     module: LearningModule,
     onData: (count: number) => void,
     onError: ErrorHandler,
+    practiceModuleIds: readonly string[] = [],
   ): Unsubscribe {
     const collectionName = childCollectionByType[
       module.type as keyof typeof childCollectionByType
@@ -61,7 +63,14 @@ export class StructuredContentRepository {
           this.db,
           contentPaths.practiceQuestions(location),
         ),
-        (snapshot) => onData(snapshot.size),
+        (snapshot) =>
+          onData(
+            filterPracticeItemsForModule(
+              snapshot.docs.map(mapPracticeItem),
+              module.id,
+              practiceModuleIds,
+            ).length,
+          ),
         onError,
       );
     }
@@ -111,7 +120,7 @@ export class StructuredContentRepository {
     return this.remove(location, "cards", id);
   }
 
-  watchPracticeItems(location: Location, onData: (items: PracticeItem[]) => void, onError: ErrorHandler) {
+  watchPracticeItems(location: Location, practiceModuleIds: readonly string[], onData: (items: PracticeItem[]) => void, onError: ErrorHandler) {
     return onSnapshot(
       query(
         collection(
@@ -120,7 +129,11 @@ export class StructuredContentRepository {
         ),
         orderBy("order"),
       ),
-      (snapshot) => onData(snapshot.docs.map(mapPracticeItem)),
+      (snapshot) => onData(filterPracticeItemsForModule(
+        snapshot.docs.map(mapPracticeItem),
+        location.moduleId,
+        practiceModuleIds,
+      )),
       onError,
     );
   }
@@ -131,7 +144,7 @@ export class StructuredContentRepository {
         this.db,
         contentPaths.practiceQuestions(location),
       ),
-      { ...input, createdAt: serverTimestamp(), updatedAt: serverTimestamp() },
+      { ...input, moduleId: location.moduleId, createdAt: serverTimestamp(), updatedAt: serverTimestamp() },
     );
   }
 
@@ -141,7 +154,7 @@ export class StructuredContentRepository {
         this.db,
         contentPaths.practiceQuestion(location, id),
       ),
-      { ...input, updatedAt: serverTimestamp() },
+      { ...input, moduleId: location.moduleId, updatedAt: serverTimestamp() },
     );
   }
 
@@ -249,6 +262,9 @@ function mapPracticeItem(item: QueryDocumentSnapshot<DocumentData>): PracticeIte
       : ["", "", "", ""];
   return {
     ...base(item),
+    moduleId: typeof data.moduleId === "string" && data.moduleId.trim()
+      ? data.moduleId
+      : undefined,
     question: data.question ?? "",
     options,
     correctAnswerIndex: Number.isInteger(data.correctAnswerIndex)

@@ -4,6 +4,8 @@ import '../models/chapter.dart';
 import '../models/flashcard.dart';
 import '../models/engagement.dart';
 import '../models/learning_content.dart';
+import '../models/learning_module.dart';
+import '../models/learning_module_sequence.dart';
 import '../models/practice_question.dart';
 import '../models/quiz_question.dart';
 import '../models/study_pet.dart';
@@ -17,6 +19,7 @@ import '../widgets/xp_reward_overlay.dart';
 import 'streak_celebration_screen.dart';
 import 'flashcard_screen.dart';
 import 'level_up_screen.dart';
+import 'learning_module_sequence_screen.dart';
 import 'module_reader_screen.dart';
 import 'practice_screen.dart';
 import 'quiz_screen.dart';
@@ -66,6 +69,10 @@ class _ChapterOverviewScreenState extends State<ChapterOverviewScreen> {
   }
 
   Future<_ChapterJourneyData> _loadJourney() async {
+    final modules = await _repository.getActiveChapterModules(
+      subjectId: widget.subjectId,
+      chapterId: widget.chapter.id,
+    );
     final notes = await _repository.getChapterNotesContent(
       subjectId: widget.subjectId,
       chapterId: widget.chapter.id,
@@ -83,10 +90,119 @@ class _ChapterOverviewScreenState extends State<ChapterOverviewScreen> {
       chapterId: widget.chapter.id,
     );
     return _ChapterJourneyData(
+      modules: modules,
       notes: notes,
       flashcards: flashcards,
       practiceQuestions: practiceQuestions,
       quizQuestions: quizQuestions,
+    );
+  }
+
+  Future<void> _openModuleSequence(
+    LearningModule module,
+    List<LearningModule> modules,
+    ChapterProgress progress,
+  ) async {
+    final masteredIds = progress.masteredFlashcardIds.toSet();
+    final completedNotes = <String>{};
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => LearningModuleSequenceScreen(
+          subjectName: widget.subjectName,
+          chapter: widget.chapter,
+          parent: LearningModuleParent.chapter(
+            subjectId: widget.subjectId,
+            chapterId: widget.chapter.id,
+          ),
+          modules: modules,
+          initialModuleId: module.id,
+          repository: _repository,
+          onNotesCompleted: (completedModule) async {
+            if (!completedNotes.add(completedModule.id)) return;
+            final saved = await _persistProgress(
+              () => _progressRepository.markLearnCompleted(
+                subjectId: widget.subjectId,
+                chapterId: widget.chapter.id,
+              ),
+              savedMessage: 'Learn progress saved.',
+            );
+            if (saved) {
+              await _handleEngagementReward(
+                activity: 'learn',
+                message: 'Lesson complete!',
+                credit: () => _engagementRepository.creditLearnCompletion(
+                  subjectId: widget.subjectId,
+                  chapterId: widget.chapter.id,
+                ),
+              );
+            }
+          },
+          onFlashcardCompleted: (_, cardId, totalCards) async {
+            masteredIds.add(cardId);
+            final saved = await _persistProgress(
+              () => _progressRepository.updateFlashcardProgress(
+                subjectId: widget.subjectId,
+                chapterId: widget.chapter.id,
+                masteredCount: masteredIds.length,
+                totalCount: totalCards,
+                masteredCardIds: masteredIds.toList(),
+              ),
+            );
+            if (saved) {
+              await _handleEngagementReward(
+                activity: 'flashcards',
+                message: 'Flashcards reviewed!',
+                credit: () => _engagementRepository.creditFlashcardReview(
+                  subjectId: widget.subjectId,
+                  chapterId: widget.chapter.id,
+                  reviewedCardIds: masteredIds,
+                ),
+              );
+            }
+          },
+          onPracticeCompleted: (_, result) async {
+            final saved = await _persistProgress(
+              () => _progressRepository.recordPracticeResult(
+                subjectId: widget.subjectId,
+                chapterId: widget.chapter.id,
+                result: result,
+              ),
+              savedMessage: 'Practice progress saved.',
+            );
+            if (saved) {
+              await _handleEngagementReward(
+                activity: 'practice',
+                message: 'Practice complete!',
+                credit: () => _engagementRepository.creditPracticeQuestions(
+                  subjectId: widget.subjectId,
+                  chapterId: widget.chapter.id,
+                  completedQuestionCount: result.totalQuestions,
+                ),
+              );
+            }
+          },
+          onQuizCompleted: (_, result) async {
+            final saved = await _persistProgress(
+              () => _progressRepository.recordQuizResult(
+                subjectId: widget.subjectId,
+                chapterId: widget.chapter.id,
+                result: result,
+              ),
+              savedMessage: 'Quiz progress saved.',
+            );
+            if (saved) {
+              await _handleEngagementReward(
+                activity: 'quiz',
+                message: 'Quiz complete!',
+                credit: () => _engagementRepository.creditQuizCompletion(
+                  subjectId: widget.subjectId,
+                  chapterId: widget.chapter.id,
+                ),
+              );
+            }
+          },
+        ),
+      ),
     );
   }
 
@@ -393,6 +509,11 @@ class _ChapterOverviewScreenState extends State<ChapterOverviewScreen> {
             final flashcardTotal = data?.flashcards.length ?? 0;
             final practiceTotal = data?.practiceQuestions.length ?? 0;
             final quizTotal = data?.quizQuestions.length ?? 0;
+            final notesModule = data?.moduleOfType('notes');
+            final flashcardsModule = data?.moduleOfType('flashcards');
+            final practiceModule = data?.moduleOfType('practice');
+            final quizModule =
+                data?.moduleOfType('quiz') ?? data?.moduleOfType('test');
 
             return RefreshIndicator(
               onRefresh: () async => _reload(),
@@ -516,10 +637,16 @@ class _ChapterOverviewScreenState extends State<ChapterOverviewScreen> {
                               : hasLearn
                                   ? 'Continue'
                                   : 'Preparing',
-                          onTap: () => _openLearn(
-                            data?.notes,
-                            data?.flashcards ?? const [],
-                          ),
+                          onTap: () => notesModule != null
+                              ? _openModuleSequence(
+                                  notesModule,
+                                  data?.modules ?? const [],
+                                  progress,
+                                )
+                              : _openLearn(
+                                  data?.notes,
+                                  data?.flashcards ?? const [],
+                                ),
                         ),
                         _JourneyCard(
                           icon: Icons.psychology_rounded,
@@ -530,10 +657,16 @@ class _ChapterOverviewScreenState extends State<ChapterOverviewScreen> {
                               '${progress.flashcardsMasteredCount} / $flashcardTotal mastered',
                           locked: !learnCompleted,
                           onTap: () => learnCompleted
-                              ? _openFlashcards(
-                                  data?.flashcards ?? const [],
-                                  progress,
-                                )
+                              ? flashcardsModule != null
+                                  ? _openModuleSequence(
+                                      flashcardsModule,
+                                      data?.modules ?? const [],
+                                      progress,
+                                    )
+                                  : _openFlashcards(
+                                      data?.flashcards ?? const [],
+                                      progress,
+                                    )
                               : _showComingSoon(
                                   'Finish Learn first to unlock Flashcards.',
                                 ),
@@ -551,10 +684,17 @@ class _ChapterOverviewScreenState extends State<ChapterOverviewScreen> {
                                       ? 'Coming soon'
                                       : 'Locked',
                           locked: !flashcardsCompleted,
-                          onTap: () => _openPractice(
-                            data?.practiceQuestions ?? const [],
-                            progress,
-                          ),
+                          onTap: () =>
+                              practiceModule != null && flashcardsCompleted
+                                  ? _openModuleSequence(
+                                      practiceModule,
+                                      data?.modules ?? const [],
+                                      progress,
+                                    )
+                                  : _openPractice(
+                                      data?.practiceQuestions ?? const [],
+                                      progress,
+                                    ),
                         ),
                         _JourneyCard(
                           icon: Icons.track_changes_rounded,
@@ -569,10 +709,16 @@ class _ChapterOverviewScreenState extends State<ChapterOverviewScreen> {
                                       ? 'Coming soon'
                                       : 'Locked',
                           locked: !practiceCompleted,
-                          onTap: () => _openQuiz(
-                            data?.quizQuestions ?? const [],
-                            progress,
-                          ),
+                          onTap: () => quizModule != null && practiceCompleted
+                              ? _openModuleSequence(
+                                  quizModule,
+                                  data?.modules ?? const [],
+                                  progress,
+                                )
+                              : _openQuiz(
+                                  data?.quizQuestions ?? const [],
+                                  progress,
+                                ),
                         ),
                         _JourneyCard(
                           icon: Icons.emoji_events_rounded,
@@ -599,16 +745,25 @@ class _ChapterOverviewScreenState extends State<ChapterOverviewScreen> {
 
 class _ChapterJourneyData {
   const _ChapterJourneyData({
+    required this.modules,
     required this.notes,
     required this.flashcards,
     required this.practiceQuestions,
     required this.quizQuestions,
   });
 
+  final List<LearningModule> modules;
   final LearningContent? notes;
   final List<Flashcard> flashcards;
   final List<PracticeQuestion> practiceQuestions;
   final List<QuizQuestion> quizQuestions;
+
+  LearningModule? moduleOfType(String type) {
+    for (final module in modules) {
+      if (module.type == type) return module;
+    }
+    return null;
+  }
 }
 
 class _ProgressCard extends StatelessWidget {

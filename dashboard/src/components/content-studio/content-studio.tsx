@@ -33,6 +33,12 @@ import type {
 } from "@/lib/types";
 import type { SejarahMigrationPlan } from "@/lib/curriculum/sejarahSubchapterMigration";
 import { resolveSejarahWorkspace } from "@/lib/curriculum/sejarahWorkspace";
+import { moduleCardDestination } from "@/lib/notes-authoring";
+import { moduleEditorBreadcrumb } from "@/lib/module-editor-navigation";
+import {
+  hasStructuredContentEditor,
+  moduleDestinationAfterSave,
+} from "@/lib/module-authoring";
 import { ChapterForm } from "./chapter-form";
 import { CurriculumSetupDialog } from "./curriculum-setup-dialog";
 import { ModuleCompletionCount } from "./module-completion-count";
@@ -71,6 +77,7 @@ export function ContentStudio({ access }: { access: DashboardAccess }) {
   const [structuredModuleId, setStructuredModuleId] = useState<string | null>(
     null,
   );
+  const [startStructuredItem, setStartStructuredItem] = useState(false);
   const [setupStatus, setSetupStatus] = useState<CurriculumSetupStatus | null>(
     null,
   );
@@ -145,6 +152,10 @@ export function ContentStudio({ access }: { access: DashboardAccess }) {
   ]);
   const structuredModule =
     modules.find((module) => module.id === structuredModuleId) ?? null;
+  const practiceModuleIds = useMemo(
+    () => modules.filter((module) => module.type === "practice").map((module) => module.id),
+    [modules],
+  );
 
   useEffect(() => {
     if (!subjectId || !canEditSubject(access, subjectId)) return;
@@ -253,6 +264,7 @@ export function ContentStudio({ access }: { access: DashboardAccess }) {
     setSubchapterEditor(null);
     setModuleEditor(null);
     setStructuredModuleId(null);
+    setStartStructuredItem(false);
     setSetupStatus(null);
     setError("");
     setNotice("");
@@ -268,18 +280,21 @@ export function ContentStudio({ access }: { access: DashboardAccess }) {
     setSubchapterEditor(null);
     setModuleEditor(null);
     setStructuredModuleId(null);
+    setStartStructuredItem(false);
   }
 
   function selectTopic(topicId: string) {
     setSelectedTopicId(topicId);
     setModuleEditor(null);
     setStructuredModuleId(null);
+    setStartStructuredItem(false);
   }
 
   function selectSubchapter(subchapterId: string) {
     setSelectedSubchapterId(subchapterId);
     setModuleEditor(null);
     setStructuredModuleId(null);
+    setStartStructuredItem(false);
   }
 
   function closeSubchapterWorkspace() {
@@ -358,14 +373,33 @@ export function ContentStudio({ access }: { access: DashboardAccess }) {
 
   async function saveModule(input: LearningModuleInput) {
     if (!moduleLocation) return;
-    if (moduleEditor && moduleEditor !== "new") {
-      await repository.updateModule(moduleLocation, moduleEditor.id, input);
+    let savedModuleId: string;
+    const isNew = moduleEditor === "new";
+    const existingModule = moduleEditor && moduleEditor !== "new"
+      ? moduleEditor
+      : null;
+    if (existingModule) {
+      await repository.updateModule(moduleLocation, existingModule.id, input);
+      savedModuleId = existingModule.id;
       setNotice("Module updated.");
     } else {
-      await repository.createModule(moduleLocation, input);
+      savedModuleId = await repository.createModule(moduleLocation, input);
       setNotice("Module created.");
     }
-    setModuleEditor(null);
+    if (moduleDestinationAfterSave(input.type) === "structured") {
+      setModuleEditor(null);
+      setStartStructuredItem(isNew && hasStructuredContentEditor(input.type));
+      setStructuredModuleId(savedModuleId);
+    } else {
+      setModuleEditor({
+        id: savedModuleId,
+        ...input,
+        createdAt: existingModule?.createdAt ?? null,
+        updatedAt: existingModule?.updatedAt ?? null,
+      });
+      setStartStructuredItem(false);
+      setStructuredModuleId(null);
+    }
   }
 
   async function deleteChapter(chapter: Chapter) {
@@ -541,6 +575,15 @@ export function ContentStudio({ access }: { access: DashboardAccess }) {
     if (moduleEditor)
       return (
         <ModuleForm
+          contextLabel={moduleEditorBreadcrumb({
+            subjectName: selectedSubject?.displayName ?? subjectId ?? "Subject",
+            structureLabel: isLanguageSubject ? "Section" : "Chapter",
+            chapterNumber: selectedChapter?.chapterNumber ?? 0,
+            ...(selectedTopic ? { topicTitle: selectedTopic.title } : {}),
+            ...(selectedSubchapter
+              ? { subchapterNumber: selectedSubchapter.number }
+              : {}),
+          })}
           statusOptions={contentStatusOptions(
             access.role,
             moduleEditor === "new" ? undefined : moduleEditor.status,
@@ -560,8 +603,13 @@ export function ContentStudio({ access }: { access: DashboardAccess }) {
         <StructuredModuleEditor
           location={moduleLocation}
           module={structuredModule}
-          onBack={() => setStructuredModuleId(null)}
+          practiceModuleIds={practiceModuleIds}
+          onBack={() => {
+            setStartStructuredItem(false);
+            setStructuredModuleId(null);
+          }}
           onEditDetails={() => {
+            setStartStructuredItem(false);
             setModuleEditor(structuredModule);
             setStructuredModuleId(null);
           }}
@@ -569,6 +617,7 @@ export function ContentStudio({ access }: { access: DashboardAccess }) {
           canActivate={structuredModule.status === "draft"}
           canEdit
           canManageStatus
+          startAdding={startStructuredItem}
           repository={structuredRepository}
         />
       );
@@ -594,7 +643,10 @@ export function ContentStudio({ access }: { access: DashboardAccess }) {
           </div>
           <button
             className="primary-button"
-            onClick={() => setModuleEditor("new")}
+            onClick={() => {
+              setStartStructuredItem(false);
+              setModuleEditor("new");
+            }}
             type="button"
           >
             Add module
@@ -608,7 +660,14 @@ export function ContentStudio({ access }: { access: DashboardAccess }) {
             >
               <button
                 className="w-full text-left"
-                onClick={() => setStructuredModuleId(module.id)}
+                onClick={() => {
+                  if (moduleCardDestination(module.type) === "details") {
+                    setModuleEditor(module);
+                  } else {
+                    setStartStructuredItem(false);
+                    setStructuredModuleId(module.id);
+                  }
+                }}
                 type="button"
               >
                 <div className="flex flex-wrap items-start justify-between gap-3">
@@ -623,6 +682,7 @@ export function ContentStudio({ access }: { access: DashboardAccess }) {
                       <ModuleCompletionCount
                         location={moduleLocation}
                         module={module}
+                        practiceModuleIds={practiceModuleIds}
                         repository={structuredRepository}
                       />
                     </p>
@@ -633,7 +693,10 @@ export function ContentStudio({ access }: { access: DashboardAccess }) {
               <div className="mt-4 flex flex-wrap gap-2 border-t border-[#e8ebe7] pt-3">
                 <button
                   className="small-button"
-                  onClick={() => setModuleEditor(module)}
+                  onClick={() => {
+                    setStartStructuredItem(false);
+                    setModuleEditor(module);
+                  }}
                   type="button"
                 >
                   Edit

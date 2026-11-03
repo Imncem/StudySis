@@ -744,7 +744,7 @@ service cloud.firestore {
       return data.keys().hasOnly([
           'question', 'options', 'correctAnswerIndex', 'explanation',
           'hint', 'topic', 'difficulty', 'order', 'status',
-          'createdAt', 'updatedAt'
+          'moduleId', 'createdAt', 'updatedAt'
         ])
         && data.question is string
         && data.question.size() > 0
@@ -761,8 +761,31 @@ service cloud.firestore {
         && data.order is int
         && data.order >= 0
         && data.status in ['draft', 'active', 'archived']
+        && (!('moduleId' in data)
+          || (data.moduleId is string && data.moduleId.size() > 0))
         && data.createdAt is timestamp
         && data.updatedAt is timestamp;
+    }
+
+    function validChapterPracticeOwnership(subjectId, chapterId) {
+      let data = request.resource.data;
+      return !('moduleId' in data)
+        || (exists(/databases/$(database)/documents/curriculum/form2/subjects/$(subjectId)/chapters/$(chapterId)/modules/$(data.moduleId))
+          && get(/databases/$(database)/documents/curriculum/form2/subjects/$(subjectId)/chapters/$(chapterId)/modules/$(data.moduleId)).data.type == 'practice');
+    }
+
+    function validSubchapterPracticeOwnership(subjectId, chapterId, subchapterId) {
+      let data = request.resource.data;
+      return !('moduleId' in data)
+        || (exists(/databases/$(database)/documents/curriculum/form2/subjects/$(subjectId)/chapters/$(chapterId)/subchapters/$(subchapterId)/modules/$(data.moduleId))
+          && get(/databases/$(database)/documents/curriculum/form2/subjects/$(subjectId)/chapters/$(chapterId)/subchapters/$(subchapterId)/modules/$(data.moduleId)).data.type == 'practice');
+    }
+
+    function validTopicPracticeOwnership(subjectId, chapterId, topicId) {
+      let data = request.resource.data;
+      return !('moduleId' in data)
+        || (exists(/databases/$(database)/documents/curriculum/form2/subjects/$(subjectId)/chapters/$(chapterId)/topics/$(topicId)/modules/$(data.moduleId))
+          && get(/databases/$(database)/documents/curriculum/form2/subjects/$(subjectId)/chapters/$(chapterId)/topics/$(topicId)/modules/$(data.moduleId)).data.type == 'practice');
     }
 
     function validQuizQuestion() {
@@ -903,7 +926,8 @@ service cloud.firestore {
             allow read: if true;
             allow create, update: if canEditSubject(subjectId)
               && isLanguageSubjectId(subjectId)
-              && validPracticeItem();
+              && validPracticeItem()
+              && validTopicPracticeOwnership(subjectId, chapterId, topicId);
             allow delete: if canEditSubject(subjectId)
               && isLanguageSubjectId(subjectId);
           }
@@ -966,10 +990,11 @@ service cloud.firestore {
             && canEditSubject(subjectId);
 
           match /practice_questions/{questionId} {
-            allow read: if isDashboardUser();
+            allow read: if true;
             allow create, update: if subjectId == 'sejarah'
               && canEditSubject(subjectId)
-              && validPracticeItem();
+              && validPracticeItem()
+              && validSubchapterPracticeOwnership(subjectId, chapterId, subchapterId);
             allow delete: if subjectId == 'sejarah'
               && canEditSubject(subjectId);
           }
@@ -1039,7 +1064,8 @@ service cloud.firestore {
         match /practice_questions/{questionId} {
           allow read: if true;
           allow create, update: if canEditSubject(subjectId)
-            && validPracticeItem();
+            && validPracticeItem()
+            && validChapterPracticeOwnership(subjectId, chapterId);
           allow delete: if canEditSubject(subjectId);
         }
 
