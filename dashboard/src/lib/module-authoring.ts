@@ -6,6 +6,11 @@ import type { ModuleFormValues } from "./module-editor-navigation.ts";
 
 export type ModuleAuthoringDestination = "module-list" | "structured";
 
+export type ModulePostSaveState = {
+  structuredModuleId: string | null;
+  startStructuredItem: boolean;
+};
+
 export function usesInlineLessonContent(type: ModuleType): boolean {
   return type === "notes";
 }
@@ -47,6 +52,20 @@ export function moduleDestinationAfterSave(
   type: ModuleType,
 ): ModuleAuthoringDestination {
   return type === "notes" ? "module-list" : "structured";
+}
+
+export function modulePostSaveState(
+  type: ModuleType,
+  moduleId: string,
+  isNew: boolean,
+): ModulePostSaveState {
+  if (moduleDestinationAfterSave(type) !== "structured") {
+    return { structuredModuleId: null, startStructuredItem: false };
+  }
+  return {
+    structuredModuleId: moduleId,
+    startStructuredItem: isNew && hasStructuredContentEditor(type),
+  };
 }
 
 export function moduleInputForSave(

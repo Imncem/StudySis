@@ -82,9 +82,9 @@ function QuizEditor({ repository, location, canEdit, canActivate = false, canMan
   const [error, setError] = useState("");
   useEffect(() => repository.watchQuizQuestions(location, setItems, (next) => setError(next.message)), [location, repository]);
   async function save(input: QuizQuestionInput) { const allowed = canManageStatus || (canActivate && editing !== "new") ? input : { ...input, status: "draft" as const }; if (editing && editing !== "new") await repository.updateQuizQuestion(location, editing.id, allowed); else await repository.createQuizQuestion(location, allowed); setEditing(null); }
-  return <CollectionLayout title="Quiz questions" count={items.length} addLabel="New Question" onAdd={canEdit ? () => setEditing("new") : undefined} error={error}>
+  return <CollectionLayout title="Quiz questions" count={items.length} addLabel={items.length ? "Add another question" : "Add question"} onAdd={canEdit && !editing ? () => setEditing("new") : undefined} error={error}>
     {editing && <QuizForm item={editing === "new" ? undefined : editing} statusOptions={contentStatusOptions(canManageStatus ? "admin" : "editor", editing === "new" ? undefined : editing.status)} onCancel={() => setEditing(null)} onSave={save} />}
-    {!editing && items.map((item) => { const canEditItem = canManageStatus || (canEdit && item.status === "draft"); return <QuizQuestionCard key={item.id} item={item} onEdit={canEditItem ? () => setEditing(item) : undefined} onDelete={canEditItem ? () => confirmDelete(item.question) && repository.deleteQuizQuestion(location, item.id) : undefined} />; })}
+    {items.map((item) => { const canEditItem = canManageStatus || (canEdit && item.status === "draft"); return <QuizQuestionCard key={item.id} item={item} onEdit={!editing && canEditItem ? () => setEditing(item) : undefined} onDelete={!editing && canEditItem ? () => confirmDelete(item.question) && repository.deleteQuizQuestion(location, item.id) : undefined} />; })}
     {!editing && !items.length && <Empty text="No quiz questions yet." />}
   </CollectionLayout>;
 }

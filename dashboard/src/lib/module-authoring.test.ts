@@ -6,6 +6,7 @@ import {
   hasStructuredContentEditor,
   moduleDestinationAfterSave,
   moduleInputForSave,
+  modulePostSaveState,
   moduleSaveLabel,
   usesInlineLessonContent,
 } from "./module-authoring.ts";
@@ -61,6 +62,20 @@ test("structured module creation uses type-specific labels and destinations", ()
     assert.equal(moduleDestinationAfterSave(type), "structured");
   }
   assert.equal(moduleDestinationAfterSave("notes"), "module-list");
+});
+
+test("new Quiz modules open their question editor with the first form ready", () => {
+  assert.deepEqual(modulePostSaveState("quiz", "quiz-module-1", true), {
+    structuredModuleId: "quiz-module-1",
+    startStructuredItem: true,
+  });
+});
+
+test("saved Quiz metadata opens the same editor without forcing a new question", () => {
+  assert.deepEqual(modulePostSaveState("quiz", "quiz-module-1", false), {
+    structuredModuleId: "quiz-module-1",
+    startStructuredItem: false,
+  });
 });
 
 test("Test and Review remain explicit unsupported structured schemas", () => {

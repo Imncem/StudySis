@@ -36,8 +36,8 @@ import { resolveSejarahWorkspace } from "@/lib/curriculum/sejarahWorkspace";
 import { moduleCardDestination } from "@/lib/notes-authoring";
 import { moduleEditorBreadcrumb } from "@/lib/module-editor-navigation";
 import {
-  hasStructuredContentEditor,
   moduleDestinationAfterSave,
+  modulePostSaveState,
 } from "@/lib/module-authoring";
 import { ChapterForm } from "./chapter-form";
 import { CurriculumSetupDialog } from "./curriculum-setup-dialog";
@@ -384,12 +384,22 @@ export function ContentStudio({ access }: { access: DashboardAccess }) {
       setNotice("Module updated.");
     } else {
       savedModuleId = await repository.createModule(moduleLocation, input);
+      setModules((current) => [
+        ...current.filter((module) => module.id !== savedModuleId),
+        {
+          id: savedModuleId,
+          ...input,
+          createdAt: null,
+          updatedAt: null,
+        },
+      ]);
       setNotice("Module created.");
     }
     if (moduleDestinationAfterSave(input.type) === "structured") {
+      const next = modulePostSaveState(input.type, savedModuleId, isNew);
       setModuleEditor(null);
-      setStartStructuredItem(isNew && hasStructuredContentEditor(input.type));
-      setStructuredModuleId(savedModuleId);
+      setStartStructuredItem(next.startStructuredItem);
+      setStructuredModuleId(next.structuredModuleId);
     } else {
       setModuleEditor({
         id: savedModuleId,

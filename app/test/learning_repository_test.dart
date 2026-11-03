@@ -316,6 +316,51 @@ void main() {
     });
   }
 
+  test('Flutter reads ordered active Quiz questions from a Quiz module',
+      () async {
+    final firestore = FakeFirebaseFirestore();
+    final questions = firestore.collection(ContentPaths.moduleContent(
+      'geography',
+      'chapter-1',
+      'quiz-module',
+      'questions',
+    ));
+    await questions.doc('second').set(_quizQuestion(
+          question: 'Second question',
+          correctOptionIndex: 2,
+          explanation: 'Second explanation',
+          order: 2,
+        ));
+    await questions.doc('first').set(_quizQuestion(
+          question: 'First question',
+          correctOptionIndex: 1,
+          explanation: 'First explanation',
+          order: 1,
+        ));
+    await questions.doc('draft').set({
+      ..._quizQuestion(
+        question: 'Draft question',
+        correctOptionIndex: 0,
+        explanation: 'Draft explanation',
+        order: 0,
+      ),
+      'status': 'draft',
+    });
+
+    final result = await LearningRepository(firestore: firestore).getModuleQuiz(
+      parent: const LearningModuleParent.chapter(
+        subjectId: 'geography',
+        chapterId: 'chapter-1',
+      ),
+      moduleId: 'quiz-module',
+    );
+
+    expect(result.map((item) => item.id), ['first', 'second']);
+    expect(result.first.options, ['A', 'B', 'C', 'D']);
+    expect(result.first.correctOptionIndex, 1);
+    expect(result.first.explanation, 'First explanation');
+  });
+
   final practiceParents =
       <String, ({LearningModuleParent parent, String path})>{
     'Chapter': (
@@ -449,6 +494,22 @@ Map<String, Object> _practiceQuestion(String? moduleId, int order) => {
       'explanation': 'A is correct.',
       'hint': '',
       'topic': 'Topic',
+      'difficulty': 'easy',
+      'order': order,
+      'status': 'active',
+    };
+
+Map<String, Object> _quizQuestion({
+  required String question,
+  required int correctOptionIndex,
+  required String explanation,
+  required int order,
+}) =>
+    {
+      'question': question,
+      'options': ['A', 'B', 'C', 'D'],
+      'correctOptionIndex': correctOptionIndex,
+      'explanation': explanation,
       'difficulty': 'easy',
       'order': order,
       'status': 'active',
