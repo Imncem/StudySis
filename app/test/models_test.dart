@@ -60,6 +60,20 @@ void main() {
     expect(module.isActive, isTrue);
   });
 
+  test('learning module safely defaults an absent summary to empty', () {
+    final module = LearningModule.fromMap('flashcards-1', {
+      'title': 'Flashcards',
+      'type': 'flashcards',
+      'content': '',
+      'estimatedMinutes': 10,
+      'difficulty': 'easy',
+      'status': 'draft',
+      'order': 1,
+    });
+
+    expect(module.summary, '');
+  });
+
   test('note section maps structured content', () {
     final section = NoteSection.fromMap('section-1', {
       'heading': 'Recognising a pattern',

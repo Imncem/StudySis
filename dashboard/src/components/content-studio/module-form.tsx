@@ -178,7 +178,6 @@ export function ModuleForm({
           <textarea
             className="field mt-2 min-h-28 resize-y"
             onChange={(event) => setSummary(event.target.value)}
-            required
             value={summary}
           />
         </label>

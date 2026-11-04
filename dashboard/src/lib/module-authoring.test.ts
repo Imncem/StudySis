@@ -16,12 +16,13 @@ import type { ModuleType } from "./types.ts";
 function values(
   type: ModuleType,
   content = "Legacy content",
+  summary = " Summary ",
 ): ModuleFormValues {
   return {
     title: " Module title ",
     type,
     content,
-    summary: " Summary ",
+    summary,
     estimatedMinutes: 10,
     difficulty: "easy",
     order: 1,
@@ -115,4 +116,30 @@ test("metadata normalization preserves the existing module schema", () => {
     order: 1,
     status: "draft",
   });
+});
+
+test("empty summaries save for every module type as an empty string", () => {
+  for (const type of [
+    "notes",
+    "flashcards",
+    "practice",
+    "quiz",
+    "test",
+    "review",
+  ] as const) {
+    const input = moduleInputForSave(
+      values(type, type === "notes" ? "Lesson content" : "", "   "),
+      false,
+    );
+
+    assert.equal(input.summary, "", `${type} should accept an empty summary`);
+  }
+});
+
+test("existing module summaries continue to save after trimming", () => {
+  assert.equal(
+    moduleInputForSave(values("flashcards", "", " Existing summary "), false)
+      .summary,
+    "Existing summary",
+  );
 });

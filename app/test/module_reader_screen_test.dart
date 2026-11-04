@@ -9,6 +9,7 @@ import 'package:studysis/screens/module_reader_screen.dart';
 import 'package:studysis/services/muffin_context_registry.dart';
 import 'package:studysis/services/page_translation_service.dart';
 import 'package:studysis/theme/app_theme.dart';
+import 'package:studysis/widgets/learning_module_metadata.dart';
 import 'package:studysis/widgets/page_translation_scope.dart';
 
 void main() {
@@ -53,6 +54,30 @@ void main() {
     await tester.pump();
 
     expect(find.text('This lesson is being prepared.'), findsOneWidget);
+  });
+
+  testWidgets('module metadata renders safely when summary is empty',
+      (tester) async {
+    final module = LearningModule.fromMap('review-1', {
+      'title': 'Review',
+      'type': 'review',
+      'content': '',
+      'summary': '',
+      'estimatedMinutes': 5,
+      'difficulty': 'easy',
+      'order': 1,
+      'status': 'draft',
+    });
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(body: LearningModuleMetadata(module: module)),
+      ),
+    );
+
+    expect(find.text('Review'), findsOneWidget);
+    expect(find.text('Review · Easy · 5 min'), findsOneWidget);
+    expect(find.byKey(const Key('learning-module-metadata')), findsOneWidget);
   });
 
   testWidgets('legacy structured Notes sections remain readable',
