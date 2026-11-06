@@ -17,7 +17,15 @@ class LearningContent {
   final LearningModule module;
   final List<NoteSection> noteSections;
 
-  bool get hasModuleLessonContent => module.content.trim().isNotEmpty;
+  bool get hasModuleLessonContent => isMeaningfulLessonContent(module.content);
   bool get hasLegacyNoteSections => noteSections.isNotEmpty;
   bool get hasLessonContent => hasModuleLessonContent || hasLegacyNoteSections;
+}
+
+bool isMeaningfulLessonContent(String value) {
+  final normalized = value.trim();
+  return normalized.isNotEmpty &&
+      normalized != '-' &&
+      normalized != '–' &&
+      normalized != '—';
 }

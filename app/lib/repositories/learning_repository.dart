@@ -2,16 +2,20 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 
 import '../config/content_paths.dart';
+import '../config/curriculum_structure.dart';
 import '../models/chapter.dart';
 import '../models/curriculum_topic.dart';
 import '../models/flashcard.dart';
 import '../models/learning_content.dart';
+import '../models/learning_continue_context.dart';
+import '../models/learning_location.dart';
 import '../models/learning_module.dart';
 import '../models/learning_module_sequence.dart';
 import '../models/note_section.dart';
 import '../models/practice_question.dart';
 import '../models/quiz_question.dart';
 import '../models/subchapter.dart';
+import '../models/chapter_progress.dart';
 
 class LearningRepository {
   LearningRepository({FirebaseFirestore? firestore})
@@ -61,6 +65,114 @@ class LearningRepository {
         .map((chapter) => Chapter.fromMap(chapter.id, chapter.data()))
         .where((chapter) => chapter.isActive)
         .toList(growable: false);
+  }
+
+  Future<List<LearningLocation>> getActiveLearningLocations() async {
+    final subjects = await _firestore
+        .collection(ContentPaths.subjects)
+        .orderBy('order')
+        .get();
+    final locations = <LearningLocation>[];
+
+    for (final subjectDocument in subjects.docs) {
+      final subjectId = subjectDocument.id;
+      final structure = CurriculumStructure.forSubject(subjectId);
+      final subjectName =
+          (subjectDocument.data()['displayName'] ?? subjectId).toString();
+      final chapters = await getActiveChapters(subjectId);
+
+      for (final chapter in chapters) {
+        if (structure.usesTopics) {
+          final topics = await getActiveTopics(
+            subjectId: subjectId,
+            sectionId: chapter.id,
+          );
+          for (final topic in topics) {
+            locations.add(LearningLocation(
+              subjectId: subjectId,
+              subjectName: subjectName,
+              parentKind: 'topic',
+              parentId: topic.id,
+              parentTitle: topic.title,
+              parentNumber: '${topic.order}',
+              parentOrder: topic.order,
+              structureLabel: 'Topic',
+              containerKind: 'section',
+              containerId: chapter.id,
+              containerTitle: chapter.title,
+              containerNumber: '${chapter.chapterNumber}',
+            ));
+          }
+          continue;
+        }
+
+        if (structure.usesSubchapters) {
+          final subchapters = await getActiveSubchapters(
+            subjectId: subjectId,
+            chapterId: chapter.id,
+          );
+          for (final subchapter in subchapters) {
+            locations.add(LearningLocation(
+              subjectId: subjectId,
+              subjectName: subjectName,
+              parentKind: 'subchapter',
+              parentId: subchapter.id,
+              parentTitle: subchapter.title,
+              parentNumber: subchapter.number,
+              parentOrder: subchapter.order,
+              structureLabel: 'Subchapter',
+              containerKind: 'chapter',
+              containerId: chapter.id,
+              containerTitle: chapter.title,
+              containerNumber: '${chapter.chapterNumber}',
+            ));
+          }
+          continue;
+        }
+
+        locations.add(LearningLocation(
+          subjectId: subjectId,
+          subjectName: subjectName,
+          parentKind: structure.parentKind,
+          parentId: chapter.id,
+          parentTitle: chapter.title,
+          parentNumber: '${chapter.chapterNumber}',
+          parentOrder: chapter.order,
+          structureLabel: structure.labelSingular,
+        ));
+      }
+    }
+
+    return locations;
+  }
+
+  Future<LearningContinueContext?> getContinueLearningContext({
+    required List<ChapterProgress> progress,
+  }) async {
+    final locations = prioritizeLearningLocations(
+      locations: await getActiveLearningLocations(),
+      progress: progress,
+    );
+    final progressByIdentity = {
+      for (final item in progress) item.identityKey: item,
+    };
+    for (final location in locations) {
+      final modules = await getActiveModules(
+        LearningModuleParent.fromLocation(location),
+      );
+      final selectedModule = nextIncompleteLearningModule(
+        modules: modules,
+        progress: progressByIdentity[location.identityKey],
+      );
+      if (selectedModule != null) {
+        return LearningContinueContext(
+          location: location,
+          modules: modules,
+          initialModuleId: selectedModule.id,
+        );
+      }
+    }
+    return null;
   }
 
   Future<List<Subchapter>> getActiveSubchapters({
@@ -545,7 +657,7 @@ class LearningRepository {
     LearningModule module,
     String collectionPath,
   ) async {
-    if (module.content.trim().isNotEmpty) return const [];
+    if (isMeaningfulLessonContent(module.content)) return const [];
     final snapshot =
         await _firestore.collection(collectionPath).orderBy('order').get();
     return snapshot.docs

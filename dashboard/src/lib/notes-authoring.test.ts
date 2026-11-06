@@ -34,6 +34,10 @@ test("Notes use the canonical lesson-content field and details editor", () => {
     moduleCompletionLabel(module("notes", "  ")),
     "Open to add lesson content",
   );
+  assert.equal(
+    moduleCompletionLabel(module("notes", "-")),
+    "Open to add lesson content",
+  );
 });
 
 test("structured module types retain their existing authoring flow", () => {

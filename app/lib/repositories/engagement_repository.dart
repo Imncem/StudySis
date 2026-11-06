@@ -2,7 +2,9 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
 import '../models/engagement.dart';
+import '../models/learning_location.dart';
 import '../models/pet_cosmetic.dart';
+import '../services/trusted_progress_service.dart';
 
 class EngagementRepository {
   EngagementRepository({
@@ -10,15 +12,19 @@ class EngagementRepository {
     FirebaseAuth? auth,
     String Function()? uidProvider,
     DateTime Function()? nowProvider,
+    TrustedProgressService? trustedProgressService,
   })  : _firestore = firestore ?? FirebaseFirestore.instance,
         _auth = auth,
         _uidProvider = uidProvider,
-        _nowProvider = nowProvider ?? DateTime.now;
+        _nowProvider = nowProvider ?? DateTime.now,
+        _trustedProgressService =
+            trustedProgressService ?? RemoteTrustedProgressService(auth: auth);
 
   final FirebaseFirestore _firestore;
   final FirebaseAuth? _auth;
   final String Function()? _uidProvider;
   final DateTime Function() _nowProvider;
+  final TrustedProgressService _trustedProgressService;
 
   Stream<EngagementState> watchState() {
     final uid = _maybeUid;
@@ -107,15 +113,107 @@ class EngagementRepository {
 
   Future<EngagementCreditResult> creditSavedFlashcardReview({
     required Set<String> reviewedSavedCardIds,
-  }) {
+  }) async {
     if (reviewedSavedCardIds.length < 3) return _noCredit();
-    final today = malaysiaDateKey(_nowProvider());
-    return credit(
-      EngagementCredit(
-        activityKey: 'saved_flashcards_review_$today',
-        studyPoints: 1,
-        xp: 10,
+    return _trustedResult(
+      await _trustedProgressService.record(
+        'recordSavedFlashcardMilestone',
+        {'savedCardIds': reviewedSavedCardIds.toList()..sort()},
       ),
+    );
+  }
+
+  Future<EngagementCreditResult> creditLocationLearnCompletion({
+    required LearningLocation location,
+    String moduleId = 'notes',
+  }) async {
+    return _trustedResult(
+      await _trustedProgressService.record(
+        'recordModuleCompletion',
+        _locationPayload(location, moduleId),
+      ),
+    );
+  }
+
+  Future<EngagementCreditResult> creditLocationFlashcardReview({
+    required LearningLocation location,
+    required String moduleId,
+    required Set<String> reviewedCardIds,
+  }) async {
+    return _trustedResult(
+      await _trustedProgressService.record(
+        'recordFlashcardMilestone',
+        {
+          ..._locationPayload(location, moduleId),
+          'reviewedCardIds': reviewedCardIds.toList()..sort(),
+        },
+      ),
+    );
+  }
+
+  Future<EngagementCreditResult> creditLocationPracticeQuestions({
+    required LearningLocation location,
+    required String moduleId,
+    required Map<String, int> answers,
+  }) async {
+    return _trustedResult(
+      await _trustedProgressService.record(
+        'submitPracticeAttempt',
+        {
+          ..._locationPayload(location, moduleId),
+          'answers': answers,
+        },
+      ),
+    );
+  }
+
+  Future<EngagementCreditResult> creditLocationQuizCompletion({
+    required LearningLocation location,
+    required String moduleId,
+    required Map<String, int> answers,
+  }) async {
+    return _trustedResult(
+      await _trustedProgressService.record(
+        'submitQuizAttempt',
+        {
+          ..._locationPayload(location, moduleId),
+          'answers': answers,
+        },
+      ),
+    );
+  }
+
+  Map<String, Object?> _locationPayload(
+    LearningLocation location,
+    String moduleId,
+  ) =>
+      {
+        'subjectId': location.subjectId,
+        'parentKind': location.parentKind,
+        'parentId': location.parentId,
+        if (location.containerId != null) 'containerId': location.containerId,
+        'moduleId': moduleId,
+      };
+
+  EngagementCreditResult _trustedResult(Map<String, dynamic> response) {
+    final today = malaysiaDateKey(_nowProvider());
+    final stateData = response['state'];
+    final state = EngagementState.fromMap(
+      stateData is Map ? Map<String, dynamic>.from(stateData) : null,
+      todayDateKey: today,
+    );
+    return EngagementCreditResult(
+      credited: response['credited'] == true,
+      studyPointsAwarded:
+          (response['studyPointsAwarded'] as num?)?.toInt() ?? 0,
+      xpAwarded: (response['xpAwarded'] as num?)?.toInt() ?? 0,
+      pawCoinsAwarded: (response['pawCoinsAwarded'] as num?)?.toInt() ?? 0,
+      previousTotalXp:
+          (response['previousTotalXp'] as num?)?.toInt() ?? state.totalXp,
+      previousLevel:
+          (response['previousLevel'] as num?)?.toInt() ?? state.level,
+      state: state,
+      streakNewlySecured: response['streakNewlySecured'] == true,
     );
   }
 

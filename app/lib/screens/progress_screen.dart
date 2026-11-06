@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 
-import '../config/content_paths.dart';
 import '../models/chapter.dart';
 import '../models/chapter_progress.dart';
+import '../models/learning_location.dart';
 import '../models/progress_summary.dart';
 import '../repositories/engagement_repository.dart';
 import '../repositories/learning_repository.dart';
@@ -35,7 +35,7 @@ class _ProgressScreenState extends State<ProgressScreen> {
   late final StudentProgressRepository _progressRepository;
   late final EngagementRepository _engagementRepository;
   late final StudyPetRepository _petRepository;
-  late Future<List<Chapter>> _mathChapters;
+  late Future<List<LearningLocation>> _learningLocations;
 
   @override
   void initState() {
@@ -46,30 +46,33 @@ class _ProgressScreenState extends State<ProgressScreen> {
     _engagementRepository =
         widget.engagementRepository ?? EngagementRepository();
     _petRepository = widget.petRepository ?? StudyPetRepository();
-    _mathChapters = _learningRepository
-        .getActiveChapters(ContentPaths.mathematicsSubjectId);
+    _learningLocations = _learningRepository.getActiveLearningLocations();
   }
 
   void _retry() {
     setState(() {
-      _mathChapters = _learningRepository
-          .getActiveChapters(ContentPaths.mathematicsSubjectId);
+      _learningLocations = _learningRepository.getActiveLearningLocations();
     });
   }
 
-  void _startLearning() {
+  void _startLearning(List<LearningLocation> locations) {
+    final location = locations.isEmpty ? null : locations.first;
     Navigator.of(context).push(
       MaterialPageRoute<void>(
-        builder: (_) => const SubjectScreen(
+        builder: (_) => SubjectScreen(
           subject: Subject(
-            id: ContentPaths.mathematicsSubjectId,
-            displayName: 'Mathematics',
-            shortName: 'Mathematics',
+            id: location?.subjectId ?? 'math',
+            displayName: location?.subjectName ?? 'Mathematics',
+            shortName: location?.subjectName ?? 'Mathematics',
             contentStatus: 'available',
-            iconName: 'math',
+            iconName: location?.subjectId ?? 'math',
             themeColor: '#496A5A',
             order: 1,
           ),
+          repository: _learningRepository,
+          progressRepository: _progressRepository,
+          engagementRepository: _engagementRepository,
+          petRepository: _petRepository,
         ),
       ),
     );
@@ -78,15 +81,32 @@ class _ProgressScreenState extends State<ProgressScreen> {
   void _openChapter(_ProgressChapterItem item) {
     Navigator.of(context).push(
       MaterialPageRoute<void>(
-        builder: (_) => ChapterOverviewScreen(
-          subjectId: item.progress.subjectId,
-          subjectName: item.subjectName,
-          chapter: item.chapter,
-          repository: _learningRepository,
-          progressRepository: _progressRepository,
-          engagementRepository: _engagementRepository,
-          petRepository: _petRepository,
-        ),
+        builder: (_) => item.progress.parentKind == 'topic' ||
+                item.progress.parentKind == 'subchapter'
+            ? SubjectScreen(
+                subject: Subject(
+                  id: item.progress.subjectId,
+                  displayName: item.subjectName,
+                  shortName: item.subjectName,
+                  contentStatus: 'available',
+                  iconName: item.progress.subjectId,
+                  themeColor: '#496A5A',
+                  order: 1,
+                ),
+                repository: _learningRepository,
+                progressRepository: _progressRepository,
+                engagementRepository: _engagementRepository,
+                petRepository: _petRepository,
+              )
+            : ChapterOverviewScreen(
+                subjectId: item.progress.subjectId,
+                subjectName: item.subjectName,
+                chapter: item.chapter,
+                repository: _learningRepository,
+                progressRepository: _progressRepository,
+                engagementRepository: _engagementRepository,
+                petRepository: _petRepository,
+              ),
       ),
     );
   }
@@ -100,13 +120,13 @@ class _ProgressScreenState extends State<ProgressScreen> {
         title: const Text('Progress'),
       ),
       body: SafeArea(
-        child: FutureBuilder<List<Chapter>>(
-          future: _mathChapters,
-          builder: (context, chapterSnapshot) {
-            if (chapterSnapshot.connectionState == ConnectionState.waiting) {
+        child: FutureBuilder<List<LearningLocation>>(
+          future: _learningLocations,
+          builder: (context, locationSnapshot) {
+            if (locationSnapshot.connectionState == ConnectionState.waiting) {
               return const Center(child: CircularProgressIndicator());
             }
-            if (chapterSnapshot.hasError) {
+            if (locationSnapshot.hasError) {
               return _ProgressState(
                 icon: Icons.cloud_off_rounded,
                 title: 'We could not load progress right now.',
@@ -115,7 +135,8 @@ class _ProgressScreenState extends State<ProgressScreen> {
                 onAction: _retry,
               );
             }
-            final chapters = chapterSnapshot.data ?? const <Chapter>[];
+            final locations =
+                locationSnapshot.data ?? const <LearningLocation>[];
             return StreamBuilder<ProgressStreamData>(
               stream: _progressRepository.streamAllChapterProgress(),
               builder: (context, progressSnapshot) {
@@ -139,16 +160,21 @@ class _ProgressScreenState extends State<ProgressScreen> {
                       isFromCache: false,
                     );
                 final summary = ProgressSummary.fromProgress(
-                  progress: streamData.progress,
-                  totalActiveMathChapters: chapters.length,
+                  progress: streamData.progress
+                      .where((item) => locations.any((location) =>
+                          location.identityKey == item.identityKey))
+                      .toList(),
+                  totalActiveLearningLocations: locations.length,
                 );
                 final items = _buildChapterItems(
                   progress: streamData.progress,
-                  chapters: chapters,
+                  locations: locations,
                 );
 
                 if (streamData.progress.isEmpty) {
-                  return _EmptyProgressState(onStartLearning: _startLearning);
+                  return _EmptyProgressState(
+                    onStartLearning: () => _startLearning(locations),
+                  );
                 }
 
                 return RefreshIndicator(
@@ -185,7 +211,7 @@ class _ProgressScreenState extends State<ProgressScreen> {
                       _PerformanceCards(summary: summary),
                       const SizedBox(height: 22),
                       Text(
-                        'Chapter Progress',
+                        'Learning Progress',
                         style: Theme.of(context).textTheme.titleLarge,
                       ),
                       const SizedBox(height: 12),
@@ -209,26 +235,43 @@ class _ProgressScreenState extends State<ProgressScreen> {
 
   List<_ProgressChapterItem> _buildChapterItems({
     required List<ChapterProgress> progress,
-    required List<Chapter> chapters,
+    required List<LearningLocation> locations,
   }) {
-    final chaptersById = {for (final chapter in chapters) chapter.id: chapter};
+    final locationsByIdentity = {
+      for (final location in locations) location.identityKey: location,
+    };
     final items = progress.map((chapterProgress) {
-      final chapter = chaptersById[chapterProgress.chapterId] ??
-          Chapter(
-            id: chapterProgress.chapterId,
-            chapterNumber: 0,
-            title: 'Chapter ${chapterProgress.chapterId}',
-            textbookChapterTitle: '',
-            learningObjectives: const [],
-            estimatedMinutes: 0,
-            status: 'active',
-            order: 9999,
-          );
+      final location = locationsByIdentity[chapterProgress.identityKey];
+      final parentTitle = chapterProgress.parentTitle ??
+          location?.parentTitle ??
+          '${_labelFor(chapterProgress.parentKind)} ${chapterProgress.parentId}';
+      final parentNumber = chapterProgress.parentNumber ??
+          location?.parentNumber ??
+          '${chapterProgress.parentOrder}';
+      final parentOrder = chapterProgress.parentOrder > 0
+          ? chapterProgress.parentOrder
+          : location?.parentOrder ?? 9999;
+      final chapter = Chapter(
+        id: chapterProgress.containerId ?? chapterProgress.chapterId,
+        chapterNumber: int.tryParse(
+              chapterProgress.containerNumber ?? parentNumber,
+            ) ??
+            chapterProgress.parentOrder,
+        title: chapterProgress.containerTitle ?? parentTitle,
+        textbookChapterTitle: '',
+        learningObjectives: const [],
+        estimatedMinutes: 0,
+        status: 'active',
+        order: chapterProgress.parentOrder,
+      );
       return _ProgressChapterItem(
         subjectName:
-            chapterProgress.subjectId == ContentPaths.mathematicsSubjectId
-                ? 'Mathematics'
-                : chapterProgress.subjectId,
+            location?.subjectName ?? _subjectNameFor(chapterProgress.subjectId),
+        parentLabel:
+            location?.structureLabel ?? _labelFor(chapterProgress.parentKind),
+        parentNumber: parentNumber,
+        parentTitle: parentTitle,
+        parentOrder: parentOrder,
         chapter: chapter,
         progress: chapterProgress,
       );
@@ -245,7 +288,7 @@ class _ProgressScreenState extends State<ProgressScreen> {
       } else if (bActivity != null) {
         return 1;
       }
-      return a.chapter.order.compareTo(b.chapter.order);
+      return a.parentOrder.compareTo(b.parentOrder);
     });
     return items;
   }
@@ -254,14 +297,45 @@ class _ProgressScreenState extends State<ProgressScreen> {
 class _ProgressChapterItem {
   const _ProgressChapterItem({
     required this.subjectName,
+    required this.parentLabel,
+    required this.parentNumber,
+    required this.parentTitle,
+    required this.parentOrder,
     required this.chapter,
     required this.progress,
   });
 
   final String subjectName;
+  final String parentLabel;
+  final String parentNumber;
+  final String parentTitle;
+  final int parentOrder;
   final Chapter chapter;
   final ChapterProgress progress;
 }
+
+String _labelFor(String kind) => switch (kind) {
+      'topic' => 'Topic',
+      'subchapter' => 'Subchapter',
+      'section' => 'Section',
+      'unit' => 'Unit',
+      'lesson' => 'Lesson',
+      _ => 'Chapter',
+    };
+
+String _subjectNameFor(String id) => switch (id) {
+      'bahasa_melayu' => 'Bahasa Melayu',
+      'english' => 'English',
+      'math' => 'Mathematics',
+      'science' => 'Science',
+      'sejarah' => 'Sejarah',
+      'geography' => 'Geography',
+      'rbt' => 'RBT',
+      'pendidikan_islam' => 'Pendidikan Islam',
+      'pjk' => 'PJOK',
+      'seni' => 'Seni',
+      _ => id,
+    };
 
 class _OverallProgressCard extends StatelessWidget {
   const _OverallProgressCard({required this.summary});
@@ -302,7 +376,7 @@ class _OverallProgressCard extends StatelessWidget {
             ),
             const SizedBox(height: 12),
             Text(
-              '${summary.chaptersCompleted} / ${summary.totalActiveMathChapters} chapters completed',
+              '${summary.chaptersCompleted} / ${summary.totalActiveLearningLocations} learning areas completed',
               style: Theme.of(context).textTheme.bodyMedium,
             ),
           ],
@@ -326,7 +400,7 @@ class _SummaryGrid extends StatelessWidget {
             Expanded(
               child: _MetricCard(
                 icon: Icons.flag_rounded,
-                label: 'Chapters Started',
+                label: 'Learning Areas Started',
                 value: summary.chaptersStarted.toString(),
               ),
             ),
@@ -334,7 +408,7 @@ class _SummaryGrid extends StatelessWidget {
             Expanded(
               child: _MetricCard(
                 icon: Icons.check_circle_rounded,
-                label: 'Chapters Completed',
+                label: 'Learning Areas Completed',
                 value: summary.chaptersCompleted.toString(),
               ),
             ),
@@ -479,9 +553,7 @@ class _ProgressChapterCard extends StatelessWidget {
                         ),
                         const SizedBox(height: 4),
                         Text(
-                          item.chapter.chapterNumber > 0
-                              ? 'Chapter ${item.chapter.chapterNumber}: ${item.chapter.title}'
-                              : item.chapter.title,
+                          '${item.parentLabel} ${item.parentNumber}: ${item.parentTitle}',
                           style: Theme.of(context).textTheme.titleMedium,
                         ),
                       ],

@@ -3,6 +3,7 @@ import 'package:fake_cloud_firestore/fake_cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:studysis/config/content_paths.dart';
+import 'package:studysis/models/learning_location.dart';
 import 'package:studysis/repositories/engagement_repository.dart';
 import 'package:studysis/repositories/learning_repository.dart';
 import 'package:studysis/repositories/student_progress_repository.dart';
@@ -59,8 +60,8 @@ void main() {
 
     expect(find.text('Overall Learning Progress'), findsOneWidget);
     expect(find.text('100%'), findsWidgets);
-    expect(find.text('1 / 1 chapters completed'), findsOneWidget);
-    expect(find.text('Chapters Started'), findsOneWidget);
+    expect(find.text('1 / 1 learning areas completed'), findsOneWidget);
+    expect(find.text('Learning Areas Started'), findsOneWidget);
     expect(find.text('Modules Completed'), findsOneWidget);
     expect(find.text('Average Practice Score'), findsOneWidget);
     expect(find.text('Average Quiz Score'), findsOneWidget);
@@ -98,6 +99,67 @@ void main() {
     final chapterOneTop =
         tester.getTopLeft(find.text('Chapter 1: Patterns and Sequences')).dy;
     expect(chapterTwoTop, lessThan(chapterOneTop));
+  });
+
+  testWidgets('progress screen labels nested Topic progress by subject',
+      (tester) async {
+    _setLargeSurface(tester);
+    final firestore = FakeFirebaseFirestore();
+    await firestore.doc(ContentPaths.subject('bahasa_melayu')).set({
+      'displayName': 'Bahasa Melayu',
+      'order': 2,
+    });
+    await firestore
+        .doc('${ContentPaths.chapters('bahasa_melayu')}/section-1')
+        .set({
+      'chapterNumber': 2,
+      'title': 'Tatabahasa',
+      'textbookChapterTitle': '',
+      'learningObjectives': <String>[],
+      'estimatedMinutes': 20,
+      'status': 'active',
+      'order': 2,
+    });
+    await firestore
+        .doc('${ContentPaths.topics('bahasa_melayu', 'section-1')}/topic-1')
+        .set({'title': 'Kata Nama', 'order': 1, 'status': 'active'});
+    const location = LearningLocation(
+      subjectId: 'bahasa_melayu',
+      subjectName: 'Bahasa Melayu',
+      parentKind: 'topic',
+      parentId: 'topic-1',
+      parentTitle: 'Kata Nama',
+      parentNumber: '1',
+      parentOrder: 1,
+      structureLabel: 'Topic',
+      containerKind: 'section',
+      containerId: 'section-1',
+      containerTitle: 'Tatabahasa',
+      containerNumber: '2',
+    );
+    await firestore
+        .doc('student_progress/$uid/chapters/${location.progressDocumentId}')
+        .set({
+      'studentProfileId': 'qidah',
+      'subjectId': location.subjectId,
+      'chapterId': location.parentId,
+      'parentKind': location.parentKind,
+      'parentId': location.parentId,
+      'parentTitle': location.parentTitle,
+      'parentNumber': location.parentNumber,
+      'parentOrder': location.parentOrder,
+      'containerKind': location.containerKind,
+      'containerId': location.containerId,
+      'containerTitle': location.containerTitle,
+      'containerNumber': location.containerNumber,
+      'overallProgress': 25,
+    });
+
+    await tester.pumpWidget(_app(firestore: firestore, uid: uid));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Bahasa Melayu'), findsOneWidget);
+    expect(find.text('Topic 1: Kata Nama'), findsOneWidget);
   });
 
   testWidgets('chapter progress cards use chapter order when activity missing',
@@ -186,8 +248,13 @@ Future<void> _seedChapter(
   String chapterId, {
   required int order,
   required int number,
-}) {
-  return firestore.doc('${ContentPaths.chapters('math')}/$chapterId').set({
+}) async {
+  await firestore.doc(ContentPaths.subject('math')).set({
+    'displayName': 'Mathematics',
+    'status': 'active',
+    'order': 1,
+  });
+  await firestore.doc('${ContentPaths.chapters('math')}/$chapterId').set({
     'chapterNumber': number,
     'title': number == 1 ? 'Patterns and Sequences' : 'Linear Equations',
     'textbookChapterTitle': '',
@@ -195,6 +262,12 @@ Future<void> _seedChapter(
     'estimatedMinutes': 30,
     'status': 'active',
     'order': order,
+  });
+  await firestore.doc(ContentPaths.module('math', chapterId, 'notes')).set({
+    'type': 'notes',
+    'title': 'Lesson',
+    'status': 'active',
+    'order': 1,
   });
 }
 

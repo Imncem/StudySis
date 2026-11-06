@@ -5,6 +5,15 @@ class ChapterProgress {
     required this.studentProfileId,
     required this.subjectId,
     required this.chapterId,
+    this.parentKind = 'chapter',
+    String? parentId,
+    this.parentTitle,
+    this.parentNumber,
+    this.parentOrder = 0,
+    this.containerKind,
+    this.containerId,
+    this.containerTitle,
+    this.containerNumber,
     required this.learnCompleted,
     required this.learnCompletedAt,
     required this.flashcardsMasteredCount,
@@ -27,11 +36,20 @@ class ChapterProgress {
     required this.lastActivityAt,
     required this.createdAt,
     required this.updatedAt,
-  });
+  }) : parentId = parentId ?? chapterId;
 
   final String studentProfileId;
   final String subjectId;
   final String chapterId;
+  final String parentKind;
+  final String parentId;
+  final String? parentTitle;
+  final String? parentNumber;
+  final int parentOrder;
+  final String? containerKind;
+  final String? containerId;
+  final String? containerTitle;
+  final String? containerNumber;
   final bool learnCompleted;
   final DateTime? learnCompletedAt;
   final int flashcardsMasteredCount;
@@ -57,16 +75,39 @@ class ChapterProgress {
 
   bool get practiceCompleted => practiceCompletedAt != null;
   bool get quizCompleted => quizCompletedAt != null;
+  String get identityKey => [
+        subjectId,
+        containerKind ?? '',
+        containerId ?? '',
+        parentKind,
+        parentId,
+      ].map((part) => '${part.length}:$part').join();
 
   factory ChapterProgress.empty({
     required String subjectId,
     required String chapterId,
     String studentProfileId = 'qidah',
+    String parentKind = 'chapter',
+    String? parentTitle,
+    String? parentNumber,
+    int parentOrder = 0,
+    String? containerKind,
+    String? containerId,
+    String? containerTitle,
+    String? containerNumber,
   }) {
     return ChapterProgress(
       studentProfileId: studentProfileId,
       subjectId: subjectId,
       chapterId: chapterId,
+      parentKind: parentKind,
+      parentTitle: parentTitle,
+      parentNumber: parentNumber,
+      parentOrder: parentOrder,
+      containerKind: containerKind,
+      containerId: containerId,
+      containerTitle: containerTitle,
+      containerNumber: containerNumber,
       learnCompleted: false,
       learnCompletedAt: null,
       flashcardsMasteredCount: 0,
@@ -101,10 +142,20 @@ class ChapterProgress {
       return ChapterProgress.empty(subjectId: subjectId, chapterId: chapterId);
     }
     final masteredIds = data['masteredFlashcardIds'];
+    final storedChapterId = _string(data['chapterId'], chapterId);
     return ChapterProgress(
       studentProfileId: _string(data['studentProfileId'], 'qidah'),
       subjectId: _string(data['subjectId'], subjectId),
-      chapterId: _string(data['chapterId'], chapterId),
+      chapterId: storedChapterId,
+      parentKind: _string(data['parentKind'], 'chapter'),
+      parentId: _string(data['parentId'], storedChapterId),
+      parentTitle: _optionalString(data['parentTitle']),
+      parentNumber: _optionalString(data['parentNumber']),
+      parentOrder: _nonNegativeInt(data['parentOrder']),
+      containerKind: _optionalString(data['containerKind']),
+      containerId: _optionalString(data['containerId']),
+      containerTitle: _optionalString(data['containerTitle']),
+      containerNumber: _optionalString(data['containerNumber']),
       learnCompleted: data['learnCompleted'] == true,
       learnCompletedAt: _date(data['learnCompletedAt']),
       flashcardsMasteredCount: _nonNegativeInt(data['flashcardsMasteredCount']),
@@ -136,6 +187,9 @@ class ChapterProgress {
     if (value is String && value.trim().isNotEmpty) return value;
     return fallback;
   }
+
+  static String? _optionalString(Object? value) =>
+      value is String && value.trim().isNotEmpty ? value : null;
 
   static int _nonNegativeInt(Object? value) {
     final number = value is num ? value.round() : 0;

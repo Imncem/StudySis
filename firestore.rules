@@ -103,6 +103,9 @@ service cloud.firestore {
       let data = request.resource.data;
       return data.keys().hasOnly([
           'studentProfileId', 'subjectId', 'chapterId',
+          'parentKind', 'parentId', 'parentTitle', 'parentNumber',
+          'parentOrder', 'containerKind', 'containerId', 'containerTitle',
+          'containerNumber',
           'learnCompleted', 'learnCompletedAt',
           'flashcardsMasteredCount', 'flashcardsTotalCount',
           'flashcardsCompleted', 'masteredFlashcardIds',
@@ -119,6 +122,35 @@ service cloud.firestore {
         && data.subjectId.size() > 0
         && data.chapterId is string
         && data.chapterId.size() > 0
+        && (!data.keys().hasAny(['parentKind'])
+          || data.parentKind in ['chapter', 'subchapter', 'topic', 'unit', 'lesson'])
+        && (!data.keys().hasAny(['parentId'])
+          || (data.parentId is string && data.parentId.size() > 0))
+        && (!data.keys().hasAny(['parentTitle'])
+          || (data.parentTitle is string && data.parentTitle.size() > 0))
+        && (!data.keys().hasAny(['parentNumber'])
+          || (data.parentNumber is string && data.parentNumber.size() > 0))
+        && optionalCount(data, 'parentOrder')
+        && (!data.keys().hasAny(['containerKind'])
+          || data.containerKind in ['chapter', 'section'])
+        && (!data.keys().hasAny(['containerId'])
+          || (data.containerId is string && data.containerId.size() > 0))
+        && (!data.keys().hasAny(['containerTitle'])
+          || (data.containerTitle is string && data.containerTitle.size() > 0))
+        && (!data.keys().hasAny(['containerNumber'])
+          || (data.containerNumber is string && data.containerNumber.size() > 0))
+        && (!data.keys().hasAny(['containerKind'])
+          || data.keys().hasAny(['containerId']))
+        && (!data.keys().hasAny(['parentKind']) || data.parentKind != 'topic'
+          || (data.keys().hasAll(['containerKind', 'containerId'])
+            && data.containerKind == 'section'
+            && data.containerId is string
+            && data.containerId.size() > 0))
+        && (!data.keys().hasAny(['parentKind']) || data.parentKind != 'subchapter'
+          || (data.keys().hasAll(['containerKind', 'containerId'])
+            && data.containerKind == 'chapter'
+            && data.containerId is string
+            && data.containerId.size() > 0))
         && optionalBool(data, 'learnCompleted')
         && optionalTimestamp(data, 'learnCompletedAt')
         && optionalCount(data, 'flashcardsMasteredCount')
@@ -834,10 +866,8 @@ service cloud.firestore {
     match /student_progress/{uid}/chapters/{chapterProgressId} {
       allow read: if isDashboardAdmin()
         || (isSignedIn() && request.auth.uid == uid);
-      allow create, update: if isSignedIn()
-        && request.auth.uid == uid
-        && validChapterProgress(uid);
-      allow delete: if false;
+      // Learning progress is written only by trusted Firebase Functions.
+      allow create, update, delete: if false;
     }
 
     match /student_progress/{uid}/saved_flashcards/{savedFlashcardId} {
@@ -852,20 +882,20 @@ service cloud.firestore {
     match /student_progress/{uid}/engagement/{stateId} {
       allow read: if isDashboardAdmin()
         || (isSignedIn() && request.auth.uid == uid);
-      allow create, update: if isSignedIn()
-        && request.auth.uid == uid
-        && stateId == 'state'
-        && validEngagementState();
-      allow delete: if false;
+      // XP and streak state is written only by trusted Firebase Functions.
+      allow create, update, delete: if false;
     }
 
     match /student_progress/{uid}/engagement_days/{dateKey} {
       allow read: if isDashboardAdmin()
         || (isSignedIn() && request.auth.uid == uid);
-      allow create, update: if isSignedIn()
-        && request.auth.uid == uid
-        && validEngagementDay(dateKey);
-      allow delete: if false;
+      allow create, update, delete: if false;
+    }
+
+    match /student_progress/{uid}/trusted_events/{eventId} {
+      allow read: if isDashboardAdmin()
+        || (isSignedIn() && request.auth.uid == uid);
+      allow create, update, delete: if false;
     }
 
     match /student_progress/{uid}/pet/{stateId} {
@@ -885,10 +915,11 @@ service cloud.firestore {
         || (isSignedIn() && request.auth.uid == uid);
       allow create: if isSignedIn()
         && request.auth.uid == uid
-        && validPetEconomyCreate(stateId);
+        && validPetEconomyDefaultCreate(stateId);
       allow update: if isSignedIn()
         && request.auth.uid == uid
-        && validPetEconomyUpdate(stateId);
+        && (validPetEconomyPurchaseUpdate(stateId)
+          || validPetEconomyEquipmentUpdate(stateId));
       allow delete: if false;
     }
 

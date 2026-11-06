@@ -3,6 +3,7 @@ import 'package:studysis/models/student.dart';
 import 'package:studysis/models/subject.dart';
 import 'package:studysis/models/chapter.dart';
 import 'package:studysis/models/learning_module.dart';
+import 'package:studysis/models/learning_location.dart';
 import 'package:studysis/models/note_section.dart';
 import 'package:studysis/models/flashcard.dart';
 import 'package:studysis/models/practice_question.dart';
@@ -72,6 +73,48 @@ void main() {
     });
 
     expect(module.summary, '');
+  });
+
+  test('learning locations preserve legacy and collision-safe identities', () {
+    const root = LearningLocation(
+      subjectId: 'math',
+      subjectName: 'Mathematics',
+      parentKind: 'chapter',
+      parentId: 'chapter-1',
+      parentTitle: 'Patterns',
+      parentNumber: '1',
+      parentOrder: 1,
+      structureLabel: 'Chapter',
+    );
+    const firstNested = LearningLocation(
+      subjectId: 'a_b',
+      subjectName: 'Subject',
+      parentKind: 'e',
+      parentId: 'f',
+      parentTitle: 'Parent',
+      parentNumber: '1',
+      parentOrder: 1,
+      structureLabel: 'Topic',
+      containerKind: 'c',
+      containerId: 'd',
+    );
+    const secondNested = LearningLocation(
+      subjectId: 'a',
+      subjectName: 'Subject',
+      parentKind: 'e',
+      parentId: 'f',
+      parentTitle: 'Parent',
+      parentNumber: '1',
+      parentOrder: 1,
+      structureLabel: 'Topic',
+      containerKind: 'b_c',
+      containerId: 'd',
+    );
+
+    expect(root.progressDocumentId, 'math_chapter-1');
+    expect(
+        firstNested.progressDocumentId, isNot(secondNested.progressDocumentId));
+    expect(firstNested.identityKey, isNot(secondNested.identityKey));
   });
 
   test('note section maps structured content', () {

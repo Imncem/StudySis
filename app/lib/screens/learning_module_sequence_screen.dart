@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../models/chapter.dart';
 import '../models/learning_content.dart';
+import '../models/learning_location.dart';
 import '../models/learning_module.dart';
 import '../models/learning_module_sequence.dart';
 import '../repositories/learning_repository.dart';
@@ -26,6 +27,10 @@ class LearningModuleSequenceScreen extends StatefulWidget {
     this.onFlashcardCompleted,
     this.onPracticeCompleted,
     this.onQuizCompleted,
+    this.onLocationNotesCompleted,
+    this.onLocationFlashcardCompleted,
+    this.onLocationPracticeCompleted,
+    this.onLocationQuizCompleted,
     this.savedFlashcardService,
     super.key,
   });
@@ -51,6 +56,26 @@ class LearningModuleSequenceScreen extends StatefulWidget {
     LearningModule module,
     QuizResult result,
   )? onQuizCompleted;
+  final Future<void> Function(
+    LearningLocation location,
+    LearningModule module,
+  )? onLocationNotesCompleted;
+  final Future<void> Function(
+    LearningLocation location,
+    LearningModule module,
+    String cardId,
+    int totalCards,
+  )? onLocationFlashcardCompleted;
+  final Future<void> Function(
+    LearningLocation location,
+    LearningModule module,
+    PracticeResult result,
+  )? onLocationPracticeCompleted;
+  final Future<void> Function(
+    LearningLocation location,
+    LearningModule module,
+    QuizResult result,
+  )? onLocationQuizCompleted;
   final SavedFlashcardService? savedFlashcardService;
 
   @override
@@ -122,8 +147,17 @@ class _LearningModuleSequenceScreenState
                   parent: widget.parent,
                   moduleId: module.id,
                 );
-                await widget.onFlashcardCompleted
-                    ?.call(module, cardId, cards.length);
+                await widget.onFlashcardCompleted?.call(
+                  module,
+                  cardId,
+                  cards.length,
+                );
+                await widget.onLocationFlashcardCompleted?.call(
+                  widget.parent.location,
+                  module,
+                  cardId,
+                  cards.length,
+                );
               },
               moduleNavigation: navigation,
               moduleMetadata: LearningModuleMetadata(module: module),
@@ -144,6 +178,11 @@ class _LearningModuleSequenceScreenState
               ),
               onComplete: (result) async {
                 await widget.onPracticeCompleted?.call(module, result);
+                await widget.onLocationPracticeCompleted?.call(
+                  widget.parent.location,
+                  module,
+                  result,
+                );
               },
               moduleNavigation: navigation,
               moduleMetadata: LearningModuleMetadata(module: module),
@@ -159,12 +198,16 @@ class _LearningModuleSequenceScreenState
               ),
               onComplete: (result) async {
                 await widget.onQuizCompleted?.call(module, result);
+                await widget.onLocationQuizCompleted?.call(
+                  widget.parent.location,
+                  module,
+                  result,
+                );
               },
               moduleNavigation: navigation,
               moduleMetadata: LearningModuleMetadata(module: module),
             ),
           _ => Scaffold(
-              appBar: AppBar(title: Text(module.title)),
               body: const Center(
                 child: Text('This module type is being prepared.'),
               ),
@@ -218,5 +261,9 @@ class _LearningModuleSequenceScreenState
   Future<void> _completeNotes(LearningModule module) async {
     if (module.type != 'notes' || !_completedNotes.add(module.id)) return;
     await widget.onNotesCompleted?.call(module);
+    await widget.onLocationNotesCompleted?.call(
+      widget.parent.location,
+      module,
+    );
   }
 }

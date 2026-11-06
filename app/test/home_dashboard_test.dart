@@ -129,7 +129,10 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Continue Learning'), findsOneWidget);
-    expect(find.text('Chapter 1 - Notes'), findsOneWidget);
+    expect(
+      find.text('Chapter 1: Patterns and Sequences - Notes'),
+      findsOneWidget,
+    );
     expect(find.text('Notes - 5 min'), findsOneWidget);
     expect(find.text('Continue'), findsNothing);
     expect(tester.getTopLeft(find.text('Continue Learning')).dy,
@@ -157,9 +160,7 @@ void main() {
     await tester.tap(find.text('Continue Learning'));
     await tester.pumpAndSettle();
 
-    expect(find.text('Choose a chapter to begin the learning journey.'),
-        findsOneWidget);
-    expect(find.text('Patterns and Sequences'), findsOneWidget);
+    expect(find.text('A sequence is an ordered list.'), findsOneWidget);
   });
 
   testWidgets('compact Home removes full Subjects list', (tester) async {

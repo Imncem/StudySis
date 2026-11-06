@@ -49,10 +49,10 @@ test('default pet economy state can be created by owner', async () => {
   await assertSucceeds(setDoc(economyRef(db, uid), defaultEconomy()));
 });
 
-test('valid first coin credit create is allowed', async () => {
+test('client cannot mint Paw Coins while creating economy state', async () => {
   const db = testEnv.authenticatedContext(uid).firestore();
 
-  await assertSucceeds(
+  await assertFails(
     setDoc(
       economyRef(db, uid),
       defaultEconomy({
@@ -79,7 +79,7 @@ test('another user cannot create or update economy state', async () => {
   );
 });
 
-test('valid earned coin update is allowed once', async () => {
+test('client cannot mint Paw Coins through an earned coin update', async () => {
   await seedEconomy({
     pawCoins: 5,
     lifetimePawCoinsEarned: 5,
@@ -87,7 +87,7 @@ test('valid earned coin update is allowed once', async () => {
   });
   const db = testEnv.authenticatedContext(uid).firestore();
 
-  await assertSucceeds(
+  await assertFails(
     updateDoc(economyRef(db, uid), {
       pawCoins: 15,
       lifetimePawCoinsEarned: 15,

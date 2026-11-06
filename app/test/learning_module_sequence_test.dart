@@ -41,6 +41,23 @@ void main() {
     );
   });
 
+  test('unsupported active Test and Review modules do not inflate sequence',
+      () {
+    final modules = [
+      _module('notes', order: 1, type: 'notes'),
+      _module('flashcards', order: 2, type: 'flashcards'),
+      _module('practice', order: 3, type: 'practice'),
+      _module('quiz', order: 4, type: 'quiz'),
+      _module('test', order: 5, type: 'test'),
+      _module('review', order: 6, type: 'review'),
+    ];
+
+    expect(
+      sequenceActiveLearningModules(modules).map((module) => module.id),
+      ['notes', 'flashcards', 'practice', 'quiz'],
+    );
+  });
+
   testWidgets('four modules show progress and Next/Previous replace content',
       (tester) async {
     final setup = await _seedNotesSequence(4);
@@ -106,6 +123,7 @@ void main() {
       (tester) async {
     final setup = await _seedNotesSequence(1);
     var completions = 0;
+    var locationCompletions = 0;
     await tester.pumpWidget(
       MaterialApp(
         home: Builder(
@@ -123,6 +141,10 @@ void main() {
                   initialModuleId: 'notes-1',
                   repository: setup.repository,
                   onNotesCompleted: (_) async => completions += 1,
+                  onLocationNotesCompleted: (location, _) async {
+                    expect(location.subjectId, 'geography');
+                    locationCompletions += 1;
+                  },
                 ),
               ),
             ),
@@ -137,6 +159,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(completions, 1);
+    expect(locationCompletions, 1);
   });
 
   testWidgets('last module returns to list instead of inventing completion',
@@ -322,13 +345,14 @@ Map<String, Object> _moduleData({
 LearningModule _module(
   String id, {
   required int order,
+  String type = 'notes',
   String status = 'active',
   bool hasValidOrder = true,
 }) =>
     LearningModule(
       id: id,
       title: id,
-      type: 'notes',
+      type: type,
       content: '',
       summary: '',
       estimatedMinutes: 5,

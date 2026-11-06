@@ -1,13 +1,17 @@
 import 'package:flutter/material.dart';
 
 import '../models/engagement.dart';
-import '../models/learning_content.dart';
+import '../models/chapter.dart';
+import '../models/learning_continue_context.dart';
+import '../models/learning_location.dart';
+import '../models/learning_module.dart';
 import '../models/muffin_wallet.dart';
 import '../models/page_translation.dart';
 import '../models/saved_flashcard.dart';
 import '../models/student.dart';
 import '../models/study_pet.dart';
 import '../models/subject.dart';
+import '../models/learning_module_sequence.dart';
 import '../repositories/engagement_repository.dart';
 import '../repositories/learning_repository.dart';
 import '../repositories/student_progress_repository.dart';
@@ -21,9 +25,11 @@ import '../widgets/page_translation_scope.dart';
 import '../widgets/study_pet_visuals.dart';
 import '../widgets/studysis_decorative_background.dart';
 import 'progress_screen.dart';
+import 'learning_module_sequence_screen.dart';
+import 'practice_screen.dart';
+import 'quiz_screen.dart';
 import 'saved_flashcards_screen.dart';
 import 'study_pet_screen.dart';
-import 'subject_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({
@@ -63,7 +69,7 @@ class _HomeScreenState extends State<HomeScreen> {
   late final EngagementRepository _engagementRepository;
   late final StudentProgressRepository _progressRepository;
   late final StudyPetRepository _petRepository;
-  late Future<LearningContent?> _nextContent;
+  late Future<LearningContinueContext?> _nextContent;
   bool _isOpeningModule = false;
   bool _petUnlockPromptShowing = false;
   bool _petUnlockPromptShownThisSession = false;
@@ -82,11 +88,17 @@ class _HomeScreenState extends State<HomeScreen> {
         widget.progressRepository ?? StudentProgressRepository();
     _petRepository = widget.petRepository ?? StudyPetRepository();
     MuffinContextRegistry.instance.resetToHome();
-    _nextContent = _learningRepository.getFirstAvailableContent();
+    _nextContent = _loadContinueContext();
+  }
+
+  Future<LearningContinueContext?> _loadContinueContext() async {
+    return _learningRepository.getContinueLearningContext(
+      progress: await _progressRepository.getAllChapterProgress(),
+    );
   }
 
   Future<void> _refresh() async {
-    final nextContent = _learningRepository.getFirstAvailableContent();
+    final nextContent = _loadContinueContext();
     setState(() {
       _nextContent = nextContent;
     });
@@ -97,12 +109,12 @@ class _HomeScreenState extends State<HomeScreen> {
     if (_isOpeningModule) return;
     setState(() => _isOpeningModule = true);
     try {
-      final content = await _learningRepository.getFirstAvailableContent();
+      final continueContext = await _loadContinueContext();
       if (!mounted) return;
       setState(() {
-        _nextContent = Future.value(content);
+        _nextContent = Future.value(continueContext);
       });
-      if (content == null) {
+      if (continueContext == null) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text('Learning modules are being prepared.'),
@@ -110,22 +122,34 @@ class _HomeScreenState extends State<HomeScreen> {
         );
         return;
       }
+      final location = continueContext.location;
+      final chapter = Chapter(
+        id: location.containerId ?? location.parentId,
+        chapterNumber: int.tryParse(
+              location.containerNumber ?? location.parentNumber,
+            ) ??
+            location.parentOrder,
+        title: location.containerTitle ?? location.parentTitle,
+        textbookChapterTitle: '',
+        learningObjectives: const [],
+        estimatedMinutes: 0,
+        status: 'active',
+        order: location.parentOrder,
+      );
       await Navigator.of(context).push(
         MaterialPageRoute<void>(
-          builder: (_) => SubjectScreen(
-            subject: Subject(
-              id: 'math',
-              displayName: content.subjectName,
-              shortName: content.subjectName,
-              contentStatus: 'available',
-              iconName: 'math',
-              themeColor: '#496A5A',
-              order: 1,
-            ),
+          builder: (_) => LearningModuleSequenceScreen(
+            subjectName: location.subjectName,
+            chapter: chapter,
+            parent: LearningModuleParent.fromLocation(location),
+            parentTitle: location.parentTitle,
+            modules: continueContext.modules,
+            initialModuleId: continueContext.initialModuleId,
             repository: _learningRepository,
-            progressRepository: _progressRepository,
-            engagementRepository: _engagementRepository,
-            petRepository: _petRepository,
+            onLocationNotesCompleted: _completeLocationLearn,
+            onLocationFlashcardCompleted: _completeLocationFlashcard,
+            onLocationPracticeCompleted: _completeLocationPractice,
+            onLocationQuizCompleted: _completeLocationQuiz,
           ),
         ),
       );
@@ -137,6 +161,82 @@ class _HomeScreenState extends State<HomeScreen> {
       }
     } finally {
       if (mounted) setState(() => _isOpeningModule = false);
+    }
+  }
+
+  Future<void> _completeLocationLearn(
+    LearningLocation location,
+    LearningModule module,
+  ) async {
+    await _saveLocationProgress(
+      () => _engagementRepository.creditLocationLearnCompletion(
+        location: location,
+        moduleId: module.id,
+      ),
+      'learn',
+    );
+  }
+
+  Future<void> _completeLocationFlashcard(
+    LearningLocation location,
+    LearningModule module,
+    String cardId,
+    int totalCards,
+  ) async {
+    final progress = await _progressRepository.getLocationProgress(location);
+    final masteredIds = {...progress.masteredFlashcardIds, cardId};
+    await _saveLocationProgress(
+      () => _engagementRepository.creditLocationFlashcardReview(
+        location: location,
+        moduleId: module.id,
+        reviewedCardIds: masteredIds,
+      ),
+      'flashcards',
+    );
+  }
+
+  Future<void> _completeLocationPractice(
+    LearningLocation location,
+    LearningModule module,
+    PracticeResult result,
+  ) async {
+    await _saveLocationProgress(
+      () => _engagementRepository.creditLocationPracticeQuestions(
+        location: location,
+        moduleId: module.id,
+        answers: result.selectedAnswers,
+      ),
+      'practice',
+    );
+  }
+
+  Future<void> _completeLocationQuiz(
+    LearningLocation location,
+    LearningModule module,
+    QuizResult result,
+  ) async {
+    await _saveLocationProgress(
+      () => _engagementRepository.creditLocationQuizCompletion(
+        location: location,
+        moduleId: module.id,
+        answers: result.selectedAnswers,
+      ),
+      'quiz',
+    );
+  }
+
+  Future<void> _saveLocationProgress(
+    Future<void> Function() credit,
+    String activity,
+  ) async {
+    try {
+      await credit();
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Could not save $activity progress: $error')),
+        );
+      }
     }
   }
 
@@ -397,7 +497,7 @@ class _MyDayCard extends StatelessWidget {
   final EngagementRepository engagementRepository;
   final MuffinWalletService walletService;
   final StudyPetRepository petRepository;
-  final Future<LearningContent?> continueContent;
+  final Future<LearningContinueContext?> continueContent;
   final bool isOpeningContinue;
   final VoidCallback onOpenProgress;
   final VoidCallback onOpenStudyPet;
@@ -932,35 +1032,38 @@ class _MyDayContinueLearningRow extends StatelessWidget {
     required this.onTap,
   });
 
-  final Future<LearningContent?> content;
+  final Future<LearningContinueContext?> content;
   final bool isOpening;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
-    return FutureBuilder<LearningContent?>(
+    return FutureBuilder<LearningContinueContext?>(
       future: content,
       builder: (context, snapshot) {
-        final learningContent = snapshot.data;
+        final continueContext = snapshot.data;
+        final location = continueContext?.location;
+        final module = continueContext?.modules.firstWhere(
+          (item) => item.id == continueContext.initialModuleId,
+        );
         final subjectTheme = StudySisSubjectTheme.forSubject(
-          id: learningContent?.subjectName ?? 'math',
-          displayName: learningContent?.subjectName,
+          id: location?.subjectId ?? 'math',
+          displayName: location?.subjectName,
         );
         final accent = subjectTheme.accent(context);
         final soft = subjectTheme.softSurface(context);
         final hasError = snapshot.hasError;
-        final title = learningContent == null
+        final title = continueContext == null
             ? 'Learning modules'
-            : 'Chapter ${learningContent.chapter.chapterNumber} - '
-                '${learningContent.module.title}';
+            : '${location!.displayTitle} - ${module!.title}';
         final subtitle = snapshot.connectionState == ConnectionState.waiting
             ? 'Finding your next module...'
             : hasError
                 ? 'Could not check modules'
-                : learningContent == null
+                : continueContext == null
                     ? 'Being prepared'
-                    : '${learningContent.module.typeLabel} - '
-                        '${learningContent.module.estimatedMinutes} min';
+                    : '${module!.typeLabel} - '
+                        '${module.estimatedMinutes} min';
         return InkWell(
           borderRadius: BorderRadius.circular(18),
           onTap: isOpening ? null : onTap,

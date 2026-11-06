@@ -43,6 +43,41 @@ test.beforeEach(async () => {
   await testEnv.clearFirestore();
 });
 
+test('client cannot write valid-shaped nested curriculum progress', async () => {
+  const db = testEnv.authenticatedContext(uid).firestore();
+  const progress = {
+    ...baseChapterProgress({subjectId: 'bahasa_melayu', chapterId: 'topic-1'}),
+    parentKind: 'topic',
+    parentId: 'topic-1',
+    parentTitle: 'Tatabahasa',
+    parentNumber: '1',
+    parentOrder: 1,
+    containerKind: 'section',
+    containerId: 'section-1',
+    containerTitle: 'Tatabahasa',
+    containerNumber: '1',
+  };
+
+  await assertFails(setDoc(
+    doc(db, 'student_progress', uid, 'chapters', 'topic-progress'),
+    progress,
+  ));
+});
+
+test('student progress rejects nested identities without matching containers', async () => {
+  const db = testEnv.authenticatedContext(uid).firestore();
+  const progress = {
+    ...baseChapterProgress({subjectId: 'sejarah', chapterId: 'sub-1'}),
+    parentKind: 'subchapter',
+    parentId: 'sub-1',
+  };
+
+  await assertFails(setDoc(
+    doc(db, 'student_progress', uid, 'chapters', 'invalid-subchapter'),
+    progress,
+  ));
+});
+
 test('habitat forest to farm is allowed for owner', async () => {
   await seedState();
   const db = testEnv.authenticatedContext(uid).firestore();
@@ -309,6 +344,19 @@ function engagementRef(db, userId) {
 
 function oldTimestamp() {
   return Timestamp.fromDate(new Date('2026-08-20T10:00:00.000Z'));
+}
+
+function baseChapterProgress({subjectId, chapterId}) {
+  const timestamp = oldTimestamp();
+  return {
+    studentProfileId: 'qidah',
+    subjectId,
+    chapterId,
+    overallProgress: 0,
+    lastActivityAt: timestamp,
+    createdAt: timestamp,
+    updatedAt: timestamp,
+  };
 }
 
 function hoursAgo(hours) {

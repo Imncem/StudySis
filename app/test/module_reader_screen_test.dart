@@ -94,6 +94,23 @@ void main() {
     expect(find.text('This lesson is being prepared.'), findsNothing);
   });
 
+  testWidgets('dash placeholder falls back to legacy Notes sections',
+      (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.light,
+        home: const ModuleReaderScreen(
+          learningContent: _placeholderWithLegacySection,
+        ),
+      ),
+    );
+    await tester.pump();
+
+    expect(find.text('A. Jarak Lurus'), findsOneWidget);
+    expect(find.text('-'), findsNothing);
+    expect(find.text('This lesson is being prepared.'), findsNothing);
+  });
+
   testWidgets('Go to Flashcards returns action to persist Learn first',
       (tester) async {
     Object? result;
@@ -257,6 +274,40 @@ const _content = LearningContent(
       id: 'section-1',
       heading: 'Pattern',
       body: 'A pattern follows a rule.',
+      example: '',
+      order: 1,
+    ),
+  ],
+);
+
+const _placeholderWithLegacySection = LearningContent(
+  subjectName: 'Geography',
+  chapter: Chapter(
+    id: 'chapter_01',
+    chapterNumber: 1,
+    title: 'Skala dan Jarak',
+    textbookChapterTitle: 'Skala dan Jarak',
+    learningObjectives: [],
+    estimatedMinutes: 30,
+    status: 'active',
+    order: 1,
+  ),
+  module: LearningModule(
+    id: 'notes',
+    title: 'Notes',
+    type: 'notes',
+    content: '-',
+    summary: '-',
+    estimatedMinutes: 10,
+    difficulty: 'easy',
+    order: 1,
+    status: 'active',
+  ),
+  noteSections: [
+    NoteSection(
+      id: 'jenis-jarak',
+      heading: 'Jenis Jarak',
+      body: 'A. Jarak Lurus',
       example: '',
       order: 1,
     ),

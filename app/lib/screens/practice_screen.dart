@@ -48,6 +48,7 @@ class _PracticeScreenState extends State<PracticeScreen> {
   int? _selectedAnswerIndex;
   bool _hasSubmitted = false;
   int _correctAnswers = 0;
+  final Map<String, int> _selectedAnswers = {};
   bool _isComplete = false;
   final _scrollController = ScrollController();
 
@@ -80,6 +81,7 @@ class _PracticeScreenState extends State<PracticeScreen> {
     final isCorrect = _selectedAnswerIndex == question.correctAnswerIndex;
     setState(() {
       _hasSubmitted = true;
+      _selectedAnswers[question.id] = _selectedAnswerIndex!;
       if (isCorrect) _correctAnswers += 1;
     });
   }
@@ -89,6 +91,7 @@ class _PracticeScreenState extends State<PracticeScreen> {
       final result = PracticeResult(
         correctAnswers: _correctAnswers,
         totalQuestions: total,
+        selectedAnswers: Map.unmodifiable(_selectedAnswers),
       );
       await widget.onComplete?.call(result);
       if (!mounted) return;
@@ -338,10 +341,12 @@ class PracticeResult {
   const PracticeResult({
     required this.correctAnswers,
     required this.totalQuestions,
+    this.selectedAnswers = const {},
   });
 
   final int correctAnswers;
   final int totalQuestions;
+  final Map<String, int> selectedAnswers;
 
   int get percentage => resultPercentage(
         correctCount: correctAnswers,

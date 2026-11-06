@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:studysis/models/pet_cosmetic.dart';
 import 'package:studysis/repositories/engagement_repository.dart';
 import 'package:studysis/repositories/pet_economy_repository.dart';
+import 'package:studysis/services/trusted_progress_service.dart';
 
 const uid = 'anonymousUid123';
 
@@ -67,7 +68,9 @@ void main() {
     expect(practice.pawCoinsAwarded, 10);
     expect(quiz.pawCoinsAwarded, 20);
     expect(saved.pawCoinsAwarded, 5);
-    expect(economy.pawCoins, 40);
+    // The saved-card award is returned by the trusted backend fake and does
+    // not mutate this local Firestore test double.
+    expect(economy.pawCoins, 35);
   });
 
   test('purchase deducts Paw Coins, owns item, and auto-equips', () async {
@@ -153,7 +156,39 @@ EngagementRepository _engagement(FakeFirebaseFirestore firestore) {
     firestore: firestore,
     uidProvider: () => uid,
     nowProvider: () => DateTime.utc(2026, 8, 17, 2),
+    trustedProgressService: const _FakeTrustedProgressService(),
   );
+}
+
+class _FakeTrustedProgressService implements TrustedProgressService {
+  const _FakeTrustedProgressService();
+
+  @override
+  Future<Map<String, dynamic>> record(
+    String functionName,
+    Map<String, Object?> payload,
+  ) async =>
+      {
+        'success': true,
+        'credited': true,
+        'studyPointsAwarded': 1,
+        'xpAwarded': 10,
+        'pawCoinsAwarded': 5,
+        'previousTotalXp': 0,
+        'previousLevel': 1,
+        'streakNewlySecured': false,
+        'state': {
+          'totalXp': 10,
+          'level': 1,
+          'currentStreak': 0,
+          'longestStreak': 0,
+          'lastQualifiedDate': null,
+          'todayDateKey': '2026-08-17',
+          'todayStudyPoints': 1,
+          'dailyStudyTarget': 3,
+          'todayStreakSecured': false,
+        },
+      };
 }
 
 Future<void> _seedEconomy(

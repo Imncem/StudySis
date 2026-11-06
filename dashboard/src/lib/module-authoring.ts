@@ -1,5 +1,7 @@
 import type {
+  LearningModule,
   LearningModuleInput,
+  LearningModulePatch,
   ModuleType,
 } from "./types.ts";
 import type { ModuleFormValues } from "./module-editor-navigation.ts";
@@ -81,6 +83,43 @@ export function moduleInputForSave(
         : "",
     summary: values.summary.trim(),
   };
+}
+
+const editableModuleFields = [
+  "title",
+  "type",
+  "content",
+  "summary",
+  "estimatedMinutes",
+  "difficulty",
+  "order",
+  "status",
+] as const satisfies readonly (keyof LearningModuleInput)[];
+
+export function modulePatchForUpdate(
+  input: LearningModuleInput,
+  original: LearningModule,
+): LearningModulePatch {
+  const normalizedOriginal = moduleInputForSave(
+    {
+      title: original.title,
+      type: original.type,
+      content: original.content,
+      summary: original.summary,
+      estimatedMinutes: original.estimatedMinutes,
+      difficulty: original.difficulty,
+      order: original.order,
+      status: original.status,
+    },
+    true,
+  );
+  const patch: LearningModulePatch = {};
+  for (const field of editableModuleFields) {
+    if (input[field] !== normalizedOriginal[field]) {
+      Object.assign(patch, { [field]: input[field] });
+    }
+  }
+  return patch;
 }
 
 export const existingTypeChangeExplanation =

@@ -3,6 +3,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 
 import '../models/chapter_progress.dart';
+import '../models/learning_location.dart';
 import '../screens/practice_screen.dart';
 import '../screens/quiz_screen.dart';
 
@@ -59,6 +60,99 @@ class StudentProgressRepository {
       subjectId: subjectId,
       chapterId: chapterId,
       data: snapshot.data(),
+    );
+  }
+
+  Stream<ChapterProgress> streamLocationProgress(LearningLocation location) {
+    final ref = _locationDoc(_uid, location);
+    return ref.snapshots().map(
+          (snapshot) => ChapterProgress.fromMap(
+            subjectId: location.subjectId,
+            chapterId: location.parentId,
+            data: snapshot.data(),
+          ),
+        );
+  }
+
+  Future<ChapterProgress> getLocationProgress(LearningLocation location) async {
+    final snapshot = await _locationDoc(_uid, location).get();
+    return ChapterProgress.fromMap(
+      subjectId: location.subjectId,
+      chapterId: location.parentId,
+      data: snapshot.data(),
+    );
+  }
+
+  Future<void> markLocationLearnCompleted(LearningLocation location) {
+    return _updateLocationProgress(
+      operation: 'markLearnCompleted',
+      location: location,
+      update: (progress) => {
+        'learnCompleted': true,
+        if (!progress.learnCompleted)
+          'learnCompletedAt': FieldValue.serverTimestamp(),
+      },
+    );
+  }
+
+  Future<void> updateLocationFlashcardProgress({
+    required LearningLocation location,
+    required int masteredCount,
+    required int totalCount,
+    List<String>? masteredCardIds,
+  }) {
+    final safeTotal = totalCount < 0 ? 0 : totalCount;
+    final safeMastered = masteredCount.clamp(0, safeTotal);
+    return _updateLocationProgress(
+      operation: 'updateFlashcardProgress',
+      location: location,
+      update: (_) => {
+        'flashcardsMasteredCount': safeMastered,
+        'flashcardsTotalCount': safeTotal,
+        'flashcardsCompleted': safeTotal > 0 && safeMastered >= safeTotal,
+        if (masteredCardIds != null) 'masteredFlashcardIds': masteredCardIds,
+      },
+    );
+  }
+
+  Future<void> recordLocationPracticeResult({
+    required LearningLocation location,
+    required PracticeResult result,
+  }) {
+    return _updateLocationProgress(
+      operation: 'recordPracticeResult',
+      location: location,
+      update: (progress) => {
+        'practiceLatestPercentage': result.percentage,
+        'practiceBestPercentage':
+            result.percentage > progress.practiceBestPercentage
+                ? result.percentage
+                : progress.practiceBestPercentage,
+        'practiceCorrectCount': result.correctAnswers,
+        'practiceTotalQuestions': result.totalQuestions,
+        'practiceCompletedAt': FieldValue.serverTimestamp(),
+      },
+    );
+  }
+
+  Future<void> recordLocationQuizResult({
+    required LearningLocation location,
+    required QuizResult result,
+  }) {
+    return _updateLocationProgress(
+      operation: 'recordQuizResult',
+      location: location,
+      update: (progress) => {
+        'quizLatestPercentage': result.percentage,
+        'quizBestPercentage': result.percentage > progress.quizBestPercentage
+            ? result.percentage
+            : progress.quizBestPercentage,
+        'quizCorrectCount': result.correctCount,
+        'quizIncorrectCount': result.incorrectCount,
+        'quizUnansweredCount': result.unansweredCount,
+        'quizPassed': result.passed,
+        'quizCompletedAt': FieldValue.serverTimestamp(),
+      },
     );
   }
 
@@ -202,6 +296,68 @@ class StudentProgressRepository {
     }
   }
 
+  Future<void> _updateLocationProgress({
+    required String operation,
+    required LearningLocation location,
+    required Map<String, Object?> Function(ChapterProgress progress) update,
+  }) async {
+    final uid = _uid;
+    final ref = _locationDoc(uid, location);
+    await _firestore.runTransaction((transaction) async {
+      final snapshot = await transaction.get(ref);
+      final existing = snapshot.data();
+      final current = ChapterProgress.fromMap(
+        subjectId: location.subjectId,
+        chapterId: location.parentId,
+        data: existing,
+      );
+      final fields = update(current);
+      final next = _nextProgress(current, fields);
+      final payload = {
+        if (existing != null) ...existing,
+        'studentProfileId': 'qidah',
+        'subjectId': location.subjectId,
+        // Retained for old readers; parentId is authoritative for new readers.
+        'chapterId': location.parentId,
+        ...location.toProgressFields(),
+        if (existing == null) ..._initialLocationProgressPayload(),
+        ...fields,
+        'overallProgress': next,
+        'lastActivityAt': FieldValue.serverTimestamp(),
+        'createdAt': existing?['createdAt'] ?? FieldValue.serverTimestamp(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      };
+      _logProgressWrite(
+        operation: operation,
+        uid: uid,
+        path: ref.path,
+        payload: payload,
+      );
+      transaction.set(ref, payload);
+    });
+  }
+
+  Map<String, Object?> _initialLocationProgressPayload() => {
+        'learnCompleted': false,
+        'learnCompletedAt': null,
+        'flashcardsMasteredCount': 0,
+        'flashcardsTotalCount': 0,
+        'flashcardsCompleted': false,
+        'masteredFlashcardIds': <String>[],
+        'practiceLatestPercentage': 0,
+        'practiceBestPercentage': 0,
+        'practiceCorrectCount': 0,
+        'practiceTotalQuestions': 0,
+        'practiceCompletedAt': null,
+        'quizLatestPercentage': 0,
+        'quizBestPercentage': 0,
+        'quizCorrectCount': 0,
+        'quizIncorrectCount': 0,
+        'quizUnansweredCount': 0,
+        'quizPassed': false,
+        'quizCompletedAt': null,
+      };
+
   int _nextProgress(ChapterProgress current, Map<String, Object?> fields) {
     final practiceCompleted =
         fields.containsKey('practiceCompletedAt') || current.practiceCompleted;
@@ -259,6 +415,12 @@ class StudentProgressRepository {
   ) {
     return _chaptersCollection(uid).doc('${subjectId}_$chapterId');
   }
+
+  DocumentReference<Map<String, dynamic>> _locationDoc(
+    String uid,
+    LearningLocation location,
+  ) =>
+      _chaptersCollection(uid).doc(location.progressDocumentId);
 
   CollectionReference<Map<String, dynamic>> _chaptersCollection(String uid) {
     return _firestore

@@ -131,6 +131,8 @@ export type LearningModuleInput = Omit<
   "id" | "createdAt" | "updatedAt"
 >;
 
+export type LearningModulePatch = Partial<LearningModuleInput>;
+
 export type NoteSection = {
   id: string;
   heading: string;

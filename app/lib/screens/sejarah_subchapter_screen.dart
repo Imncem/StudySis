@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
 
+import '../models/learning_location.dart';
+import '../repositories/engagement_repository.dart';
+import '../repositories/student_progress_repository.dart';
 import '../models/chapter.dart';
 import '../models/learning_module.dart';
 import '../models/subchapter.dart';
@@ -13,12 +16,16 @@ class SejarahSubchapterScreen extends StatefulWidget {
     required this.chapter,
     required this.subjectName,
     required this.repository,
+    this.progressRepository,
+    this.engagementRepository,
     super.key,
   });
 
   final Chapter chapter;
   final String subjectName;
   final LearningRepository repository;
+  final StudentProgressRepository? progressRepository;
+  final EngagementRepository? engagementRepository;
 
   @override
   State<SejarahSubchapterScreen> createState() =>
@@ -84,6 +91,8 @@ class _SejarahSubchapterScreenState extends State<SejarahSubchapterScreen> {
                           subchapter: item,
                           subjectName: widget.subjectName,
                           repository: widget.repository,
+                          progressRepository: widget.progressRepository,
+                          engagementRepository: widget.engagementRepository,
                         ),
                       ),
                     ),
@@ -105,6 +114,8 @@ class SejarahModulesScreen extends StatefulWidget {
     required this.subchapter,
     required this.subjectName,
     required this.repository,
+    this.progressRepository,
+    this.engagementRepository,
     super.key,
   });
 
@@ -112,6 +123,8 @@ class SejarahModulesScreen extends StatefulWidget {
   final Subchapter subchapter;
   final String subjectName;
   final LearningRepository repository;
+  final StudentProgressRepository? progressRepository;
+  final EngagementRepository? engagementRepository;
 
   @override
   State<SejarahModulesScreen> createState() => _SejarahModulesScreenState();
@@ -119,6 +132,26 @@ class SejarahModulesScreen extends StatefulWidget {
 
 class _SejarahModulesScreenState extends State<SejarahModulesScreen> {
   late Future<List<LearningModule>> _modules;
+
+  StudentProgressRepository get _progressRepository =>
+      widget.progressRepository ?? StudentProgressRepository();
+  EngagementRepository get _engagementRepository =>
+      widget.engagementRepository ?? EngagementRepository();
+
+  LearningLocation get _location => LearningLocation(
+        subjectId: 'sejarah',
+        subjectName: widget.subjectName,
+        parentKind: 'subchapter',
+        parentId: widget.subchapter.id,
+        parentTitle: widget.subchapter.title,
+        parentNumber: widget.subchapter.number,
+        parentOrder: widget.subchapter.order,
+        structureLabel: 'Subchapter',
+        containerKind: 'chapter',
+        containerId: widget.chapter.id,
+        containerTitle: widget.chapter.title,
+        containerNumber: '${widget.chapter.chapterNumber}',
+      );
 
   @override
   void initState() {
@@ -188,15 +221,44 @@ class _SejarahModulesScreenState extends State<SejarahModulesScreen> {
         builder: (_) => LearningModuleSequenceScreen(
           subjectName: widget.subjectName,
           chapter: widget.chapter,
-          parent: LearningModuleParent.subchapter(
-            subjectId: 'sejarah',
-            chapterId: widget.chapter.id,
-            subchapterId: widget.subchapter.id,
-          ),
+          parent: LearningModuleParent.fromLocation(_location),
           parentTitle: widget.subchapter.title,
           modules: modules,
           initialModuleId: module.id,
           repository: widget.repository,
+          onLocationNotesCompleted: (location, completedModule) async {
+            await _engagementRepository.creditLocationLearnCompletion(
+              location: location,
+              moduleId: completedModule.id,
+            );
+          },
+          onLocationFlashcardCompleted:
+              (location, completedModule, cardId, totalCards) async {
+            final progress = await _progressRepository.getLocationProgress(
+              location,
+            );
+            final masteredIds = {...progress.masteredFlashcardIds, cardId};
+            await _engagementRepository.creditLocationFlashcardReview(
+              location: location,
+              moduleId: completedModule.id,
+              reviewedCardIds: masteredIds,
+            );
+          },
+          onLocationPracticeCompleted:
+              (location, completedModule, result) async {
+            await _engagementRepository.creditLocationPracticeQuestions(
+              location: location,
+              moduleId: completedModule.id,
+              answers: result.selectedAnswers,
+            );
+          },
+          onLocationQuizCompleted: (location, completedModule, result) async {
+            await _engagementRepository.creditLocationQuizCompletion(
+              location: location,
+              moduleId: completedModule.id,
+              answers: result.selectedAnswers,
+            );
+          },
         ),
       ),
     );

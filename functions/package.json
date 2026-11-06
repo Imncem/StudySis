@@ -5,7 +5,7 @@
   "type": "commonjs",
   "main": "index.js",
   "scripts": {
-    "lint": "node --check index.js && node --check muffinPolicy.js",
+    "lint": "node --check index.js && node --check muffinPolicy.js && node --check trustedProgression.js",
     "test": "node --test"
   },
   "engines": {

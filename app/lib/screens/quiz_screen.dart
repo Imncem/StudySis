@@ -335,12 +335,14 @@ class QuizResult {
     required this.incorrectCount,
     required this.unansweredCount,
     required this.totalQuestions,
+    this.selectedAnswers = const {},
   });
 
   final int correctCount;
   final int incorrectCount;
   final int unansweredCount;
   final int totalQuestions;
+  final Map<String, int> selectedAnswers;
 
   int get percentage =>
       totalQuestions == 0 ? 0 : ((correctCount / totalQuestions) * 100).round();
@@ -375,6 +377,7 @@ class QuizResult {
       incorrectCount: incorrect,
       unansweredCount: unanswered,
       totalQuestions: questions.length,
+      selectedAnswers: Map.unmodifiable(selectedAnswers),
     );
   }
 }

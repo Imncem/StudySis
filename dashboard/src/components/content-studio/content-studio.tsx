@@ -37,6 +37,7 @@ import { moduleCardDestination } from "@/lib/notes-authoring";
 import { moduleEditorBreadcrumb } from "@/lib/module-editor-navigation";
 import {
   moduleDestinationAfterSave,
+  modulePatchForUpdate,
   modulePostSaveState,
 } from "@/lib/module-authoring";
 import { ChapterForm } from "./chapter-form";
@@ -379,7 +380,8 @@ export function ContentStudio({ access }: { access: DashboardAccess }) {
       ? moduleEditor
       : null;
     if (existingModule) {
-      await repository.updateModule(moduleLocation, existingModule.id, input);
+      const patch = modulePatchForUpdate(input, existingModule);
+      await repository.updateModule(moduleLocation, existingModule.id, patch);
       savedModuleId = existingModule.id;
       setNotice("Module updated.");
     } else {

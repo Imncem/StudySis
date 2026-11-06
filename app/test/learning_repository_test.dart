@@ -1,10 +1,95 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:fake_cloud_firestore/fake_cloud_firestore.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:studysis/config/content_paths.dart';
+import 'package:studysis/models/chapter_progress.dart';
 import 'package:studysis/models/learning_module_sequence.dart';
 import 'package:studysis/repositories/learning_repository.dart';
 
 void main() {
+  test('Continue selects the latest incomplete location across structures',
+      () async {
+    final firestore = FakeFirebaseFirestore();
+    await _seedSubjectAndChapter(firestore, 'bahasa_melayu', 'section-1');
+    await firestore
+        .doc('${ContentPaths.topics('bahasa_melayu', 'section-1')}/topic-1')
+        .set({'title': 'Tatabahasa', 'order': 1, 'status': 'active'});
+    await firestore
+        .doc(ContentPaths.topicModule(
+          'bahasa_melayu',
+          'section-1',
+          'topic-1',
+          'notes',
+        ))
+        .set(_notesModule('Topic notes'));
+    await firestore
+        .doc(ContentPaths.topicModule(
+      'bahasa_melayu',
+      'section-1',
+      'topic-1',
+      'flashcards',
+    ))
+        .set({..._notesModule(''), 'type': 'flashcards', 'order': 2});
+
+    await _seedSubjectAndChapter(firestore, 'sejarah', 'chapter-1');
+    await firestore
+        .doc('${ContentPaths.subchapters('sejarah', 'chapter-1')}/sub-1')
+        .set({
+      'number': '1.1',
+      'title': 'Early history',
+      'order': 1,
+      'status': 'active',
+    });
+    await firestore
+        .doc(ContentPaths.subchapterModule(
+          'sejarah',
+          'chapter-1',
+          'sub-1',
+          'notes',
+        ))
+        .set(_notesModule('Sejarah notes'));
+
+    final topicProgress = ChapterProgress.fromMap(
+      subjectId: 'bahasa_melayu',
+      chapterId: 'topic-1',
+      data: {
+        'subjectId': 'bahasa_melayu',
+        'chapterId': 'topic-1',
+        'parentKind': 'topic',
+        'parentId': 'topic-1',
+        'parentTitle': 'Tatabahasa',
+        'parentNumber': '1',
+        'parentOrder': 1,
+        'containerKind': 'section',
+        'containerId': 'section-1',
+        'learnCompleted': true,
+        'lastActivityAt': Timestamp.fromDate(DateTime(2026, 3, 10)),
+      },
+    );
+    final subchapterProgress = ChapterProgress.fromMap(
+      subjectId: 'sejarah',
+      chapterId: 'sub-1',
+      data: {
+        'subjectId': 'sejarah',
+        'chapterId': 'sub-1',
+        'parentKind': 'subchapter',
+        'parentId': 'sub-1',
+        'containerKind': 'chapter',
+        'containerId': 'chapter-1',
+        'lastActivityAt': Timestamp.fromDate(DateTime(2026, 3, 9)),
+      },
+    );
+
+    final context = await LearningRepository(firestore: firestore)
+        .getContinueLearningContext(
+      progress: [subchapterProgress, topicProgress],
+    );
+
+    expect(context?.location.subjectId, 'bahasa_melayu');
+    expect(context?.location.parentId, 'topic-1');
+    expect(context?.initialModuleId, 'flashcards');
+  });
+
   test('loads canonical Notes content from a Sejarah subchapter', () async {
     final firestore = FakeFirebaseFirestore();
     await _seedSubjectAndChapter(firestore, 'sejarah', 'chapter-01');
@@ -80,6 +165,36 @@ void main() {
 
     expect(content?.module.content, isEmpty);
     expect(content?.noteSections.single.body, 'Legacy lesson body');
+  });
+
+  test('placeholder Notes content does not mask legacy authored sections',
+      () async {
+    final firestore = FakeFirebaseFirestore();
+    await _seedSubjectAndChapter(firestore, 'geography', 'chapter-01');
+    await firestore
+        .doc(ContentPaths.module('geography', 'chapter-01', 'notes'))
+        .set(_notesModule('-'));
+    await firestore
+        .collection(
+          ContentPaths.noteSections('geography', 'chapter-01', 'notes'),
+        )
+        .doc('jenis-jarak')
+        .set({
+      'heading': 'Jenis Jarak',
+      'body': 'A. Jarak Lurus',
+      'example': '',
+      'order': 1,
+    });
+
+    final content =
+        await LearningRepository(firestore: firestore).getChapterNotesContent(
+      subjectId: 'geography',
+      chapterId: 'chapter-01',
+    );
+
+    expect(content?.hasModuleLessonContent, isFalse);
+    expect(content?.noteSections.single.heading, 'Jenis Jarak');
+    expect(content?.hasLessonContent, isTrue);
   });
 
   for (final languageSubject in {

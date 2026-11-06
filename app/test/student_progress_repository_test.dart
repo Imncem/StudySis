@@ -1,6 +1,7 @@
 import 'package:fake_cloud_firestore/fake_cloud_firestore.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:studysis/models/chapter_progress.dart';
+import 'package:studysis/models/learning_location.dart';
 import 'package:studysis/repositories/student_progress_repository.dart';
 import 'package:studysis/screens/practice_screen.dart';
 import 'package:studysis/screens/quiz_screen.dart';
@@ -147,6 +148,41 @@ void main() {
     expect(data['updatedAt'], isNotNull);
     expect(data['lastActivityAt'], isNotNull);
     expect(data['learnCompletedAt'], isNotNull);
+  });
+
+  test('nested progress writes retain parent and container identity', () async {
+    final firestore = FakeFirebaseFirestore();
+    final repository = _repository(uid, firestore);
+    const location = LearningLocation(
+      subjectId: 'bahasa_melayu',
+      subjectName: 'Bahasa Melayu',
+      parentKind: 'topic',
+      parentId: 'kata_nama',
+      parentTitle: 'Kata Nama',
+      parentNumber: '1',
+      parentOrder: 1,
+      structureLabel: 'Topic',
+      containerKind: 'section',
+      containerId: 'tatabahasa',
+      containerTitle: 'Tatabahasa',
+      containerNumber: '2',
+    );
+
+    await repository.markLocationLearnCompleted(location);
+
+    final snapshot = await firestore
+        .doc('student_progress/$uid/chapters/${location.progressDocumentId}')
+        .get();
+    final progress = await repository.getLocationProgress(location);
+    expect(snapshot.exists, isTrue);
+    expect(snapshot.data()!['chapterId'], 'kata_nama');
+    expect(snapshot.data()!['parentKind'], 'topic');
+    expect(snapshot.data()!['parentId'], 'kata_nama');
+    expect(snapshot.data()!['containerKind'], 'section');
+    expect(snapshot.data()!['containerId'], 'tatabahasa');
+    expect(progress.identityKey, location.identityKey);
+    expect((await repository.getAllChapterProgress()).single.identityKey,
+        location.identityKey);
   });
 
   test('existing progress update preserves createdAt and other module fields',

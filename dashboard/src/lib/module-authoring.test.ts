@@ -6,6 +6,7 @@ import {
   hasStructuredContentEditor,
   moduleDestinationAfterSave,
   moduleInputForSave,
+  modulePatchForUpdate,
   modulePostSaveState,
   moduleSaveLabel,
   usesInlineLessonContent,
@@ -142,4 +143,46 @@ test("existing module summaries continue to save after trimming", () => {
       .summary,
     "Existing summary",
   );
+});
+
+test("metadata edits produce a patch that preserves authored Notes content", () => {
+  const original = {
+    id: "notes-1",
+    ...moduleInputForSave(values("notes", "Authored lesson"), false),
+    content: "  Authored lesson  ",
+    createdAt: null,
+    updatedAt: null,
+  };
+  const edited = moduleInputForSave(
+    {
+      ...original,
+      estimatedMinutes: 15,
+    },
+    true,
+  );
+
+  assert.deepEqual(modulePatchForUpdate(edited, original), {
+    estimatedMinutes: 15,
+  });
+});
+
+test("structured metadata navigation cannot replace unrelated module content", () => {
+  const original = {
+    id: "quiz-1",
+    ...moduleInputForSave(values("quiz", "Legacy parent content"), true),
+    createdAt: null,
+    updatedAt: null,
+  };
+  const edited = { ...original, summary: "Updated summary" };
+
+  assert.deepEqual(modulePatchForUpdate(edited, original), {
+    summary: "Updated summary",
+  });
+});
+
+test("new structured modules never invent a dummy Notes module", () => {
+  const input = moduleInputForSave(values("quiz", "-", "-"), false);
+  assert.equal(input.title, "Module title");
+  assert.equal(input.type, "quiz");
+  assert.equal(input.content, "");
 });

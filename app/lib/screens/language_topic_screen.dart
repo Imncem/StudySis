@@ -1,10 +1,13 @@
 import 'package:flutter/material.dart';
 
+import '../models/learning_location.dart';
 import '../models/chapter.dart';
 import '../models/curriculum_topic.dart';
 import '../models/learning_module.dart';
 import '../models/learning_module_sequence.dart';
 import '../repositories/learning_repository.dart';
+import '../repositories/engagement_repository.dart';
+import '../repositories/student_progress_repository.dart';
 import '../theme/app_theme.dart';
 import 'learning_module_sequence_screen.dart';
 
@@ -14,6 +17,8 @@ class LanguageTopicScreen extends StatefulWidget {
     required this.subjectName,
     required this.section,
     required this.repository,
+    this.progressRepository,
+    this.engagementRepository,
     super.key,
   });
 
@@ -21,6 +26,8 @@ class LanguageTopicScreen extends StatefulWidget {
   final String subjectName;
   final Chapter section;
   final LearningRepository repository;
+  final StudentProgressRepository? progressRepository;
+  final EngagementRepository? engagementRepository;
 
   @override
   State<LanguageTopicScreen> createState() => _LanguageTopicScreenState();
@@ -68,6 +75,8 @@ class _LanguageTopicScreenState extends State<LanguageTopicScreen> {
                     section: widget.section,
                     topic: topics[index],
                     repository: widget.repository,
+                    progressRepository: widget.progressRepository,
+                    engagementRepository: widget.engagementRepository,
                   ),
                 ),
               ),
@@ -86,6 +95,8 @@ class LanguageTopicModulesScreen extends StatefulWidget {
     required this.section,
     required this.topic,
     required this.repository,
+    this.progressRepository,
+    this.engagementRepository,
     super.key,
   });
 
@@ -94,6 +105,8 @@ class LanguageTopicModulesScreen extends StatefulWidget {
   final Chapter section;
   final CurriculumTopic topic;
   final LearningRepository repository;
+  final StudentProgressRepository? progressRepository;
+  final EngagementRepository? engagementRepository;
 
   @override
   State<LanguageTopicModulesScreen> createState() =>
@@ -103,6 +116,26 @@ class LanguageTopicModulesScreen extends StatefulWidget {
 class _LanguageTopicModulesScreenState
     extends State<LanguageTopicModulesScreen> {
   late Future<List<LearningModule>> _modules;
+
+  StudentProgressRepository get _progressRepository =>
+      widget.progressRepository ?? StudentProgressRepository();
+  EngagementRepository get _engagementRepository =>
+      widget.engagementRepository ?? EngagementRepository();
+
+  LearningLocation get _location => LearningLocation(
+        subjectId: widget.subjectId,
+        subjectName: widget.subjectName,
+        parentKind: 'topic',
+        parentId: widget.topic.id,
+        parentTitle: widget.topic.title,
+        parentNumber: '${widget.topic.order}',
+        parentOrder: widget.topic.order,
+        structureLabel: 'Topic',
+        containerKind: 'section',
+        containerId: widget.section.id,
+        containerTitle: widget.section.title,
+        containerNumber: '${widget.section.chapterNumber}',
+      );
 
   @override
   void initState() {
@@ -149,15 +182,54 @@ class _LanguageTopicModulesScreenState
                       builder: (_) => LearningModuleSequenceScreen(
                         subjectName: widget.subjectName,
                         chapter: widget.section,
-                        parent: LearningModuleParent.topic(
-                          subjectId: widget.subjectId,
-                          chapterId: widget.section.id,
-                          topicId: widget.topic.id,
-                        ),
+                        parent: LearningModuleParent.fromLocation(_location),
                         parentTitle: widget.topic.title,
                         modules: modules,
                         initialModuleId: module.id,
                         repository: widget.repository,
+                        onLocationNotesCompleted:
+                            (location, completedModule) async {
+                          await _engagementRepository
+                              .creditLocationLearnCompletion(
+                            location: location,
+                            moduleId: completedModule.id,
+                          );
+                        },
+                        onLocationFlashcardCompleted: (location,
+                            completedModule, cardId, totalCards) async {
+                          final progress =
+                              await _progressRepository.getLocationProgress(
+                            location,
+                          );
+                          final masteredIds = {
+                            ...progress.masteredFlashcardIds,
+                            cardId
+                          };
+                          await _engagementRepository
+                              .creditLocationFlashcardReview(
+                            location: location,
+                            moduleId: completedModule.id,
+                            reviewedCardIds: masteredIds,
+                          );
+                        },
+                        onLocationPracticeCompleted:
+                            (location, completedModule, result) async {
+                          await _engagementRepository
+                              .creditLocationPracticeQuestions(
+                            location: location,
+                            moduleId: completedModule.id,
+                            answers: result.selectedAnswers,
+                          );
+                        },
+                        onLocationQuizCompleted:
+                            (location, completedModule, result) async {
+                          await _engagementRepository
+                              .creditLocationQuizCompletion(
+                            location: location,
+                            moduleId: completedModule.id,
+                            answers: result.selectedAnswers,
+                          );
+                        },
                       ),
                     ),
                   ),

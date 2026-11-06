@@ -3,6 +3,7 @@ import 'package:fake_cloud_firestore/fake_cloud_firestore.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:studysis/models/engagement.dart';
 import 'package:studysis/repositories/engagement_repository.dart';
+import 'package:studysis/services/trusted_progress_service.dart';
 
 const uid = 'anonymousUid123';
 
@@ -395,7 +396,39 @@ EngagementRepository _repo(FakeFirebaseFirestore firestore) {
     firestore: firestore,
     uidProvider: () => 'anonymousUid123',
     nowProvider: () => DateTime.utc(2026, 8, 17, 2),
+    trustedProgressService: const _FakeTrustedProgressService(),
   );
+}
+
+class _FakeTrustedProgressService implements TrustedProgressService {
+  const _FakeTrustedProgressService();
+
+  @override
+  Future<Map<String, dynamic>> record(
+    String functionName,
+    Map<String, Object?> payload,
+  ) async =>
+      {
+        'success': true,
+        'credited': true,
+        'studyPointsAwarded': 1,
+        'xpAwarded': 10,
+        'pawCoinsAwarded': 5,
+        'previousTotalXp': 60,
+        'previousLevel': 1,
+        'streakNewlySecured': false,
+        'state': {
+          'totalXp': 70,
+          'level': 1,
+          'currentStreak': 1,
+          'longestStreak': 1,
+          'lastQualifiedDate': '2026-08-17',
+          'todayDateKey': '2026-08-17',
+          'todayStudyPoints': 7,
+          'dailyStudyTarget': 3,
+          'todayStreakSecured': true,
+        },
+      };
 }
 
 Future<void> _seedEngagementState(

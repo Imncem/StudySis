@@ -140,6 +140,10 @@ class _SubjectScreenState extends State<SubjectScreen> {
                                         chapter: chapter,
                                         subjectName: widget.subject.displayName,
                                         repository: _repository,
+                                        progressRepository:
+                                            widget.progressRepository,
+                                        engagementRepository:
+                                            widget.engagementRepository,
                                       )
                                     : widget.subject.id == 'bahasa_melayu' ||
                                             widget.subject.id == 'english'
@@ -149,6 +153,10 @@ class _SubjectScreenState extends State<SubjectScreen> {
                                                 widget.subject.displayName,
                                             section: chapter,
                                             repository: _repository,
+                                            progressRepository:
+                                                widget.progressRepository,
+                                            engagementRepository:
+                                                widget.engagementRepository,
                                           )
                                         : ChapterOverviewScreen(
                                             subjectId: widget.subject.id,

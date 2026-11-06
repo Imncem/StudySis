@@ -12,7 +12,17 @@ export function moduleCardDestination(
 
 export function moduleCompletionLabel(module: LearningModule): string {
   if (module.type !== "notes") return "";
-  return module.content.trim().length > 0
+  return hasMeaningfulLessonContent(module.content)
     ? "Lesson content ready"
     : "Open to add lesson content";
+}
+
+export function hasMeaningfulLessonContent(content: string): boolean {
+  const normalized = content.trim();
+  return (
+    normalized.length > 0 &&
+    normalized !== "-" &&
+    normalized !== "–" &&
+    normalized !== "—"
+  );
 }

@@ -12,17 +12,20 @@ class ProgressSummary {
     required this.overallAverageProgress,
     required this.chaptersStarted,
     required this.chaptersCompleted,
-    required this.totalActiveMathChapters,
+    int? totalActiveMathChapters,
+    int? totalActiveLearningLocations,
     required this.modulesCompleted,
     required this.averagePracticeScore,
     required this.averageQuizScore,
     required this.quizPerformanceStatus,
-  });
+  }) : totalActiveLearningLocations =
+            totalActiveLearningLocations ?? totalActiveMathChapters ?? 0;
 
   final int overallAverageProgress;
   final int chaptersStarted;
   final int chaptersCompleted;
-  final int totalActiveMathChapters;
+  final int totalActiveLearningLocations;
+  int get totalActiveMathChapters => totalActiveLearningLocations;
   final int modulesCompleted;
   final int? averagePracticeScore;
   final int? averageQuizScore;
@@ -32,14 +35,17 @@ class ProgressSummary {
 
   factory ProgressSummary.fromProgress({
     required List<ChapterProgress> progress,
-    required int totalActiveMathChapters,
+    int? totalActiveMathChapters,
+    int? totalActiveLearningLocations,
   }) {
+    final activeLocations =
+        totalActiveLearningLocations ?? totalActiveMathChapters ?? 0;
     if (progress.isEmpty) {
       return ProgressSummary(
         overallAverageProgress: 0,
         chaptersStarted: 0,
         chaptersCompleted: 0,
-        totalActiveMathChapters: totalActiveMathChapters,
+        totalActiveLearningLocations: activeLocations,
         modulesCompleted: 0,
         averagePracticeScore: null,
         averageQuizScore: null,
@@ -64,7 +70,7 @@ class ProgressSummary {
           progress.where((chapter) => chapter.overallProgress > 0).length,
       chaptersCompleted:
           progress.where((chapter) => chapter.overallProgress == 100).length,
-      totalActiveMathChapters: totalActiveMathChapters,
+      totalActiveLearningLocations: activeLocations,
       modulesCompleted: progress.fold<int>(
         0,
         (total, chapter) =>

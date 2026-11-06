@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 
+import '../config/curriculum_structure.dart';
 import '../models/chapter.dart';
 import '../models/flashcard.dart';
 import '../models/engagement.dart';
 import '../models/learning_content.dart';
+import '../models/learning_location.dart';
 import '../models/learning_module.dart';
 import '../models/learning_module_sequence.dart';
 import '../models/practice_question.dart';
@@ -55,6 +57,20 @@ class _ChapterOverviewScreenState extends State<ChapterOverviewScreen> {
   late final EngagementRepository _engagementRepository;
   late final StudyPetRepository _petRepository;
   late Future<_ChapterJourneyData> _journey;
+
+  LearningLocation get _location {
+    final structure = CurriculumStructure.forSubject(widget.subjectId);
+    return LearningLocation(
+      subjectId: widget.subjectId,
+      subjectName: widget.subjectName,
+      parentKind: structure.parentKind,
+      parentId: widget.chapter.id,
+      parentTitle: widget.chapter.title,
+      parentNumber: '${widget.chapter.chapterNumber}',
+      parentOrder: widget.chapter.order,
+      structureLabel: structure.labelSingular,
+    );
+  }
 
   @override
   void initState() {
@@ -110,96 +126,57 @@ class _ChapterOverviewScreenState extends State<ChapterOverviewScreen> {
         builder: (_) => LearningModuleSequenceScreen(
           subjectName: widget.subjectName,
           chapter: widget.chapter,
-          parent: LearningModuleParent.chapter(
-            subjectId: widget.subjectId,
-            chapterId: widget.chapter.id,
-          ),
+          parent: LearningModuleParent.fromLocation(_location),
           modules: modules,
           initialModuleId: module.id,
           repository: _repository,
-          onNotesCompleted: (completedModule) async {
+          onLocationNotesCompleted: (location, completedModule) async {
             if (!completedNotes.add(completedModule.id)) return;
-            final saved = await _persistProgress(
-              () => _progressRepository.markLearnCompleted(
-                subjectId: widget.subjectId,
-                chapterId: widget.chapter.id,
+            await _handleEngagementReward(
+              activity: 'learn',
+              message: 'Lesson complete!',
+              credit: () => _engagementRepository.creditLocationLearnCompletion(
+                location: location,
+                moduleId: completedModule.id,
               ),
-              savedMessage: 'Learn progress saved.',
             );
-            if (saved) {
-              await _handleEngagementReward(
-                activity: 'learn',
-                message: 'Lesson complete!',
-                credit: () => _engagementRepository.creditLearnCompletion(
-                  subjectId: widget.subjectId,
-                  chapterId: widget.chapter.id,
-                ),
-              );
-            }
           },
-          onFlashcardCompleted: (_, cardId, totalCards) async {
+          onLocationFlashcardCompleted:
+              (location, completedModule, cardId, totalCards) async {
             masteredIds.add(cardId);
-            final saved = await _persistProgress(
-              () => _progressRepository.updateFlashcardProgress(
-                subjectId: widget.subjectId,
-                chapterId: widget.chapter.id,
-                masteredCount: masteredIds.length,
-                totalCount: totalCards,
-                masteredCardIds: masteredIds.toList(),
+            await _handleEngagementReward(
+              activity: 'flashcards',
+              message: 'Flashcards reviewed!',
+              credit: () => _engagementRepository.creditLocationFlashcardReview(
+                location: location,
+                moduleId: completedModule.id,
+                reviewedCardIds: masteredIds,
               ),
             );
-            if (saved) {
-              await _handleEngagementReward(
-                activity: 'flashcards',
-                message: 'Flashcards reviewed!',
-                credit: () => _engagementRepository.creditFlashcardReview(
-                  subjectId: widget.subjectId,
-                  chapterId: widget.chapter.id,
-                  reviewedCardIds: masteredIds,
-                ),
-              );
-            }
           },
-          onPracticeCompleted: (_, result) async {
-            final saved = await _persistProgress(
-              () => _progressRepository.recordPracticeResult(
-                subjectId: widget.subjectId,
-                chapterId: widget.chapter.id,
-                result: result,
+          onLocationPracticeCompleted:
+              (location, completedModule, result) async {
+            await _handleEngagementReward(
+              activity: 'practice',
+              message: 'Practice complete!',
+              credit: () =>
+                  _engagementRepository.creditLocationPracticeQuestions(
+                location: location,
+                moduleId: completedModule.id,
+                answers: result.selectedAnswers,
               ),
-              savedMessage: 'Practice progress saved.',
             );
-            if (saved) {
-              await _handleEngagementReward(
-                activity: 'practice',
-                message: 'Practice complete!',
-                credit: () => _engagementRepository.creditPracticeQuestions(
-                  subjectId: widget.subjectId,
-                  chapterId: widget.chapter.id,
-                  completedQuestionCount: result.totalQuestions,
-                ),
-              );
-            }
           },
-          onQuizCompleted: (_, result) async {
-            final saved = await _persistProgress(
-              () => _progressRepository.recordQuizResult(
-                subjectId: widget.subjectId,
-                chapterId: widget.chapter.id,
-                result: result,
+          onLocationQuizCompleted: (location, completedModule, result) async {
+            await _handleEngagementReward(
+              activity: 'quiz',
+              message: 'Quiz complete!',
+              credit: () => _engagementRepository.creditLocationQuizCompletion(
+                location: location,
+                moduleId: completedModule.id,
+                answers: result.selectedAnswers,
               ),
-              savedMessage: 'Quiz progress saved.',
             );
-            if (saved) {
-              await _handleEngagementReward(
-                activity: 'quiz',
-                message: 'Quiz complete!',
-                credit: () => _engagementRepository.creditQuizCompletion(
-                  subjectId: widget.subjectId,
-                  chapterId: widget.chapter.id,
-                ),
-              );
-            }
           },
         ),
       ),
@@ -227,29 +204,19 @@ class _ChapterOverviewScreenState extends State<ChapterOverviewScreen> {
       ),
     );
     if (!mounted) return;
-    final saved = await _persistProgress(
-      () => _progressRepository.markLearnCompleted(
-        subjectId: widget.subjectId,
-        chapterId: widget.chapter.id,
+    final saved = await _handleEngagementReward(
+      activity: 'learn',
+      message: 'Lesson complete!',
+      credit: () => _engagementRepository.creditLocationLearnCompletion(
+        location: _location,
+        moduleId: notes.module.id,
       ),
-      savedMessage: 'Learn progress saved.',
     );
-    if (saved) {
-      await _handleEngagementReward(
-        activity: 'learn',
-        message: 'Lesson complete!',
-        credit: () => _engagementRepository.creditLearnCompletion(
-          subjectId: widget.subjectId,
-          chapterId: widget.chapter.id,
-        ),
-      );
-    }
     if (!saved || action != ModuleReaderExitAction.goToFlashcards || !mounted) {
       return;
     }
-    final latestProgress = await _progressRepository.getChapterProgress(
-      subjectId: widget.subjectId,
-      chapterId: widget.chapter.id,
+    final latestProgress = await _progressRepository.getLocationProgress(
+      _location,
     );
     if (!mounted) return;
     await _openFlashcards(flashcards, latestProgress);
@@ -270,22 +237,12 @@ class _ChapterOverviewScreenState extends State<ChapterOverviewScreen> {
           initialCompletedCardIds: masteredIds,
           onCardCompleted: (cardId) async {
             masteredIds.add(cardId);
-            final saved = await _persistProgress(
-              () => _progressRepository.updateFlashcardProgress(
-                subjectId: widget.subjectId,
-                chapterId: widget.chapter.id,
-                masteredCount: masteredIds.length,
-                totalCount: cards.length,
-                masteredCardIds: masteredIds.toList(),
-              ),
-            );
-            if (!saved) return;
             await _handleEngagementReward(
               activity: 'flashcards',
               message: 'Flashcards reviewed!',
-              credit: () => _engagementRepository.creditFlashcardReview(
-                subjectId: widget.subjectId,
-                chapterId: widget.chapter.id,
+              credit: () => _engagementRepository.creditLocationFlashcardReview(
+                location: _location,
+                moduleId: 'flashcards',
                 reviewedCardIds: masteredIds,
               ),
             );
@@ -318,22 +275,14 @@ class _ChapterOverviewScreenState extends State<ChapterOverviewScreen> {
           chapterTitle: widget.chapter.title,
           questionsFuture: Future.value(questions),
           onComplete: (result) async {
-            final saved = await _persistProgress(
-              () => _progressRepository.recordPracticeResult(
-                subjectId: widget.subjectId,
-                chapterId: widget.chapter.id,
-                result: result,
-              ),
-              savedMessage: 'Practice progress saved.',
-            );
-            if (!saved) return;
             await _handleEngagementReward(
               activity: 'practice',
               message: 'Practice complete!',
-              credit: () => _engagementRepository.creditPracticeQuestions(
-                subjectId: widget.subjectId,
-                chapterId: widget.chapter.id,
-                completedQuestionCount: result.totalQuestions,
+              credit: () =>
+                  _engagementRepository.creditLocationPracticeQuestions(
+                location: _location,
+                moduleId: 'practice',
+                answers: result.selectedAnswers,
               ),
             );
           },
@@ -364,21 +313,13 @@ class _ChapterOverviewScreenState extends State<ChapterOverviewScreen> {
           title: 'Chapter ${widget.chapter.chapterNumber} Quiz',
           questionsFuture: Future.value(questions),
           onComplete: (result) async {
-            final saved = await _persistProgress(
-              () => _progressRepository.recordQuizResult(
-                subjectId: widget.subjectId,
-                chapterId: widget.chapter.id,
-                result: result,
-              ),
-              savedMessage: 'Quiz progress saved.',
-            );
-            if (!saved) return;
             await _handleEngagementReward(
               activity: 'quiz',
               message: 'Quiz complete!',
-              credit: () => _engagementRepository.creditQuizCompletion(
-                subjectId: widget.subjectId,
-                chapterId: widget.chapter.id,
+              credit: () => _engagementRepository.creditLocationQuizCompletion(
+                location: _location,
+                moduleId: 'quiz',
+                answers: result.selectedAnswers,
               ),
             );
           },
@@ -387,7 +328,7 @@ class _ChapterOverviewScreenState extends State<ChapterOverviewScreen> {
     );
   }
 
-  Future<void> _handleEngagementReward({
+  Future<bool> _handleEngagementReward({
     required String activity,
     required String message,
     required Future<EngagementCreditResult> Function() credit,
@@ -405,13 +346,13 @@ class _ChapterOverviewScreenState extends State<ChapterOverviewScreen> {
           'newLevel=${result.newLevel}',
         );
       }
-      if (!mounted) return;
+      if (!mounted) return true;
       await XpRewardOverlay.show(
         context,
         awardedXp: result.xpAwarded,
         message: message,
       );
-      if (!mounted) return;
+      if (!mounted) return true;
       if (result.streakNewlySecured) {
         await Navigator.of(context).push(
           MaterialPageRoute<void>(
@@ -422,11 +363,18 @@ class _ChapterOverviewScreenState extends State<ChapterOverviewScreen> {
           ),
         );
       }
-      if (!mounted || !result.levelUp) return;
+      if (!mounted || !result.levelUp) return true;
       await _showLevelUp(result);
+      return true;
     } catch (error, stackTrace) {
       debugPrint('[StudySis][engagement] credit failed: $error');
       debugPrint('[StudySis][engagement] stackTrace=$stackTrace');
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+          ..hideCurrentSnackBar()
+          ..showSnackBar(SnackBar(content: Text(error.toString())));
+      }
+      return false;
     }
   }
 
@@ -459,24 +407,6 @@ class _ChapterOverviewScreenState extends State<ChapterOverviewScreen> {
         ),
       ),
     );
-  }
-
-  Future<bool> _persistProgress(
-    Future<void> Function() write, {
-    String? savedMessage,
-  }) async {
-    try {
-      await write();
-      if (!mounted || savedMessage == null) return true;
-      _showComingSoon(savedMessage);
-      return true;
-    } catch (error, stackTrace) {
-      debugPrint('[StudySis][progress][overview] save failed: $error');
-      debugPrint('[StudySis][progress][overview] stackTrace=$stackTrace');
-      if (!mounted) return false;
-      _showComingSoon('Progress could not be saved. Please try again.');
-      return false;
-    }
   }
 
   void _showComingSoon(String message) {
@@ -518,15 +448,16 @@ class _ChapterOverviewScreenState extends State<ChapterOverviewScreen> {
             return RefreshIndicator(
               onRefresh: () async => _reload(),
               child: StreamBuilder<ChapterProgress>(
-                stream: _progressRepository.streamChapterProgress(
-                  subjectId: widget.subjectId,
-                  chapterId: widget.chapter.id,
-                ),
+                stream: _progressRepository.streamLocationProgress(_location),
                 builder: (context, progressSnapshot) {
                   final progress = progressSnapshot.data ??
                       ChapterProgress.empty(
                         subjectId: widget.subjectId,
                         chapterId: widget.chapter.id,
+                        parentKind: _location.parentKind,
+                        parentTitle: _location.parentTitle,
+                        parentNumber: _location.parentNumber,
+                        parentOrder: _location.parentOrder,
                       );
                   final progressValue = progress.overallProgress / 100;
                   final learnCompleted = progress.learnCompleted;

@@ -31,12 +31,14 @@ import type {
   ChapterInput,
   LearningModule,
   LearningModuleInput,
+  LearningModulePatch,
   Subject,
   Topic,
   TopicInput,
   Subchapter,
   SubchapterInput,
 } from "@/lib/types";
+import { findModuleOrderConflict } from "@/lib/module-ordering";
 import { mapSubjectDocument } from "@/lib/repositories/subject-mapper";
 import { mapChapterDocument } from "@/lib/repositories/chapter-mapper";
 import {
@@ -468,6 +470,7 @@ export class ContentRepository {
     location: CurriculumContentLocation,
     input: LearningModuleInput,
   ): Promise<string> {
+    await this.assertModuleOrderAvailable(location, input.order);
     const reference = await addDoc(collection(this.db, contentPaths.modules(location)), {
       ...input,
       createdAt: serverTimestamp(),
@@ -479,12 +482,47 @@ export class ContentRepository {
   async updateModule(
     location: CurriculumContentLocation,
     moduleId: string,
-    input: LearningModuleInput,
+    input: LearningModulePatch,
   ): Promise<void> {
+    if (!Object.keys(input).length) return;
+    if (input.order !== undefined) {
+      await this.assertModuleOrderAvailable(location, input.order, moduleId);
+    }
     await updateDoc(doc(this.db, contentPaths.module(location, moduleId)), {
       ...input,
       updatedAt: serverTimestamp(),
     });
+  }
+
+  private async assertModuleOrderAvailable(
+    location: CurriculumContentLocation,
+    order: number,
+    excludedModuleId?: string,
+  ): Promise<void> {
+    const snapshot = await getDocs(
+      query(
+        collection(this.db, contentPaths.modules(location)),
+        where("order", "==", order),
+      ),
+    );
+    const conflict = findModuleOrderConflict(
+      snapshot.docs.map((item) => ({
+        id: item.id,
+        title:
+          typeof item.data().title === "string"
+            ? item.data().title
+            : "Untitled module",
+        order:
+          typeof item.data().order === "number" ? item.data().order : -1,
+      })),
+      order,
+      excludedModuleId,
+    );
+    if (conflict) {
+      throw new Error(
+        `Order ${order} is already used by "${conflict.title}". Choose a unique module order.`,
+      );
+    }
   }
 
   async deleteModule(
