@@ -14,6 +14,7 @@ import '../models/learning_module_sequence.dart';
 import '../models/note_section.dart';
 import '../models/practice_question.dart';
 import '../models/quiz_question.dart';
+import '../models/review_item.dart';
 import '../models/subchapter.dart';
 import '../models/chapter_progress.dart';
 
@@ -224,7 +225,14 @@ class LearningRepository {
         .map((item) => LearningModule.fromMap(item.id, item.data()))
         .toList(growable: false);
     return sequenceActiveLearningModules(
-      items,
+      await _filterUsableAssessmentModules(
+        LearningModuleParent.subchapter(
+          subjectId: subjectId,
+          chapterId: chapterId,
+          subchapterId: subchapterId,
+        ),
+        items,
+      ),
       parentLabel: '$subjectId/$chapterId/subchapters/$subchapterId',
     );
   }
@@ -260,10 +268,13 @@ class LearningRepository {
         .collection(_moduleCollectionPath(parent))
         .where('status', isEqualTo: 'active')
         .get();
+    final modules = snapshot.docs
+        .map(
+          (item) => LearningModule.fromMap(item.id, item.data()),
+        )
+        .toList(growable: false);
     return sequenceActiveLearningModules(
-      snapshot.docs.map(
-        (item) => LearningModule.fromMap(item.id, item.data()),
-      ),
+      await _filterUsableAssessmentModules(parent, modules),
       parentLabel: parent.diagnosticLabel,
     );
   }
@@ -340,6 +351,43 @@ class LearningRepository {
         .map((item) => QuizQuestion.fromMap(item.id, item.data()))
         .where((item) => item.isActive)
         .toList(growable: false);
+  }
+
+  Future<List<ReviewItem>> getModuleReview({
+    required LearningModuleParent parent,
+    required String moduleId,
+  }) async {
+    final snapshot = await _firestore
+        .collection(_moduleContentPath(parent, moduleId, 'items'))
+        .where('status', isEqualTo: 'active')
+        .get();
+    final items = snapshot.docs
+        .map((item) => ReviewItem.fromMap(item.id, item.data()))
+        .where((item) => item.isUsable)
+        .toList(growable: true)
+      ..sort((left, right) => left.order.compareTo(right.order));
+    return items;
+  }
+
+  Future<List<LearningModule>> _filterUsableAssessmentModules(
+    LearningModuleParent parent,
+    List<LearningModule> modules,
+  ) async {
+    final usable = <LearningModule>[];
+    for (final module in modules) {
+      if (module.type != 'test' && module.type != 'review') {
+        usable.add(module);
+        continue;
+      }
+      final collectionName = module.type == 'test' ? 'questions' : 'items';
+      final content = await _firestore
+          .collection(_moduleContentPath(parent, module.id, collectionName))
+          .where('status', isEqualTo: 'active')
+          .limit(1)
+          .get();
+      if (content.docs.isNotEmpty) usable.add(module);
+    }
+    return usable;
   }
 
   Future<LearningContent?> getSubchapterNotesContent({

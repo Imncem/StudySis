@@ -10,6 +10,7 @@ import '../repositories/engagement_repository.dart';
 import '../repositories/student_progress_repository.dart';
 import '../theme/app_theme.dart';
 import 'learning_module_sequence_screen.dart';
+import 'quiz_screen.dart';
 
 class LanguageTopicScreen extends StatefulWidget {
   const LanguageTopicScreen({
@@ -228,6 +229,32 @@ class _LanguageTopicModulesScreenState
                             location: location,
                             moduleId: completedModule.id,
                             answers: result.selectedAnswers,
+                          );
+                        },
+                        onLocationTestCompleted:
+                            (location, completedModule, answers) async {
+                          final credit = await _engagementRepository
+                              .creditLocationTestCompletion(
+                            location: location,
+                            moduleId: completedModule.id,
+                            answers: answers,
+                          );
+                          return QuizResult.fromTrustedScore(
+                            credit.score ?? const {},
+                            answers,
+                          );
+                        },
+                        onLoadTestQuestions: (location, module) =>
+                            _engagementRepository.loadLocationTestQuestions(
+                          location: location,
+                          moduleId: module.id,
+                        ),
+                        onLocationReviewCompleted:
+                            (location, completedModule) async {
+                          await _engagementRepository
+                              .creditLocationReviewCompletion(
+                            location: location,
+                            moduleId: completedModule.id,
                           );
                         },
                       ),

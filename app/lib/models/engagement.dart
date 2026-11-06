@@ -124,6 +124,7 @@ class EngagementCreditResult {
     required this.previousLevel,
     required this.state,
     required this.streakNewlySecured,
+    this.score,
   });
 
   final bool credited;
@@ -134,6 +135,7 @@ class EngagementCreditResult {
   final int previousLevel;
   final EngagementState state;
   final bool streakNewlySecured;
+  final Map<String, dynamic>? score;
   int get newTotalXp => state.totalXp;
   int get newLevel => state.level;
   bool get levelUp => newLevel > previousLevel;

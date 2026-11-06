@@ -74,6 +74,54 @@ test('active admin can author and publish every verified subject', async () => {
   }));
 });
 
+test('dashboard authors manage Test questions and Review items with scoped schemas', async () => {
+  const db = dashboardDb(adminUid);
+  const testModule = moduleRef(db, 'science', 'chapter-01', 'test-module');
+  const reviewModule = moduleRef(db, 'science', 'chapter-01', 'review-module');
+  await assertSucceeds(setDoc(testModule, moduleData({type: 'test'})));
+  await assertSucceeds(setDoc(reviewModule, moduleData({type: 'review'})));
+  await assertSucceeds(setDoc(
+    doc(testModule, 'questions', 'question-01'),
+    quizData({status: 'active'}),
+  ));
+  await assertSucceeds(setDoc(
+    doc(reviewModule, 'items', 'item-01'),
+    reviewData({status: 'active'}),
+  ));
+  await assertFails(setDoc(
+    doc(testModule, 'items', 'wrong-owner'),
+    reviewData(),
+  ));
+  await assertFails(setDoc(
+    doc(reviewModule, 'items', 'invalid'),
+    reviewData({heading: ''}),
+  ));
+});
+
+test('students cannot read Test answer documents but retain active Quiz reads', async () => {
+  const adminDb = dashboardDb(adminUid);
+  const testModule = moduleRef(adminDb, 'science', 'chapter-01', 'secure-test');
+  const quizModule = moduleRef(adminDb, 'science', 'chapter-01', 'student-quiz');
+  await setDoc(testModule, moduleData({type: 'test', status: 'active'}));
+  await setDoc(quizModule, moduleData({type: 'quiz', status: 'active'}));
+  await setDoc(doc(testModule, 'questions', 'question-01'), quizData({status: 'active'}));
+  await setDoc(doc(quizModule, 'questions', 'question-01'), quizData({status: 'active'}));
+
+  const studentDb = testEnv.authenticatedContext('test-student', {
+    firebase: {sign_in_provider: 'anonymous'},
+  }).firestore();
+  await assertFails(getDoc(doc(
+    moduleRef(studentDb, 'science', 'chapter-01', 'secure-test'),
+    'questions',
+    'question-01',
+  )));
+  await assertSucceeds(getDoc(doc(
+    moduleRef(studentDb, 'science', 'chapter-01', 'student-quiz'),
+    'questions',
+    'question-01',
+  )));
+});
+
 test('admin may create missing generic curriculum items with optional grouping', async () => {
   const db = dashboardDb(adminUid);
 
@@ -801,6 +849,20 @@ function quizData(overrides = {}) {
     correctOptionIndex: 0,
     explanation: 'A is correct.',
     difficulty: 'easy',
+    order: 1,
+    status: 'draft',
+    createdAt: now,
+    updatedAt: now,
+    ...overrides,
+  };
+}
+
+function reviewData(overrides = {}) {
+  return {
+    heading: 'Key concept',
+    body: 'A concise revision explanation.',
+    keyPoint: 'Remember this idea.',
+    prompt: 'Can you explain it yourself?',
     order: 1,
     status: 'draft',
     createdAt: now,

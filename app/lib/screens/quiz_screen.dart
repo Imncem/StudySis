@@ -19,6 +19,9 @@ class QuizScreen extends StatefulWidget {
     required this.questionsFuture,
     this.muffinService,
     this.onComplete,
+    this.onSubmitAnswers,
+    this.assessmentLabel = 'Quiz',
+    this.requireStart = false,
     this.moduleNavigation,
     this.moduleMetadata,
     super.key,
@@ -33,6 +36,9 @@ class QuizScreen extends StatefulWidget {
   final Future<List<QuizQuestion>> questionsFuture;
   final MuffinService? muffinService;
   final Future<void> Function(QuizResult result)? onComplete;
+  final Future<QuizResult> Function(Map<String, int> answers)? onSubmitAnswers;
+  final String assessmentLabel;
+  final bool requireStart;
   final Widget? moduleNavigation;
   final Widget? moduleMetadata;
 
@@ -48,11 +54,13 @@ class _QuizScreenState extends State<QuizScreen> {
   int _questionIndex = 0;
   QuizResult? _result;
   bool _reviewing = false;
+  late bool _started;
 
   @override
   void initState() {
     super.initState();
     _questionsFuture = widget.questionsFuture;
+    _started = !widget.requireStart;
   }
 
   @override
@@ -93,7 +101,7 @@ class _QuizScreenState extends State<QuizScreen> {
     final shouldSubmit = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Submit Quiz?'),
+        title: Text('Submit ${widget.assessmentLabel}?'),
         content: Text(
           'You have answered $answered of ${questions.length} questions.\n'
           '${_unansweredSentence(unanswered)}',
@@ -105,14 +113,25 @@ class _QuizScreenState extends State<QuizScreen> {
           ),
           FilledButton(
             onPressed: () => Navigator.of(context).pop(true),
-            child: const Text('Submit Quiz'),
+            child: Text('Submit ${widget.assessmentLabel}'),
           ),
         ],
       ),
     );
     if (shouldSubmit != true) return;
-    final result = QuizResult.calculate(questions, _selectedAnswers);
-    await widget.onComplete?.call(result);
+    late final QuizResult result;
+    try {
+      result = widget.onSubmitAnswers == null
+          ? QuizResult.calculate(questions, _selectedAnswers)
+          : await widget.onSubmitAnswers!(Map.unmodifiable(_selectedAnswers));
+      await widget.onComplete?.call(result);
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(error.toString())),
+      );
+      return;
+    }
     if (!mounted) return;
     setState(() {
       _result = result;
@@ -140,42 +159,54 @@ class _QuizScreenState extends State<QuizScreen> {
           future: _questionsFuture,
           builder: (context, snapshot) {
             if (snapshot.connectionState == ConnectionState.waiting) {
-              return const _QuizState(
+              return _QuizState(
                 icon: Icons.hourglass_empty_rounded,
-                title: 'Loading quiz',
+                title: 'Loading ${widget.assessmentLabel.toLowerCase()}',
                 message: 'Getting the questions ready.',
               );
             }
             if (snapshot.hasError) {
-              return const _QuizState(
+              return _QuizState(
                 icon: Icons.cloud_off_rounded,
-                title: 'Quiz could not load',
+                title: '${widget.assessmentLabel} could not load',
                 message: 'Please try again in a moment.',
               );
             }
 
             final questions = snapshot.data ?? const <QuizQuestion>[];
             if (questions.isEmpty) {
-              return const _QuizState(
+              return _QuizState(
                 icon: Icons.track_changes_rounded,
-                title: 'Quiz questions coming soon',
+                title: '${widget.assessmentLabel} questions coming soon',
                 message:
-                    'This chapter does not have active quiz questions yet.',
+                    'This module does not have active ${widget.assessmentLabel.toLowerCase()} questions yet.',
               );
             }
-            final validQuestions =
-                questions.where((question) => question.isValid).toList();
+            final usesTrustedScoring = widget.onSubmitAnswers != null;
+            final validQuestions = questions
+                .where((question) => usesTrustedScoring
+                    ? question.hasUsablePrompt
+                    : question.isValid)
+                .toList();
             if (validQuestions.isEmpty) {
-              return const _QuizState(
+              return _QuizState(
                 icon: Icons.info_outline_rounded,
-                title: 'Quiz needs a quick fix',
+                title: '${widget.assessmentLabel} needs a quick fix',
                 message:
-                    'The questions are missing required answer data, so this quiz cannot start yet.',
+                    'The questions are missing required answer data, so this ${widget.assessmentLabel.toLowerCase()} cannot start yet.',
+              );
+            }
+
+            if (!_started) {
+              return _TestIntroduction(
+                title: widget.title,
+                questionCount: validQuestions.length,
+                onStart: () => setState(() => _started = true),
               );
             }
 
             final result = _result;
-            if (_reviewing && result != null) {
+            if (!usesTrustedScoring && _reviewing && result != null) {
               return _ReviewView(
                 questions: validQuestions,
                 selectedAnswers: _selectedAnswers,
@@ -185,7 +216,10 @@ class _QuizScreenState extends State<QuizScreen> {
             if (result != null) {
               return _ResultsView(
                 result: result,
-                onReview: () => setState(() => _reviewing = true),
+                assessmentLabel: widget.assessmentLabel,
+                onReview: usesTrustedScoring
+                    ? null
+                    : () => setState(() => _reviewing = true),
               );
             }
 
@@ -268,6 +302,7 @@ class _QuizScreenState extends State<QuizScreen> {
               onPrevious: _previous,
               onNext: () => _next(validQuestions.length),
               onSubmit: () => _confirmSubmit(validQuestions),
+              submitLabel: 'Submit ${widget.assessmentLabel}',
             );
           },
         ),
@@ -344,6 +379,19 @@ class QuizResult {
   final int totalQuestions;
   final Map<String, int> selectedAnswers;
 
+  factory QuizResult.fromTrustedScore(
+    Map<String, dynamic> score,
+    Map<String, int> selectedAnswers,
+  ) {
+    return QuizResult(
+      correctCount: (score['correctCount'] as num?)?.toInt() ?? 0,
+      incorrectCount: (score['incorrectCount'] as num?)?.toInt() ?? 0,
+      unansweredCount: (score['unansweredCount'] as num?)?.toInt() ?? 0,
+      totalQuestions: (score['totalQuestions'] as num?)?.toInt() ?? 0,
+      selectedAnswers: Map.unmodifiable(selectedAnswers),
+    );
+  }
+
   int get percentage =>
       totalQuestions == 0 ? 0 : ((correctCount / totalQuestions) * 100).round();
 
@@ -382,6 +430,52 @@ class QuizResult {
   }
 }
 
+class _TestIntroduction extends StatelessWidget {
+  const _TestIntroduction({
+    required this.title,
+    required this.questionCount,
+    required this.onStart,
+  });
+
+  final String title;
+  final int questionCount;
+  final VoidCallback onStart;
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(24),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 520),
+          child: Column(
+            children: [
+              const Icon(Icons.assignment_turned_in_rounded, size: 64),
+              const SizedBox(height: 18),
+              Text('Test', style: Theme.of(context).textTheme.labelLarge),
+              const SizedBox(height: 6),
+              Text(
+                title,
+                textAlign: TextAlign.center,
+                style: Theme.of(context).textTheme.headlineSmall,
+              ),
+              const SizedBox(height: 12),
+              Text('$questionCount questions · Passing score: 70%'),
+              const SizedBox(height: 28),
+              FilledButton.icon(
+                key: const Key('start-test-button'),
+                onPressed: onStart,
+                icon: const Icon(Icons.play_arrow_rounded),
+                label: const Text('Start Test'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _AttemptView extends StatelessWidget {
   const _AttemptView({
     required this.quizTitle,
@@ -396,6 +490,7 @@ class _AttemptView extends StatelessWidget {
     required this.onPrevious,
     required this.onNext,
     required this.onSubmit,
+    this.submitLabel = 'Submit Quiz',
   });
 
   final String quizTitle;
@@ -410,6 +505,7 @@ class _AttemptView extends StatelessWidget {
   final VoidCallback onPrevious;
   final VoidCallback onNext;
   final VoidCallback onSubmit;
+  final String submitLabel;
 
   @override
   Widget build(BuildContext context) {
@@ -479,7 +575,7 @@ class _AttemptView extends StatelessWidget {
             Expanded(
               child: FilledButton(
                 onPressed: isFinalQuestion ? onSubmit : onNext,
-                child: Text(isFinalQuestion ? 'Submit Quiz' : 'Next'),
+                child: Text(isFinalQuestion ? submitLabel : 'Next'),
               ),
             ),
           ],
@@ -580,10 +676,14 @@ MuffinContext _toEnglish(MuffinContext context) {
 }
 
 class _ResultsView extends StatelessWidget {
-  const _ResultsView({required this.result, required this.onReview});
+  const _ResultsView(
+      {required this.result,
+      required this.onReview,
+      this.assessmentLabel = 'Quiz'});
 
   final QuizResult result;
-  final VoidCallback onReview;
+  final VoidCallback? onReview;
+  final String assessmentLabel;
 
   @override
   Widget build(BuildContext context) {
@@ -605,7 +705,7 @@ class _ResultsView extends StatelessWidget {
                 ),
                 const SizedBox(height: 18),
                 Text(
-                  'Quiz Complete',
+                  '$assessmentLabel Complete',
                   style: Theme.of(context).textTheme.headlineMedium,
                   textAlign: TextAlign.center,
                 ),
@@ -634,11 +734,13 @@ class _ResultsView extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 20),
-        FilledButton(
-          onPressed: onReview,
-          child: const Text('Review Answers'),
-        ),
-        const SizedBox(height: 10),
+        if (onReview != null) ...[
+          FilledButton(
+            onPressed: onReview,
+            child: const Text('Review Answers'),
+          ),
+          const SizedBox(height: 10),
+        ],
         OutlinedButton(
           onPressed: () => Navigator.of(context).pop(),
           child: const Text('Return to Chapter'),

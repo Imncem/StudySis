@@ -115,6 +115,10 @@ service cloud.firestore {
           'quizLatestPercentage', 'quizBestPercentage',
           'quizCorrectCount', 'quizIncorrectCount', 'quizUnansweredCount',
           'quizPassed', 'quizCompletedAt',
+          'reviewCompleted', 'reviewCompletedAt',
+          'testLatestPercentage', 'testBestPercentage',
+          'testCorrectCount', 'testIncorrectCount', 'testUnansweredCount',
+          'testPassed', 'testCompletedAt',
           'overallProgress', 'lastActivityAt', 'createdAt', 'updatedAt'
         ])
         && data.studentProfileId == 'qidah'
@@ -169,6 +173,15 @@ service cloud.firestore {
         && optionalCount(data, 'quizUnansweredCount')
         && optionalBool(data, 'quizPassed')
         && optionalTimestamp(data, 'quizCompletedAt')
+        && optionalBool(data, 'reviewCompleted')
+        && optionalTimestamp(data, 'reviewCompletedAt')
+        && optionalPercent(data, 'testLatestPercentage')
+        && optionalPercent(data, 'testBestPercentage')
+        && optionalCount(data, 'testCorrectCount')
+        && optionalCount(data, 'testIncorrectCount')
+        && optionalCount(data, 'testUnansweredCount')
+        && optionalBool(data, 'testPassed')
+        && optionalTimestamp(data, 'testCompletedAt')
         && validPercent(data.overallProgress)
         && data.lastActivityAt is timestamp
         && data.createdAt is timestamp
@@ -843,6 +856,26 @@ service cloud.firestore {
         && data.updatedAt is timestamp;
     }
 
+    function validReviewItem() {
+      let data = request.resource.data;
+      return data.keys().hasOnly([
+          'heading', 'body', 'keyPoint', 'prompt', 'order', 'status',
+          'createdAt', 'updatedAt'
+        ])
+        && data.heading is string
+        && data.heading.size() > 0
+        && data.body is string
+        && data.body.size() > 0
+        && data.keyPoint is string
+        && data.keyPoint.size() > 0
+        && (!data.keys().hasAny(['prompt']) || data.prompt is string)
+        && data.order is int
+        && data.order >= 0
+        && data.status in ['draft', 'active', 'archived']
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
     // Qidah's student app intentionally has no authentication.
     match /students/qidah {
       allow read: if true;
@@ -993,13 +1026,18 @@ service cloud.firestore {
               allow read: if true;
               allow create, update: if canEditSubject(subjectId)
                 && isLanguageSubjectId(subjectId)
-                && validPracticeItem();
+                && ((get(/databases/$(database)/documents/curriculum/form2/subjects/$(subjectId)/chapters/$(chapterId)/topics/$(topicId)/modules/$(moduleId)).data.type == 'review'
+                    && validReviewItem())
+                  || (get(/databases/$(database)/documents/curriculum/form2/subjects/$(subjectId)/chapters/$(chapterId)/topics/$(topicId)/modules/$(moduleId)).data.type == 'practice'
+                    && validPracticeItem()));
               allow delete: if canEditSubject(subjectId)
                 && isLanguageSubjectId(subjectId);
             }
 
             match /questions/{questionId} {
-              allow read: if true;
+              allow read: if isDashboardUser()
+                || (get(/databases/$(database)/documents/curriculum/form2/subjects/$(subjectId)/chapters/$(chapterId)/topics/$(topicId)/modules/$(moduleId)).data.type == 'quiz'
+                  && get(/databases/$(database)/documents/curriculum/form2/subjects/$(subjectId)/chapters/$(chapterId)/topics/$(topicId)/modules/$(moduleId)).data.status == 'active');
               allow create, update: if canEditSubject(subjectId)
                 && isLanguageSubjectId(subjectId)
                 && validQuizQuestion();
@@ -1073,7 +1111,10 @@ service cloud.firestore {
                   && get(/databases/$(database)/documents/curriculum/form2/subjects/$(subjectId)/chapters/$(chapterId)/subchapters/$(subchapterId)/modules/$(moduleId)).data.status == 'active');
               allow create, update: if subjectId == 'sejarah'
                 && canEditSubject(subjectId)
-                && validPracticeItem();
+                && ((get(/databases/$(database)/documents/curriculum/form2/subjects/$(subjectId)/chapters/$(chapterId)/subchapters/$(subchapterId)/modules/$(moduleId)).data.type == 'review'
+                    && validReviewItem())
+                  || (get(/databases/$(database)/documents/curriculum/form2/subjects/$(subjectId)/chapters/$(chapterId)/subchapters/$(subchapterId)/modules/$(moduleId)).data.type == 'practice'
+                    && validPracticeItem()));
               allow delete: if subjectId == 'sejarah'
                 && canEditSubject(subjectId);
             }
@@ -1082,7 +1123,8 @@ service cloud.firestore {
               allow read: if isDashboardUser()
                 || (subjectId == 'sejarah'
                   && get(/databases/$(database)/documents/curriculum/form2/subjects/$(subjectId)/chapters/$(chapterId)/subchapters/$(subchapterId)).data.status == 'active'
-                  && get(/databases/$(database)/documents/curriculum/form2/subjects/$(subjectId)/chapters/$(chapterId)/subchapters/$(subchapterId)/modules/$(moduleId)).data.status == 'active');
+                  && get(/databases/$(database)/documents/curriculum/form2/subjects/$(subjectId)/chapters/$(chapterId)/subchapters/$(subchapterId)/modules/$(moduleId)).data.status == 'active'
+                  && get(/databases/$(database)/documents/curriculum/form2/subjects/$(subjectId)/chapters/$(chapterId)/subchapters/$(subchapterId)/modules/$(moduleId)).data.type == 'quiz');
               allow create, update: if subjectId == 'sejarah'
                 && canEditSubject(subjectId)
                 && validQuizQuestion();
@@ -1123,12 +1165,17 @@ service cloud.firestore {
           match /items/{itemId} {
             allow read: if true;
             allow create, update: if canEditSubject(subjectId)
-              && validPracticeItem();
+              && ((get(/databases/$(database)/documents/curriculum/form2/subjects/$(subjectId)/chapters/$(chapterId)/modules/$(moduleId)).data.type == 'review'
+                  && validReviewItem())
+                || (get(/databases/$(database)/documents/curriculum/form2/subjects/$(subjectId)/chapters/$(chapterId)/modules/$(moduleId)).data.type == 'practice'
+                  && validPracticeItem()));
             allow delete: if canEditSubject(subjectId);
           }
 
           match /questions/{questionId} {
-            allow read: if true;
+            allow read: if isDashboardUser()
+              || (get(/databases/$(database)/documents/curriculum/form2/subjects/$(subjectId)/chapters/$(chapterId)/modules/$(moduleId)).data.type == 'quiz'
+                && get(/databases/$(database)/documents/curriculum/form2/subjects/$(subjectId)/chapters/$(chapterId)/modules/$(moduleId)).data.status == 'active');
             allow create, update: if canEditSubject(subjectId)
               && validQuizQuestion();
             allow delete: if canEditSubject(subjectId);

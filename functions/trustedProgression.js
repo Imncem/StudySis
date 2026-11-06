@@ -7,6 +7,8 @@ const REWARDS = Object.freeze({
   flashcards: { studyPoints: 1, xp: 10, pawCoins: 5, lifetime: false },
   practice: { studyPoints: 2, xp: 20, pawCoins: 10, lifetime: false },
   quiz: { studyPoints: 3, xp: 40, pawCoins: 20, lifetime: false },
+  review: { studyPoints: 2, xp: 20, pawCoins: 10, lifetime: true },
+  test: { studyPoints: 3, xp: 40, pawCoins: 20, lifetime: false },
   savedFlashcards: { studyPoints: 1, xp: 10, pawCoins: 5, lifetime: false },
 });
 
@@ -43,6 +45,78 @@ function createTrustedProgressionHandler({ admin, db, activityType }) {
       });
     }
   };
+}
+
+function createTestQuestionsHandler({ admin, db }) {
+  return async (req, res) => {
+    const requestId = crypto.randomBytes(6).toString('hex');
+    if (req.method !== 'POST') {
+      res.status(405).json({ success: false, message: 'Method not allowed.' });
+      return;
+    }
+    const auth = await authenticateRequest(admin, req, res, requestId);
+    if (!auth) return;
+    try {
+      const questions = await loadStudentTestQuestions({ db, input: req.body });
+      res.status(200).json({ success: true, questions });
+    } catch (error) {
+      const normalized = normalizeError(error);
+      console.warn(
+        `[StudySis][test] requestId=${requestId} uid=${auth.uid} ` +
+          `code=${normalized.code} message=${normalized.message}`,
+      );
+      res.status(normalized.httpStatus).json({
+        success: false,
+        code: normalized.code,
+        message: normalized.publicMessage,
+      });
+    }
+  };
+}
+
+async function loadStudentTestQuestions({ db, input }) {
+  const location = validateLocation(input);
+  const refs = learningRefs(db, location, input.moduleId);
+  const [chapterSnapshot, parentSnapshot, moduleSnapshot, questionsSnapshot] =
+    await Promise.all([
+      location.parentKind === 'chapter' ? null : refs.chapterRef.get(),
+      refs.parentRef.get(),
+      refs.moduleRef.get(),
+      refs.moduleRef.collection('questions').get(),
+    ]);
+  if (chapterSnapshot &&
+      (!chapterSnapshot.exists || chapterSnapshot.data()?.status !== 'active')) {
+    throw eventError('failed-precondition', 'Curriculum container is not active.');
+  }
+  if (!parentSnapshot.exists || parentSnapshot.data()?.status !== 'active') {
+    throw eventError('failed-precondition', 'Learning location is not active.');
+  }
+  const moduleData = moduleSnapshot.data();
+  if (!moduleSnapshot.exists || moduleData?.status !== 'active' ||
+      String(moduleData?.type || '').toLowerCase() !== 'test') {
+    throw eventError('failed-precondition', 'Active Test module was not found.');
+  }
+  return sanitizeTestQuestionDocuments(questionsSnapshot.docs);
+}
+
+function sanitizeTestQuestionDocuments(documents) {
+  return documents
+    .filter((doc) => doc.data().status === 'active')
+    .sort((left, right) => {
+      const orderDifference = integer(left.data().order) - integer(right.data().order);
+      return orderDifference || left.id.localeCompare(right.id);
+    })
+    .map((doc) => {
+      const data = doc.data();
+      return {
+        id: doc.id,
+        question: String(data.question || ''),
+        options: Array.isArray(data.options) ? data.options.map(String) : [],
+        difficulty: String(data.difficulty || 'easy'),
+        order: integer(data.order),
+        status: 'active',
+      };
+    });
 }
 
 async function authenticateRequest(admin, req, res, requestId) {
@@ -407,6 +481,16 @@ async function validateActivityEvidence({
   moduleId,
 }) {
   if (activityType === 'notes') return {};
+  if (activityType === 'review') {
+    const itemsSnapshot = await transaction.get(refs.moduleRef.collection('items'));
+    const activeItems = itemsSnapshot.docs.filter(
+      (doc) => doc.data().status === 'active',
+    );
+    if (activeItems.length === 0) {
+      throw eventError('failed-precondition', 'No active review items are available.');
+    }
+    return { reviewedItemCount: activeItems.length };
+  }
   if (activityType === 'flashcards') {
     const reviewedIds = uniqueStringList(input.reviewedCardIds, 200);
     const cardsSnapshot = await transaction.get(refs.moduleRef.collection('cards'));
@@ -423,7 +507,7 @@ async function validateActivityEvidence({
     };
   }
   const answers = answerMap(input.answers);
-  const questionsSnapshot = activityType === 'quiz'
+  const questionsSnapshot = activityType === 'quiz' || activityType === 'test'
     ? await transaction.get(refs.moduleRef.collection('questions'))
     : await transaction.get(refs.practiceRef);
   let questions = questionsSnapshot.docs.filter((doc) =>
@@ -454,13 +538,22 @@ async function validateActivityEvidence({
   for (const id of Object.keys(answers)) {
     if (!validIds.has(id)) throw eventError('failed-precondition', 'Submission contains an invalid question.');
   }
+  const score = scoreQuestionDocuments(questions, answers);
+  return {
+    eligibleForReward: Object.keys(answers).length >= 5,
+    score,
+  };
+}
+
+function scoreQuestionDocuments(questions, answers) {
   let correct = 0;
   let incorrect = 0;
   let unanswered = 0;
   for (const question of questions) {
     const selected = answers[question.id];
+    const data = question.data();
     const correctIndex = integer(
-      question.data().correctOptionIndex ?? question.data().correctAnswerIndex,
+      data.correctOptionIndex ?? data.correctAnswerIndex,
       -1,
     );
     if (selected === undefined) unanswered += 1;
@@ -470,15 +563,12 @@ async function validateActivityEvidence({
   const total = questions.length;
   const percentage = total === 0 ? 0 : Math.round((correct / total) * 100);
   return {
-    eligibleForReward: Object.keys(answers).length >= 5,
-    score: {
-      correctCount: correct,
-      incorrectCount: incorrect,
-      unansweredCount: unanswered,
-      totalQuestions: total,
-      percentage,
-      passed: percentage >= 70,
-    },
+    correctCount: correct,
+    incorrectCount: incorrect,
+    unansweredCount: unanswered,
+    totalQuestions: total,
+    percentage,
+    passed: percentage >= 70,
   };
 }
 
@@ -510,6 +600,18 @@ function buildProgressUpdate({ existing, location, activityType, evidence, times
     data.quizUnansweredCount = score.unansweredCount;
     data.quizPassed = score.passed;
     data.quizCompletedAt = timestamp;
+  } else if (activityType === 'review') {
+    data.reviewCompleted = true;
+    data.reviewCompletedAt = data.reviewCompletedAt || timestamp;
+  } else if (activityType === 'test') {
+    const score = evidence.score;
+    data.testLatestPercentage = score.percentage;
+    data.testBestPercentage = Math.max(integer(data.testBestPercentage), score.percentage);
+    data.testCorrectCount = score.correctCount;
+    data.testIncorrectCount = score.incorrectCount;
+    data.testUnansweredCount = score.unansweredCount;
+    data.testPassed = score.passed;
+    data.testCompletedAt = timestamp;
   }
   data.studentProfileId = 'qidah';
   data.subjectId = location.subjectId;
@@ -547,6 +649,15 @@ function initialProgress() {
     quizUnansweredCount: 0,
     quizPassed: false,
     quizCompletedAt: null,
+    reviewCompleted: false,
+    reviewCompletedAt: null,
+    testLatestPercentage: 0,
+    testBestPercentage: 0,
+    testCorrectCount: 0,
+    testIncorrectCount: 0,
+    testUnansweredCount: 0,
+    testPassed: false,
+    testCompletedAt: null,
     overallProgress: 0,
   };
 }
@@ -661,7 +772,10 @@ function expectedModuleTypes(activityType) {
   if (activityType === 'notes') return new Set(['notes']);
   if (activityType === 'flashcards') return new Set(['flashcards']);
   if (activityType === 'practice') return new Set(['practice']);
-  return new Set(['quiz', 'test']);
+  if (activityType === 'quiz') return new Set(['quiz']);
+  if (activityType === 'test') return new Set(['test']);
+  if (activityType === 'review') return new Set(['review']);
+  return new Set();
 }
 
 function trustedEventKey({ activityType, modulePath, today, lifetime }) {
@@ -768,6 +882,7 @@ function normalizeError(error) {
 
 module.exports = {
   createTrustedProgressionHandler,
+  createTestQuestionsHandler,
   processTrustedLearningEvent,
   _test: {
     REWARDS,
@@ -780,5 +895,11 @@ module.exports = {
     progressDocumentId,
     trustedEventKey,
     validateLocation,
+    expectedModuleTypes,
+    scoreQuestionDocuments,
+    buildProgressUpdate,
+    initialProgress,
+    loadStudentTestQuestions,
+    sanitizeTestQuestionDocuments,
   },
 };

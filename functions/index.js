@@ -9,7 +9,10 @@ const {
   hasProhibitedQuizContext,
   validateMuffinRequest,
 } = require('./muffinPolicy');
-const { createTrustedProgressionHandler } = require('./trustedProgression');
+const {
+  createTestQuestionsHandler,
+  createTrustedProgressionHandler,
+} = require('./trustedProgression');
 
 admin.initializeApp();
 const db = admin.firestore();
@@ -60,6 +63,8 @@ const trustedProgressionFunctions = {
   recordFlashcardMilestone: 'flashcards',
   submitPracticeAttempt: 'practice',
   submitQuizAttempt: 'quiz',
+  submitTestAttempt: 'test',
+  recordReviewCompletion: 'review',
   recordSavedFlashcardMilestone: 'savedFlashcards',
 };
 
@@ -69,6 +74,11 @@ for (const [functionName, activityType] of Object.entries(trustedProgressionFunc
     createTrustedProgressionHandler({ admin, db, activityType }),
   );
 }
+
+exports.getTestQuestions = onRequest(
+  { timeoutSeconds: 30, cors: true },
+  createTestQuestionsHandler({ admin, db }),
+);
 
 exports.askMuffin = onRequest(
   {

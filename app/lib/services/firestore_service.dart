@@ -44,13 +44,28 @@ class FirestoreService {
         .collectionGroup('modules')
         .where('status', isEqualTo: 'active')
         .snapshots()
-        .map((snapshot) => snapshot.docs
-            .map((document) => _subjectIdForUsableModule(
-                  document.reference.path,
-                  document.data(),
-                ))
-            .whereType<String>()
-            .toSet());
+        .asyncMap((snapshot) async {
+      final ready = <String>{};
+      for (final document in snapshot.docs) {
+        final subjectId = _subjectIdForUsableModule(
+          document.reference.path,
+          document.data(),
+        );
+        if (subjectId == null) continue;
+        final type = document.data()['type'];
+        if (type == 'test' || type == 'review') {
+          final childName = type == 'test' ? 'questions' : 'items';
+          final content = await document.reference
+              .collection(childName)
+              .where('status', isEqualTo: 'active')
+              .limit(1)
+              .get();
+          if (content.docs.isEmpty) continue;
+        }
+        ready.add(subjectId);
+      }
+      return ready;
+    });
     return _combineSubjectReadiness(subjects, activeModules);
   }
 }

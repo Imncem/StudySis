@@ -18,7 +18,7 @@ export function usesInlineLessonContent(type: ModuleType): boolean {
 }
 
 export function hasStructuredContentEditor(type: ModuleType): boolean {
-  return type === "flashcards" || type === "practice" || type === "quiz";
+  return type !== "notes";
 }
 
 export function canChangeModuleType(existing: boolean): boolean {
@@ -44,9 +44,9 @@ export function moduleSaveLabel(
     case "quiz":
       return "Save & add quiz questions";
     case "test":
-      return "Save test module";
+      return "Save & add test questions";
     case "review":
-      return "Save review module";
+      return "Save & add review items";
   }
 }
 

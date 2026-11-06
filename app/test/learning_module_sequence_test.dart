@@ -41,8 +41,7 @@ void main() {
     );
   });
 
-  test('unsupported active Test and Review modules do not inflate sequence',
-      () {
+  test('all six supported active module types coexist in sequence', () {
     final modules = [
       _module('notes', order: 1, type: 'notes'),
       _module('flashcards', order: 2, type: 'flashcards'),
@@ -54,8 +53,124 @@ void main() {
 
     expect(
       sequenceActiveLearningModules(modules).map((module) => module.id),
-      ['notes', 'flashcards', 'practice', 'quiz'],
+      ['notes', 'flashcards', 'practice', 'quiz', 'test', 'review'],
     );
+  });
+
+  test('empty Test and Review are excluded by repository usability checks',
+      () async {
+    final firestore = FakeFirebaseFirestore();
+    await _seedParent(firestore);
+    final modules = firestore.collection(
+      ContentPaths.modules('geography', 'chapter-01'),
+    );
+    await modules.doc('notes').set(_moduleData(
+          title: 'Notes',
+          type: 'notes',
+          order: 1,
+          content: 'Ready',
+        ));
+    await modules.doc('test').set(_moduleData(
+          title: 'Empty Test',
+          type: 'test',
+          order: 2,
+        ));
+    await modules.doc('review').set(_moduleData(
+          title: 'Empty Review',
+          type: 'review',
+          order: 3,
+        ));
+
+    final active = await LearningRepository(firestore: firestore)
+        .getActiveChapterModules(
+            subjectId: 'geography', chapterId: 'chapter-01');
+    expect(active.map((module) => module.id), ['notes']);
+  });
+
+  test('active Test questions and Review items make both modules usable',
+      () async {
+    final firestore = FakeFirebaseFirestore();
+    await _seedParent(firestore);
+    final modules = firestore.collection(
+      ContentPaths.modules('geography', 'chapter-01'),
+    );
+    await modules
+        .doc('test')
+        .set(_moduleData(title: 'Test', type: 'test', order: 1));
+    await modules
+        .doc('review')
+        .set(_moduleData(title: 'Review', type: 'review', order: 2));
+    await modules.doc('test').collection('questions').doc('q1').set({
+      'question': 'Question',
+      'options': ['A', 'B', 'C', 'D'],
+      'correctOptionIndex': 0,
+      'explanation': 'Because.',
+      'difficulty': 'easy',
+      'order': 1,
+      'status': 'active',
+    });
+    await modules.doc('review').collection('items').doc('r1').set({
+      'heading': 'Key concept',
+      'body': 'Remember this.',
+      'keyPoint': 'Important',
+      'prompt': '',
+      'order': 1,
+      'status': 'active',
+    });
+
+    final active = await LearningRepository(firestore: firestore)
+        .getActiveChapterModules(
+            subjectId: 'geography', chapterId: 'chapter-01');
+    expect(active.map((module) => module.id), ['test', 'review']);
+  });
+
+  test('Sejarah subchapter and language topic paths apply usability checks',
+      () async {
+    final firestore = FakeFirebaseFirestore();
+    final sejarahModules = firestore.collection(
+      ContentPaths.subchapterModules(
+        'sejarah',
+        'chapter-01',
+        'subchapter_01_01',
+      ),
+    );
+    final englishModules = firestore.collection(
+      ContentPaths.topicModules('english', 'grammar', 'verbs'),
+    );
+    for (final modules in [sejarahModules, englishModules]) {
+      await modules.doc('test').set(
+            _moduleData(title: 'Test', type: 'test', order: 1),
+          );
+      await modules.doc('review').set(
+            _moduleData(title: 'Review', type: 'review', order: 2),
+          );
+      await modules.doc('test').collection('questions').doc('q1').set({
+        'status': 'active',
+        'order': 1,
+      });
+      await modules.doc('review').collection('items').doc('r1').set({
+        'heading': 'Review',
+        'body': 'Revision body',
+        'keyPoint': 'Key',
+        'prompt': '',
+        'status': 'active',
+        'order': 1,
+      });
+    }
+    final repository = LearningRepository(firestore: firestore);
+
+    final sejarah = await repository.getActiveSubchapterModules(
+      subjectId: 'sejarah',
+      chapterId: 'chapter-01',
+      subchapterId: 'subchapter_01_01',
+    );
+    final english = await repository.getActiveTopicModules(
+      subjectId: 'english',
+      sectionId: 'grammar',
+      topicId: 'verbs',
+    );
+    expect(sejarah.map((module) => module.type), ['test', 'review']);
+    expect(english.map((module) => module.type), ['test', 'review']);
   });
 
   testWidgets('four modules show progress and Next/Previous replace content',

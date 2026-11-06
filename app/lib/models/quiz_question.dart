@@ -27,9 +27,10 @@ class QuizQuestion {
 
   bool get isActive => status == 'active';
 
+  bool get hasUsablePrompt => question.trim().isNotEmpty && options.length >= 2;
+
   bool get isValid =>
-      question.trim().isNotEmpty &&
-      options.length >= 2 &&
+      hasUsablePrompt &&
       correctOptionIndex >= 0 &&
       correctOptionIndex < options.length;
 

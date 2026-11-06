@@ -178,6 +178,27 @@ class _ChapterOverviewScreenState extends State<ChapterOverviewScreen> {
               ),
             );
           },
+          onLocationTestCompleted: (location, completedModule, answers) async {
+            final credit =
+                await _engagementRepository.creditLocationTestCompletion(
+              location: location,
+              moduleId: completedModule.id,
+              answers: answers,
+            );
+            return QuizResult.fromTrustedScore(
+                credit.score ?? const {}, answers);
+          },
+          onLoadTestQuestions: (location, module) =>
+              _engagementRepository.loadLocationTestQuestions(
+            location: location,
+            moduleId: module.id,
+          ),
+          onLocationReviewCompleted: (location, completedModule) async {
+            await _engagementRepository.creditLocationReviewCompletion(
+              location: location,
+              moduleId: completedModule.id,
+            );
+          },
         ),
       ),
     );

@@ -59,7 +59,9 @@ test("structured module creation uses type-specific labels and destinations", ()
     moduleSaveLabel("quiz", false),
     "Save & add quiz questions",
   );
-  for (const type of ["flashcards", "practice", "quiz"] as const) {
+  assert.equal(moduleSaveLabel("test", false), "Save & add test questions");
+  assert.equal(moduleSaveLabel("review", false), "Save & add review items");
+  for (const type of ["flashcards", "practice", "quiz", "test", "review"] as const) {
     assert.equal(hasStructuredContentEditor(type), true);
     assert.equal(moduleDestinationAfterSave(type), "structured");
   }
@@ -80,11 +82,11 @@ test("saved Quiz metadata opens the same editor without forcing a new question",
   });
 });
 
-test("Test and Review remain explicit unsupported structured schemas", () => {
+test("Test and Review open their structured editors after creation", () => {
   for (const type of ["test", "review"] as const) {
-    assert.equal(hasStructuredContentEditor(type), false);
+    assert.equal(hasStructuredContentEditor(type), true);
     assert.equal(moduleDestinationAfterSave(type), "structured");
-    assert.match(moduleSaveLabel(type, false), /Save (test|review) module/);
+    assert.equal(modulePostSaveState(type, `${type}-1`, true).startStructuredItem, true);
   }
 });
 

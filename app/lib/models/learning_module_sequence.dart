@@ -158,7 +158,14 @@ List<LearningModule> sequenceActiveLearningModules(
   Iterable<LearningModule> modules, {
   String? parentLabel,
 }) {
-  const supportedTypes = {'notes', 'flashcards', 'practice', 'quiz'};
+  const supportedTypes = {
+    'notes',
+    'flashcards',
+    'practice',
+    'quiz',
+    'review',
+    'test',
+  };
   final indexed = modules
       .where(
           (module) => module.isActive && supportedTypes.contains(module.type))

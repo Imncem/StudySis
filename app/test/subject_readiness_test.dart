@@ -155,6 +155,26 @@ void main() {
 
     expect(subjects.every((subject) => subject.isComingSoon), isTrue);
   });
+
+  test('empty Test and Review do not unlock, active children do', () async {
+    final firestore = FakeFirebaseFirestore();
+    await _seedSubject(firestore, 'science', 1);
+    final modules =
+        firestore.collection(ContentPaths.modules('science', 'chapter-01'));
+    await modules.doc('test').set(_moduleData('active', type: 'test'));
+    await modules.doc('review').set(_moduleData('active', type: 'review'));
+    var subjects =
+        await FirestoreService(firestore: firestore).watchSubjects().first;
+    expect(_byId(subjects, 'science').isComingSoon, isTrue);
+
+    await modules.doc('test').collection('questions').doc('q1').set({
+      'status': 'active',
+      'order': 1,
+    });
+    subjects =
+        await FirestoreService(firestore: firestore).watchSubjects().first;
+    expect(_byId(subjects, 'science').isComingSoon, isFalse);
+  });
 }
 
 Subject _byId(List<Subject> subjects, String id) {

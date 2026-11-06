@@ -4,6 +4,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import '../models/engagement.dart';
 import '../models/learning_location.dart';
 import '../models/pet_cosmetic.dart';
+import '../models/quiz_question.dart';
 import '../services/trusted_progress_service.dart';
 
 class EngagementRepository {
@@ -183,6 +184,54 @@ class EngagementRepository {
     );
   }
 
+  Future<EngagementCreditResult> creditLocationTestCompletion({
+    required LearningLocation location,
+    required String moduleId,
+    required Map<String, int> answers,
+  }) async {
+    return _trustedResult(
+      await _trustedProgressService.record(
+        'submitTestAttempt',
+        {
+          ..._locationPayload(location, moduleId),
+          'answers': answers,
+        },
+      ),
+    );
+  }
+
+  Future<List<QuizQuestion>> loadLocationTestQuestions({
+    required LearningLocation location,
+    required String moduleId,
+  }) async {
+    final response = await _trustedProgressService.record(
+      'getTestQuestions',
+      _locationPayload(location, moduleId),
+    );
+    final rawQuestions = response['questions'];
+    if (rawQuestions is! List) return const <QuizQuestion>[];
+    return rawQuestions
+        .whereType<Map>()
+        .map((raw) {
+          final data = Map<String, dynamic>.from(raw);
+          return QuizQuestion.fromMap((data['id'] ?? '').toString(), data);
+        })
+        .where((question) => question.isActive && question.hasUsablePrompt)
+        .toList(growable: false);
+  }
+
+  Future<EngagementCreditResult> creditLocationReviewCompletion({
+    required LearningLocation location,
+    required String moduleId,
+  }) async {
+    return _trustedResult(
+      await _trustedProgressService.record(
+        'recordReviewCompletion',
+        _locationPayload(location, moduleId),
+      ),
+    );
+  }
+
   Map<String, Object?> _locationPayload(
     LearningLocation location,
     String moduleId,
@@ -214,6 +263,9 @@ class EngagementRepository {
           (response['previousLevel'] as num?)?.toInt() ?? state.level,
       state: state,
       streakNewlySecured: response['streakNewlySecured'] == true,
+      score: response['score'] is Map
+          ? Map<String, dynamic>.from(response['score'] as Map)
+          : null,
     );
   }
 

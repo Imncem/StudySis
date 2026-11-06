@@ -12,6 +12,99 @@ test('trusted rewards are fixed by activity and never supplied by the client', (
   });
   assert.equal(_test.REWARDS.quiz.xp, 40);
   assert.equal(_test.REWARDS.quiz.pawCoins, 20);
+  assert.deepEqual(_test.REWARDS.review, {
+    studyPoints: 2, xp: 20, pawCoins: 10, lifetime: true,
+  });
+  assert.equal(_test.REWARDS.test.xp, 40);
+});
+
+test('Test scoring is server-derived from stored correct answer indexes', () => {
+  const questions = [
+    { id: 'q1', data: () => ({ correctOptionIndex: 2 }) },
+    { id: 'q2', data: () => ({ correctOptionIndex: 0 }) },
+    { id: 'q3', data: () => ({ correctOptionIndex: 1 }) },
+  ];
+  assert.deepEqual(_test.scoreQuestionDocuments(questions, { q1: 2, q2: 3 }), {
+    correctCount: 1,
+    incorrectCount: 1,
+    unansweredCount: 1,
+    totalQuestions: 3,
+    percentage: 33,
+    passed: false,
+  });
+});
+
+test('Test question delivery strips answers and explanations before submission', () => {
+  const questions = _test.sanitizeTestQuestionDocuments([
+    {
+      id: 'q2',
+      data: () => ({
+        question: 'Second?', options: ['A', 'B', 'C', 'D'],
+        correctOptionIndex: 1, explanation: 'Secret', difficulty: 'medium',
+        order: 2, status: 'active',
+      }),
+    },
+    {
+      id: 'q1',
+      data: () => ({
+        question: 'First?', options: ['A', 'B', 'C', 'D'],
+        correctOptionIndex: 0, explanation: 'Secret', difficulty: 'easy',
+        order: 1, status: 'active',
+      }),
+    },
+  ]);
+  assert.deepEqual(questions.map((question) => question.id), ['q1', 'q2']);
+  assert.equal(Object.hasOwn(questions[0], 'correctOptionIndex'), false);
+  assert.equal(Object.hasOwn(questions[0], 'explanation'), false);
+});
+
+test('Quiz, Test and Review progression endpoints cannot cross module types', () => {
+  assert.deepEqual([..._test.expectedModuleTypes('quiz')], ['quiz']);
+  assert.deepEqual([..._test.expectedModuleTypes('test')], ['test']);
+  assert.deepEqual([..._test.expectedModuleTypes('review')], ['review']);
+});
+
+test('Test and Review persist separate parent-aware progress fields', () => {
+  const location = {
+    subjectId: 'english',
+    parentKind: 'topic',
+    parentId: 'verbs',
+    containerId: 'grammar',
+  };
+  const timestamp = {serverTimestamp: true};
+  const testProgress = _test.buildProgressUpdate({
+    existing: {quizBestPercentage: 80},
+    location,
+    activityType: 'test',
+    evidence: {
+      score: {
+        percentage: 60,
+        correctCount: 3,
+        incorrectCount: 2,
+        unansweredCount: 0,
+        totalQuestions: 5,
+        passed: false,
+      },
+    },
+    timestamp,
+  });
+  assert.equal(testProgress.testLatestPercentage, 60);
+  assert.equal(testProgress.testBestPercentage, 60);
+  assert.equal(testProgress.testPassed, false);
+  assert.equal(testProgress.quizBestPercentage, 80);
+  assert.equal(testProgress.parentKind, 'topic');
+  assert.equal(testProgress.containerId, 'grammar');
+
+  const reviewProgress = _test.buildProgressUpdate({
+    existing: testProgress,
+    location,
+    activityType: 'review',
+    evidence: {reviewedItemCount: 2},
+    timestamp,
+  });
+  assert.equal(reviewProgress.reviewCompleted, true);
+  assert.equal(reviewProgress.reviewCompletedAt, timestamp);
+  assert.equal(reviewProgress.testLatestPercentage, 60);
 });
 
 test('module completion event identity is deterministic and module scoped', () => {

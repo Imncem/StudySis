@@ -5,6 +5,7 @@ import '../models/learning_content.dart';
 import '../models/learning_location.dart';
 import '../models/learning_module.dart';
 import '../models/learning_module_sequence.dart';
+import '../models/quiz_question.dart';
 import '../repositories/learning_repository.dart';
 import '../services/saved_flashcard_service.dart';
 import '../widgets/learning_module_navigation.dart';
@@ -13,6 +14,7 @@ import 'flashcard_screen.dart';
 import 'module_reader_screen.dart';
 import 'practice_screen.dart';
 import 'quiz_screen.dart';
+import 'review_screen.dart';
 
 class LearningModuleSequenceScreen extends StatefulWidget {
   const LearningModuleSequenceScreen({
@@ -31,6 +33,9 @@ class LearningModuleSequenceScreen extends StatefulWidget {
     this.onLocationFlashcardCompleted,
     this.onLocationPracticeCompleted,
     this.onLocationQuizCompleted,
+    this.onLocationTestCompleted,
+    this.onLoadTestQuestions,
+    this.onLocationReviewCompleted,
     this.savedFlashcardService,
     super.key,
   });
@@ -76,6 +81,19 @@ class LearningModuleSequenceScreen extends StatefulWidget {
     LearningModule module,
     QuizResult result,
   )? onLocationQuizCompleted;
+  final Future<QuizResult> Function(
+    LearningLocation location,
+    LearningModule module,
+    Map<String, int> answers,
+  )? onLocationTestCompleted;
+  final Future<List<QuizQuestion>> Function(
+    LearningLocation location,
+    LearningModule module,
+  )? onLoadTestQuestions;
+  final Future<void> Function(
+    LearningLocation location,
+    LearningModule module,
+  )? onLocationReviewCompleted;
   final SavedFlashcardService? savedFlashcardService;
 
   @override
@@ -187,7 +205,7 @@ class _LearningModuleSequenceScreenState
               moduleNavigation: navigation,
               moduleMetadata: LearningModuleMetadata(module: module),
             ),
-          'quiz' || 'test' => QuizScreen(
+          'quiz' => QuizScreen(
               chapter: widget.chapter,
               subjectId: widget.parent.subjectId,
               subjectTitle: widget.subjectName,
@@ -202,6 +220,49 @@ class _LearningModuleSequenceScreenState
                   widget.parent.location,
                   module,
                   result,
+                );
+              },
+              moduleNavigation: navigation,
+              moduleMetadata: LearningModuleMetadata(module: module),
+            ),
+          'test' => QuizScreen(
+              chapter: widget.chapter,
+              subjectId: widget.parent.subjectId,
+              subjectTitle: widget.subjectName,
+              title: module.title,
+              assessmentLabel: 'Test',
+              requireStart: true,
+              questionsFuture: widget.onLoadTestQuestions?.call(
+                    widget.parent.location,
+                    module,
+                  ) ??
+                  Future<List<QuizQuestion>>.error(
+                    StateError('Secure Test question loader is unavailable.'),
+                  ),
+              onSubmitAnswers: (answers) async {
+                final callback = widget.onLocationTestCompleted;
+                if (callback == null) {
+                  final questions = await _repository.getModuleQuiz(
+                    parent: widget.parent,
+                    moduleId: module.id,
+                  );
+                  return QuizResult.calculate(questions, answers);
+                }
+                return callback(widget.parent.location, module, answers);
+              },
+              moduleNavigation: navigation,
+              moduleMetadata: LearningModuleMetadata(module: module),
+            ),
+          'review' => ReviewScreen(
+              title: module.title,
+              itemsFuture: _repository.getModuleReview(
+                parent: widget.parent,
+                moduleId: module.id,
+              ),
+              onComplete: () async {
+                await widget.onLocationReviewCompleted?.call(
+                  widget.parent.location,
+                  module,
                 );
               },
               moduleNavigation: navigation,

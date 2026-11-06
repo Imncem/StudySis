@@ -196,3 +196,19 @@ export type QuizQuestionInput = Omit<
   QuizQuestion,
   "id" | "createdAt" | "updatedAt"
 >;
+
+export type ReviewItem = {
+  id: string;
+  heading: string;
+  body: string;
+  keyPoint: string;
+  prompt: string;
+  order: number;
+  status: ModuleStatus;
+  createdAt: Timestamp | null;
+  updatedAt: Timestamp | null;
+};
+export type ReviewItemInput = Omit<
+  ReviewItem,
+  "id" | "createdAt" | "updatedAt"
+>;

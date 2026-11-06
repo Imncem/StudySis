@@ -150,6 +150,13 @@ class _HomeScreenState extends State<HomeScreen> {
             onLocationFlashcardCompleted: _completeLocationFlashcard,
             onLocationPracticeCompleted: _completeLocationPractice,
             onLocationQuizCompleted: _completeLocationQuiz,
+            onLocationTestCompleted: _completeLocationTest,
+            onLoadTestQuestions: (location, module) =>
+                _engagementRepository.loadLocationTestQuestions(
+              location: location,
+              moduleId: module.id,
+            ),
+            onLocationReviewCompleted: _completeLocationReview,
           ),
         ),
       );
@@ -222,6 +229,29 @@ class _HomeScreenState extends State<HomeScreen> {
         answers: result.selectedAnswers,
       ),
       'quiz',
+    );
+  }
+
+  Future<QuizResult> _completeLocationTest(
+    LearningLocation location,
+    LearningModule module,
+    Map<String, int> answers,
+  ) async {
+    final credit = await _engagementRepository.creditLocationTestCompletion(
+      location: location,
+      moduleId: module.id,
+      answers: answers,
+    );
+    return QuizResult.fromTrustedScore(credit.score ?? const {}, answers);
+  }
+
+  Future<void> _completeLocationReview(
+    LearningLocation location,
+    LearningModule module,
+  ) async {
+    await _engagementRepository.creditLocationReviewCompletion(
+      location: location,
+      moduleId: module.id,
     );
   }
 

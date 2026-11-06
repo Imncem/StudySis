@@ -27,6 +27,8 @@ import type {
   PracticeItemInput,
   QuizQuestion,
   QuizQuestionInput,
+  ReviewItem,
+  ReviewItemInput,
 } from "@/lib/types";
 import { filterPracticeItemsForModule } from "@/lib/practice-ownership";
 
@@ -38,6 +40,8 @@ const childCollectionByType = {
   flashcards: "cards",
   practice: "practice_questions",
   quiz: "questions",
+  test: "questions",
+  review: "items",
 } as const;
 
 export class StructuredContentRepository {
@@ -183,6 +187,22 @@ export class StructuredContentRepository {
     return this.remove(location, "questions", id);
   }
 
+  watchReviewItems(location: Location, onData: (items: ReviewItem[]) => void, onError: ErrorHandler) {
+    return this.watchOrdered(location, "items", mapReviewItem, onData, onError);
+  }
+
+  createReviewItem(location: Location, input: ReviewItemInput) {
+    return this.create(location, "items", input);
+  }
+
+  updateReviewItem(location: Location, id: string, input: ReviewItemInput) {
+    return this.update(location, "items", id, input);
+  }
+
+  deleteReviewItem(location: Location, id: string) {
+    return this.remove(location, "items", id);
+  }
+
   private watchOrdered<T>(
     location: Location,
     collectionName: string,
@@ -283,4 +303,17 @@ function mapPracticeItem(item: QueryDocumentSnapshot<DocumentData>): PracticeIte
 function mapQuizQuestion(item: QueryDocumentSnapshot<DocumentData>): QuizQuestion {
   const data = item.data();
   return { ...base(item), question: data.question ?? "", options: Array.isArray(data.options) ? data.options : [], correctOptionIndex: data.correctOptionIndex ?? 0, explanation: data.explanation ?? "", difficulty: data.difficulty ?? "easy", order: data.order ?? 0, status: data.status ?? "draft" };
+}
+
+function mapReviewItem(item: QueryDocumentSnapshot<DocumentData>): ReviewItem {
+  const data = item.data();
+  return {
+    ...base(item),
+    heading: data.heading ?? "",
+    body: data.body ?? "",
+    keyPoint: data.keyPoint ?? "",
+    prompt: data.prompt ?? "",
+    order: data.order ?? 0,
+    status: data.status ?? "draft",
+  };
 }

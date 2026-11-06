@@ -32,6 +32,15 @@ class ChapterProgress {
     required this.quizUnansweredCount,
     required this.quizPassed,
     required this.quizCompletedAt,
+    this.reviewCompleted = false,
+    this.reviewCompletedAt,
+    this.testLatestPercentage = 0,
+    this.testBestPercentage = 0,
+    this.testCorrectCount = 0,
+    this.testIncorrectCount = 0,
+    this.testUnansweredCount = 0,
+    this.testPassed = false,
+    this.testCompletedAt,
     required this.overallProgress,
     required this.lastActivityAt,
     required this.createdAt,
@@ -68,6 +77,15 @@ class ChapterProgress {
   final int quizUnansweredCount;
   final bool quizPassed;
   final DateTime? quizCompletedAt;
+  final bool reviewCompleted;
+  final DateTime? reviewCompletedAt;
+  final int testLatestPercentage;
+  final int testBestPercentage;
+  final int testCorrectCount;
+  final int testIncorrectCount;
+  final int testUnansweredCount;
+  final bool testPassed;
+  final DateTime? testCompletedAt;
   final int overallProgress;
   final DateTime? lastActivityAt;
   final DateTime? createdAt;
@@ -126,6 +144,15 @@ class ChapterProgress {
       quizUnansweredCount: 0,
       quizPassed: false,
       quizCompletedAt: null,
+      reviewCompleted: false,
+      reviewCompletedAt: null,
+      testLatestPercentage: 0,
+      testBestPercentage: 0,
+      testCorrectCount: 0,
+      testIncorrectCount: 0,
+      testUnansweredCount: 0,
+      testPassed: false,
+      testCompletedAt: null,
       overallProgress: 0,
       lastActivityAt: null,
       createdAt: null,
@@ -176,6 +203,15 @@ class ChapterProgress {
       quizUnansweredCount: _nonNegativeInt(data['quizUnansweredCount']),
       quizPassed: data['quizPassed'] == true,
       quizCompletedAt: _date(data['quizCompletedAt']),
+      reviewCompleted: data['reviewCompleted'] == true,
+      reviewCompletedAt: _date(data['reviewCompletedAt']),
+      testLatestPercentage: _percentage(data['testLatestPercentage']),
+      testBestPercentage: _percentage(data['testBestPercentage']),
+      testCorrectCount: _nonNegativeInt(data['testCorrectCount']),
+      testIncorrectCount: _nonNegativeInt(data['testIncorrectCount']),
+      testUnansweredCount: _nonNegativeInt(data['testUnansweredCount']),
+      testPassed: data['testPassed'] == true,
+      testCompletedAt: _date(data['testCompletedAt']),
       overallProgress: _percentage(data['overallProgress']),
       lastActivityAt: _date(data['lastActivityAt']),
       createdAt: _date(data['createdAt']),
