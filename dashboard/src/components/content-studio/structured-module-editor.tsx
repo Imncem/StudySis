@@ -6,12 +6,20 @@ import type { StructuredContentRepository } from "@/lib/repositories/structured-
 import type { CurriculumContentLocation } from "@/lib/content-paths";
 import { contentStatusOptions } from "@/lib/content-status-permissions";
 import {
+  hasMeaningfulLessonContent,
+  noteSectionInputForSave,
+  notesContentPresentation,
+  withoutNoteSection,
+} from "@/lib/notes-authoring";
+import {
   moduleDifficulties,
   type Flashcard,
   type FlashcardInput,
   type LearningModule,
   type ModuleDifficulty,
   type ModuleStatus,
+  type NoteSection,
+  type NoteSectionInput,
   type PracticeItem,
   type PracticeItemInput,
   type QuizQuestion,
@@ -39,7 +47,7 @@ export function StructuredModuleEditor({ repository, location: parentLocation, m
         </div>
       </div>
       <div className="pt-6">
-        {module.type === "notes" && <Placeholder text="Lesson content is managed in module details." />}
+        {module.type === "notes" && <NotesEditor canEdit={canEdit} location={location} module={module} repository={repository} startAdding={startAdding} />}
         {module.type === "flashcards" && <FlashcardsEditor canActivate={canActivate} canEdit={canEdit} canManageStatus={canManageStatus} location={location} repository={repository} startAdding={startAdding} />}
         {module.type === "practice" && <PracticeEditor canActivate={canActivate} canEdit={canEdit} canManageStatus={canManageStatus} location={location} practiceModuleIds={practiceModuleIds} repository={repository} startAdding={startAdding} />}
         {module.type === "quiz" && <QuizEditor canActivate={canActivate} canEdit={canEdit} canManageStatus={canManageStatus} location={location} repository={repository} startAdding={startAdding} />}
@@ -48,6 +56,49 @@ export function StructuredModuleEditor({ repository, location: parentLocation, m
       </div>
     </div>
   );
+}
+
+function NotesEditor({ repository, location, module, canEdit, startAdding = false }: EditorProps & { module: LearningModule }) {
+  const [items, setItems] = useState<NoteSection[]>([]);
+  const [editing, setEditing] = useState<NoteSection | "new" | null>(startAdding ? "new" : null);
+  const [error, setError] = useState("");
+  useEffect(
+    () => repository.watchNoteSections(location, setItems, (next) => setError(next.message)),
+    [location, repository],
+  );
+  const presentation = notesContentPresentation(module, items);
+
+  async function save(input: NoteSectionInput) {
+    if (editing && editing !== "new") {
+      await repository.updateNoteSection(location, editing.id, input);
+    } else {
+      await repository.createNoteSection(location, input);
+    }
+    setEditing(null);
+  }
+
+  async function remove(item: NoteSection) {
+    if (!confirmDelete(item.heading)) return;
+    await repository.deleteNoteSection(location, item.id);
+    setItems((current) => withoutNoteSection(current, item.id));
+  }
+
+  return <div className="space-y-6">
+    {presentation.inlineContent && <section className="rounded-2xl border border-[#dce6df] bg-[#f7faf8] p-5">
+      <p className="eyebrow">Inline lesson content</p>
+      <p className="mt-3 whitespace-pre-wrap text-sm leading-7 text-[#40534a]">{presentation.inlineContent}</p>
+    </section>}
+    <CollectionLayout title="Structured Notes Content" count={presentation.structuredSections.length} addLabel="Add section" onAdd={canEdit && !editing ? () => setEditing("new") : undefined} error={error}>
+      {editing && <NoteSectionForm item={editing === "new" ? undefined : editing} onCancel={() => setEditing(null)} onSave={save} />}
+      {!editing && presentation.structuredSections.map((item) => <NoteSectionCard
+        key={item.id}
+        item={item}
+        onEdit={canEdit ? () => setEditing(item) : undefined}
+        onDelete={canEdit ? () => void remove(item) : undefined}
+      />)}
+      {!editing && !presentation.structuredSections.length && <Empty text={hasMeaningfulLessonContent(module.content) ? "No structured sections. Inline lesson content remains available above." : "No structured Notes sections yet."} />}
+    </CollectionLayout>
+  </div>;
 }
 
 function FlashcardsEditor({ repository, location, canEdit, canActivate = false, canManageStatus = false, startAdding = false }: EditorProps) {
@@ -99,6 +150,27 @@ function ItemCard({ eyebrow, title, description, onEdit, onDelete }: { eyebrow: 
   return <article className="rounded-2xl border border-[#e5eae6] p-4"><p className="text-xs font-semibold uppercase tracking-wide text-[#668071]">{eyebrow}</p><h4 className="mt-1 font-bold text-[#293930]">{title}</h4><p className="mt-2 line-clamp-2 whitespace-pre-line text-sm text-slate-500">{description}</p>{(onEdit || onDelete) && <div className="mt-4 flex gap-2 border-t border-[#e8ebe7] pt-3">{onEdit && <button className="small-button" onClick={onEdit} type="button">Edit</button>}{onDelete && <button className="small-button danger" onClick={onDelete} type="button">Delete</button>}</div>}</article>;
 }
 
+function NoteSectionCard({ item, onEdit, onDelete }: { item: NoteSection; onEdit?: () => void; onDelete?: () => void }) {
+  return <article className="rounded-2xl border border-[#e5eae6] p-4">
+    <p className="text-xs font-semibold uppercase tracking-wide text-[#668071]">Section {item.order}</p>
+    <h4 className="mt-1 font-bold text-[#293930]">{item.heading}</h4>
+    <div className="mt-4 space-y-3 text-sm text-[#40534a]">
+      <div>
+        <p className="text-xs font-bold uppercase tracking-wide text-[#668071]">Body</p>
+        <p className="mt-1 whitespace-pre-wrap leading-6">{item.body}</p>
+      </div>
+      <div>
+        <p className="text-xs font-bold uppercase tracking-wide text-[#668071]">Example</p>
+        <p className="mt-1 whitespace-pre-wrap leading-6 text-slate-500">{item.example || "No example added."}</p>
+      </div>
+    </div>
+    {(onEdit || onDelete) && <div className="mt-4 flex gap-2 border-t border-[#e8ebe7] pt-3">
+      {onEdit && <button className="small-button" onClick={onEdit} type="button">Edit</button>}
+      {onDelete && <button className="small-button danger" onClick={onDelete} type="button">Delete</button>}
+    </div>}
+  </article>;
+}
+
 function QuizQuestionCard({ item, onEdit, onDelete }: { item: QuizQuestion; onEdit?: () => void; onDelete?: () => void }) {
   return <article className="rounded-2xl border border-[#e5eae6] bg-white p-4">
     <div className="flex flex-wrap items-start justify-between gap-3">
@@ -123,6 +195,22 @@ function Badge({ children }: { children: React.ReactNode }) {
 function FlashcardForm({ item, statusOptions, onSave, onCancel }: { item?: Flashcard; statusOptions: readonly ModuleStatus[]; onSave: (input: FlashcardInput) => Promise<void>; onCancel: () => void }) {
   const [front, setFront] = useState(item?.front ?? ""); const [back, setBack] = useState(item?.back ?? ""); const [hint, setHint] = useState(item?.hint ?? ""); const [order, setOrder] = useState(item?.order ?? 1); const [status, setStatus] = useState<ModuleStatus>(item?.status ?? "draft");
   return <SimpleForm onSubmit={() => onSave({ front: front.trim(), back: back.trim(), hint: hint.trim(), order, status })} onCancel={onCancel}><TextField label="Front" value={front} setValue={setFront} /><TextField label="Back" value={back} setValue={setBack} /><Field label="Hint" value={hint} setValue={setHint} required={false} /><NumberField label="Order" value={order} setValue={setOrder} />{statusOptions.length > 1 && <StatusField options={statusOptions} value={status} setValue={setStatus} />}</SimpleForm>;
+}
+
+function NoteSectionForm({ item, onSave, onCancel }: { item?: NoteSection; onSave: (input: NoteSectionInput) => Promise<void>; onCancel: () => void }) {
+  const [heading, setHeading] = useState(item?.heading ?? "");
+  const [body, setBody] = useState(item?.body ?? "");
+  const [example, setExample] = useState(item?.example ?? "");
+  const [order, setOrder] = useState(item?.order ?? 1);
+  return <SimpleForm
+    onSubmit={() => onSave(noteSectionInputForSave({ heading, body, example, order }))}
+    onCancel={onCancel}
+  >
+    <Field label="Heading" value={heading} setValue={setHeading} />
+    <NumberField label="Order" value={order} setValue={setOrder} />
+    <TextField label="Body" value={body} setValue={setBody} />
+    <TextField label="Example" value={example} setValue={setExample} required={false} />
+  </SimpleForm>;
 }
 
 function PracticeForm({ item, statusOptions, onSave, onCancel }: { item?: PracticeItem; statusOptions: readonly ModuleStatus[]; onSave: (input: PracticeItemInput) => Promise<void>; onCancel: () => void }) {
@@ -294,7 +382,7 @@ function SimpleForm({ onSubmit, onCancel, children }: { onSubmit: () => Promise<
 }
 
 function Field({ label, value, setValue, required = true }: { label: string; value: string; setValue: (value: string) => void; required?: boolean }) { return <label className="field-label">{label}<input className="field mt-2" required={required} value={value} onChange={(event) => setValue(event.target.value)} /></label>; }
-function TextField({ label, value, setValue }: { label: string; value: string; setValue: (value: string) => void }) { return <label className="field-label sm:col-span-2">{label}<textarea className="field mt-2 min-h-28 resize-y" required value={value} onChange={(event) => setValue(event.target.value)} /></label>; }
+function TextField({ label, value, setValue, required = true }: { label: string; value: string; setValue: (value: string) => void; required?: boolean }) { return <label className="field-label sm:col-span-2">{label}<textarea className="field mt-2 min-h-28 resize-y" required={required} value={value} onChange={(event) => setValue(event.target.value)} /></label>; }
 function NumberField({ label, value, setValue, min = 1 }: { label: string; value: number; setValue: (value: number) => void; min?: number }) { return <label className="field-label">{label}<input className="field mt-2" type="number" min={min} required value={value} onChange={(event) => setValue(Number(event.target.value))} /></label>; }
 function StatusField({ value, setValue, options }: { value: ModuleStatus; setValue: (value: ModuleStatus) => void; options: readonly ModuleStatus[] }) { return <label className="field-label">Status<select className="field mt-2" value={value} onChange={(event) => setValue(event.target.value as ModuleStatus)}>{options.map((status) => <option key={status} value={status}>{titleCase(status)}</option>)}</select></label>; }
 function DifficultyField({ value, setValue }: { value: ModuleDifficulty; setValue: (value: ModuleDifficulty) => void }) { return <label className="field-label">Difficulty<select className="field mt-2" value={value} onChange={(event) => setValue(event.target.value as ModuleDifficulty)}>{moduleDifficulties.map((difficulty) => <option key={difficulty} value={difficulty}>{titleCase(difficulty)}</option>)}</select></label>; }

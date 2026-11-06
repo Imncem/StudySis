@@ -33,7 +33,6 @@ import type {
 } from "@/lib/types";
 import type { SejarahMigrationPlan } from "@/lib/curriculum/sejarahSubchapterMigration";
 import { resolveSejarahWorkspace } from "@/lib/curriculum/sejarahWorkspace";
-import { moduleCardDestination } from "@/lib/notes-authoring";
 import { moduleEditorBreadcrumb } from "@/lib/module-editor-navigation";
 import {
   moduleDestinationAfterSave,
@@ -673,12 +672,8 @@ export function ContentStudio({ access }: { access: DashboardAccess }) {
               <button
                 className="w-full text-left"
                 onClick={() => {
-                  if (moduleCardDestination(module.type) === "details") {
-                    setModuleEditor(module);
-                  } else {
-                    setStartStructuredItem(false);
-                    setStructuredModuleId(module.id);
-                  }
+                  setStartStructuredItem(false);
+                  setStructuredModuleId(module.id);
                 }}
                 type="button"
               >
@@ -707,11 +702,15 @@ export function ContentStudio({ access }: { access: DashboardAccess }) {
                   className="small-button"
                   onClick={() => {
                     setStartStructuredItem(false);
-                    setModuleEditor(module);
+                    if (module.type === "notes") {
+                      setStructuredModuleId(module.id);
+                    } else {
+                      setModuleEditor(module);
+                    }
                   }}
                   type="button"
                 >
-                  Edit
+                  {module.type === "notes" ? "Manage content" : "Edit"}
                 </button>
                 {module.status === "draft" && (
                   <button

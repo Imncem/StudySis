@@ -1,13 +1,12 @@
-import type { LearningModule, ModuleType } from "./types.ts";
+import type {
+  LearningModule,
+  ModuleType,
+  NoteSection,
+  NoteSectionInput,
+} from "./types.ts";
 
 export function moduleContentLabel(type: ModuleType): string {
   return type === "notes" ? "Lesson content" : "Content";
-}
-
-export function moduleCardDestination(
-  type: ModuleType,
-): "details" | "structured" {
-  return type === "notes" ? "details" : "structured";
 }
 
 export function moduleCompletionLabel(module: LearningModule): string {
@@ -25,4 +24,37 @@ export function hasMeaningfulLessonContent(content: string): boolean {
     normalized !== "–" &&
     normalized !== "—"
   );
+}
+
+export function notesContentPresentation(
+  module: LearningModule,
+  sections: readonly NoteSection[],
+) {
+  return {
+    inlineContent: hasMeaningfulLessonContent(module.content)
+      ? module.content
+      : null,
+    structuredSections: [...sections],
+  };
+}
+
+export function noteSectionInputForSave(values: {
+  heading: string;
+  body: string;
+  example: string;
+  order: number;
+}): NoteSectionInput {
+  return {
+    heading: values.heading.trim(),
+    body: values.body.trim(),
+    example: values.example.trim(),
+    order: values.order,
+  };
+}
+
+export function withoutNoteSection(
+  sections: readonly NoteSection[],
+  deletedId: string,
+): NoteSection[] {
+  return sections.filter((section) => section.id !== deletedId);
 }

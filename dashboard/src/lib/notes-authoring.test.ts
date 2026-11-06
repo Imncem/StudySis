@@ -1,11 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
-  moduleCardDestination,
+  noteSectionInputForSave,
+  notesContentPresentation,
   moduleCompletionLabel,
   moduleContentLabel,
+  withoutNoteSection,
 } from "./notes-authoring.ts";
-import type { LearningModule, ModuleType } from "./types.ts";
+import type { LearningModule, ModuleType, NoteSection } from "./types.ts";
 
 function module(type: ModuleType, content = ""): LearningModule {
   return {
@@ -23,9 +25,8 @@ function module(type: ModuleType, content = ""): LearningModule {
   };
 }
 
-test("Notes use the canonical lesson-content field and details editor", () => {
+test("Notes retain inline lesson content and open the structured workspace", () => {
   assert.equal(moduleContentLabel("notes"), "Lesson content");
-  assert.equal(moduleCardDestination("notes"), "details");
   assert.equal(
     moduleCompletionLabel(module("notes", "A complete lesson.")),
     "Lesson content ready",
@@ -40,8 +41,61 @@ test("Notes use the canonical lesson-content field and details editor", () => {
   );
 });
 
-test("structured module types retain their existing authoring flow", () => {
-  for (const type of ["flashcards", "practice", "quiz"] as const) {
-    assert.equal(moduleCardDestination(type), "structured");
-  }
+const geographySections: NoteSection[] = [
+  "Jenis Jarak",
+  "Jenis-Jenis skala",
+  "Maksud Skala dan Jarak",
+  "Penukaran Unit Jarak",
+].map((heading, index) => ({
+  id: `section-${index + 1}`,
+  heading,
+  body: `Body ${index + 1}`,
+  example: `Example ${index + 1}`,
+  order: index + 1,
+  createdAt: null,
+  updatedAt: null,
+}));
+
+test("dash placeholder exposes all four existing structured Notes sections", () => {
+  const presentation = notesContentPresentation(
+    module("notes", "-"),
+    geographySections,
+  );
+
+  assert.equal(presentation.inlineContent, null);
+  assert.deepEqual(
+    presentation.structuredSections.map((section) => section.heading),
+    geographySections.map((section) => section.heading),
+  );
+});
+
+test("inline Notes and structured sections remain visible without merging", () => {
+  const presentation = notesContentPresentation(
+    module("notes", "Canonical lesson"),
+    geographySections,
+  );
+
+  assert.equal(presentation.inlineContent, "Canonical lesson");
+  assert.equal(presentation.structuredSections.length, 4);
+});
+
+test("editing section metadata preserves its body and example", () => {
+  const section = geographySections[0];
+  assert.deepEqual(
+    noteSectionInputForSave({ ...section, heading: "Updated heading" }),
+    {
+      heading: "Updated heading",
+      body: section.body,
+      example: section.example,
+      order: section.order,
+    },
+  );
+});
+
+test("deleting one structured section leaves every sibling intact", () => {
+  const remaining = withoutNoteSection(geographySections, "section-2");
+  assert.deepEqual(
+    remaining.map((section) => section.id),
+    ["section-1", "section-3", "section-4"],
+  );
 });
