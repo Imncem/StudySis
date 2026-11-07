@@ -90,7 +90,7 @@ function NotesEditor({ repository, location, module, canEdit, startAdding = fals
       <p className="eyebrow">Inline lesson content</p>
       <p className="mt-3 whitespace-pre-wrap text-sm leading-7 text-[#40534a]">{presentation.inlineContent}</p>
     </section>}
-    <CollectionLayout title="Structured Notes Content" count={presentation.structuredSections.length} addLabel="Add section" onAdd={canEdit && !editing ? () => setEditing("new") : undefined} error={error}>
+    <CollectionLayout title="Structured Notes Content" count={presentation.structuredSections.length} itemLabel="section" addLabel="Add section" onAdd={canEdit && !editing ? () => setEditing("new") : undefined} error={error}>
       {editing && <NoteSectionForm item={editing === "new" ? undefined : editing} onCancel={() => setEditing(null)} onSave={save} />}
       {!editing && presentation.structuredSections.map((item) => <NoteSectionCard
         key={item.id}
@@ -109,9 +109,9 @@ function FlashcardsEditor({ repository, location, canEdit, canActivate = false, 
   const [error, setError] = useState("");
   useEffect(() => repository.watchFlashcards(location, setItems, (next) => setError(next.message)), [location, repository]);
   async function save(input: FlashcardInput) { const allowed = canManageStatus || (canActivate && editing !== "new") ? input : { ...input, status: "draft" as const }; if (editing && editing !== "new") await repository.updateFlashcard(location, editing.id, allowed); else await repository.createFlashcard(location, allowed); setEditing(null); }
-  return <CollectionLayout title="Flashcards" count={items.length} addLabel="Add flashcard" onAdd={canEdit ? () => setEditing("new") : undefined} error={error}>
+  return <CollectionLayout title="Flashcards" count={items.length} itemLabel="card" addLabel="Add card" onAdd={canEdit ? () => setEditing("new") : undefined} error={error}>
     {editing && <FlashcardForm item={editing === "new" ? undefined : editing} statusOptions={contentStatusOptions(canManageStatus ? "admin" : "editor", editing === "new" ? undefined : editing.status)} onCancel={() => setEditing(null)} onSave={save} />}
-    {!editing && items.map((item) => { const canEditItem = canManageStatus || (canEdit && item.status === "draft"); return <ItemCard key={item.id} eyebrow={`${item.status} · CARD ${item.order}`} title={item.front} description={item.back} onEdit={canEditItem ? () => setEditing(item) : undefined} onDelete={canEditItem ? () => confirmDelete(item.front) && repository.deleteFlashcard(location, item.id) : undefined} />; })}
+    {!editing && items.map((item) => { const canEditItem = canManageStatus || (canEdit && item.status === "draft"); return <ItemCard key={item.id} eyebrow={`${item.status} · CARD ${item.order}`} title={item.front} description={`Back: ${item.back}${item.hint ? `\nHint: ${item.hint}` : ""}`} onEdit={canEditItem ? () => setEditing(item) : undefined} onDelete={canEditItem ? () => confirmDelete(item.front) && repository.deleteFlashcard(location, item.id) : undefined} />; })}
     {!editing && !items.length && <Empty text="No flashcards yet." />}
   </CollectionLayout>;
 }
@@ -122,9 +122,9 @@ function PracticeEditor({ repository, location, practiceModuleIds = [], canEdit,
   const [error, setError] = useState("");
   useEffect(() => repository.watchPracticeItems(location, practiceModuleIds, setItems, (next) => setError(next.message)), [location, practiceModuleIds, repository]);
   async function save(input: PracticeItemInput) { const allowed = canManageStatus || (canActivate && editing !== "new") ? input : { ...input, status: "draft" as const }; if (editing && editing !== "new") await repository.updatePracticeItem(location, editing.id, allowed); else await repository.createPracticeItem(location, allowed); setEditing(null); }
-  return <CollectionLayout title="Practice questions" count={items.length} addLabel="Add question" onAdd={canEdit ? () => setEditing("new") : undefined} error={error}>
+  return <CollectionLayout title="Practice questions" count={items.length} itemLabel="question" addLabel="Add question" onAdd={canEdit ? () => setEditing("new") : undefined} error={error}>
     {editing && <PracticeForm item={editing === "new" ? undefined : editing} statusOptions={contentStatusOptions(canManageStatus ? "admin" : "editor", editing === "new" ? undefined : editing.status)} onCancel={() => setEditing(null)} onSave={save} />}
-    {!editing && items.map((item) => { const canEditItem = canManageStatus || (canEdit && item.status === "draft"); return <ItemCard key={item.id} eyebrow={`${item.status} · ${item.difficulty} · ${item.order}`} title={item.question} description={`${item.options.filter(Boolean).length} options · correct ${answerLabel(item.correctAnswerIndex)}${item.topic ? ` · ${item.topic}` : ""}`} onEdit={canEditItem ? () => setEditing(item) : undefined} onDelete={canEditItem ? () => confirmDelete(item.question) && repository.deletePracticeItem(location, item.id) : undefined} />; })}
+    {!editing && items.map((item) => { const canEditItem = canManageStatus || (canEdit && item.status === "draft"); return <ItemCard key={item.id} eyebrow={`${item.status} · ${item.difficulty} · QUESTION ${item.order}`} title={item.question} description={`${item.options.map((option, index) => `${answerLabel(index)}. ${option}`).join("\n")}\nCorrect answer: ${answerLabel(item.correctAnswerIndex)}${item.explanation ? `\nExplanation: ${item.explanation}` : ""}${item.hint ? `\nHint: ${item.hint}` : ""}`} onEdit={canEditItem ? () => setEditing(item) : undefined} onDelete={canEditItem ? () => confirmDelete(item.question) && repository.deletePracticeItem(location, item.id) : undefined} />; })}
     {!editing && !items.length && <Empty text="No practice questions yet." />}
   </CollectionLayout>;
 }
@@ -135,7 +135,7 @@ function QuizEditor({ repository, location, canEdit, canActivate = false, canMan
   const [error, setError] = useState("");
   useEffect(() => repository.watchQuizQuestions(location, setItems, (next) => setError(next.message)), [location, repository]);
   async function save(input: QuizQuestionInput) { const allowed = canManageStatus || (canActivate && editing !== "new") ? input : { ...input, status: "draft" as const }; if (editing && editing !== "new") await repository.updateQuizQuestion(location, editing.id, allowed); else await repository.createQuizQuestion(location, allowed); setEditing(null); }
-  return <CollectionLayout title={`${assessmentLabel} questions`} count={items.length} addLabel={items.length ? "Add another question" : "Add question"} onAdd={canEdit && !editing ? () => setEditing("new") : undefined} error={error}>
+  return <CollectionLayout title={`${assessmentLabel} questions`} count={items.length} itemLabel="question" addLabel={items.length ? "Add another question" : "Add question"} onAdd={canEdit && !editing ? () => setEditing("new") : undefined} error={error}>
     {editing && <QuizForm assessmentLabel={assessmentLabel} item={editing === "new" ? undefined : editing} statusOptions={contentStatusOptions(canManageStatus ? "admin" : "editor", editing === "new" ? undefined : editing.status)} onCancel={() => setEditing(null)} onSave={save} />}
     {items.map((item) => { const canEditItem = canManageStatus || (canEdit && item.status === "draft"); return <QuizQuestionCard key={item.id} item={item} onEdit={!editing && canEditItem ? () => setEditing(item) : undefined} onDelete={!editing && canEditItem ? () => confirmDelete(item.question) && repository.deleteQuizQuestion(location, item.id) : undefined} />; })}
     {!editing && !items.length && <Empty text={`No ${assessmentLabel.toLowerCase()} questions yet.`} />}
@@ -148,7 +148,7 @@ function ReviewEditor({ repository, location, canEdit, canActivate = false, canM
   const [error, setError] = useState("");
   useEffect(() => repository.watchReviewItems(location, setItems, (next) => setError(next.message)), [location, repository]);
   async function save(input: ReviewItemInput) { const allowed = canManageStatus || (canActivate && editing !== "new") ? input : { ...input, status: "draft" as const }; if (editing && editing !== "new") await repository.updateReviewItem(location, editing.id, allowed); else await repository.createReviewItem(location, allowed); setEditing(null); }
-  return <CollectionLayout title="Review items" count={items.length} addLabel={items.length ? "Add another item" : "Add review item"} onAdd={canEdit && !editing ? () => setEditing("new") : undefined} error={error}>
+  return <CollectionLayout title="Review items" count={items.length} itemLabel="item" addLabel={items.length ? "Add another item" : "Add review item"} onAdd={canEdit && !editing ? () => setEditing("new") : undefined} error={error}>
     {editing && <ReviewItemForm item={editing === "new" ? undefined : editing} statusOptions={contentStatusOptions(canManageStatus ? "admin" : "editor", editing === "new" ? undefined : editing.status)} onCancel={() => setEditing(null)} onSave={save} />}
     {!editing && items.map((item) => { const canEditItem = canManageStatus || (canEdit && item.status === "draft"); return <ItemCard key={item.id} eyebrow={`${item.status} · ITEM ${item.order}`} title={item.heading} description={`${item.body}${item.keyPoint ? `\nKey point: ${item.keyPoint}` : ""}${item.prompt ? `\nPrompt: ${item.prompt}` : ""}`} onEdit={canEditItem ? () => setEditing(item) : undefined} onDelete={canEditItem ? () => confirmDelete(item.heading) && repository.deleteReviewItem(location, item.id) : undefined} />; })}
     {!editing && !items.length && <Empty text="No review items yet." />}
@@ -157,12 +157,12 @@ function ReviewEditor({ repository, location, canEdit, canActivate = false, canM
 
 type EditorProps = { repository: StructuredContentRepository; location: Location; practiceModuleIds?: readonly string[]; canEdit: boolean; canActivate?: boolean; canManageStatus?: boolean; startAdding?: boolean };
 
-function CollectionLayout({ title, count, addLabel, onAdd, error, children }: { title: string; count: number; addLabel: string; onAdd?: () => void; error: string; children: React.ReactNode }) {
-  return <div><div className="mb-5 flex flex-wrap items-center justify-between gap-3"><div><h3 className="text-xl font-bold text-[#293930]">{title}</h3><p className="mt-1 text-sm text-slate-500">{count} total</p></div>{onAdd && <button className="primary-button" onClick={onAdd} type="button">{addLabel}</button>}</div>{error && <p className="error-banner">{error}</p>}<div className="space-y-3">{children}</div></div>;
+function CollectionLayout({ title, count, itemLabel, addLabel, onAdd, error, children }: { title: string; count: number; itemLabel: string; addLabel: string; onAdd?: () => void; error: string; children: React.ReactNode }) {
+  return <div><div className="mb-5 flex flex-wrap items-center justify-between gap-3"><div><h3 className="text-xl font-bold text-[#293930]">{title}</h3><p className="mt-1 text-sm text-slate-500">{count} {count === 1 ? itemLabel : `${itemLabel}s`}</p></div>{onAdd && <button className="primary-button" onClick={onAdd} type="button">{addLabel}</button>}</div>{error && <p className="error-banner">{error}</p>}<div className="space-y-3">{children}</div></div>;
 }
 
 function ItemCard({ eyebrow, title, description, onEdit, onDelete }: { eyebrow: string; title: string; description: string; onEdit?: () => void; onDelete?: () => void }) {
-  return <article className="rounded-2xl border border-[#e5eae6] p-4"><p className="text-xs font-semibold uppercase tracking-wide text-[#668071]">{eyebrow}</p><h4 className="mt-1 font-bold text-[#293930]">{title}</h4><p className="mt-2 line-clamp-2 whitespace-pre-line text-sm text-slate-500">{description}</p>{(onEdit || onDelete) && <div className="mt-4 flex gap-2 border-t border-[#e8ebe7] pt-3">{onEdit && <button className="small-button" onClick={onEdit} type="button">Edit</button>}{onDelete && <button className="small-button danger" onClick={onDelete} type="button">Delete</button>}</div>}</article>;
+  return <article className="rounded-2xl border border-[#e5eae6] p-4"><p className="text-xs font-semibold uppercase tracking-wide text-[#668071]">{eyebrow}</p><h4 className="mt-1 font-bold text-[#293930]">{title}</h4><p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-slate-500">{description}</p>{(onEdit || onDelete) && <div className="mt-4 flex gap-2 border-t border-[#e8ebe7] pt-3">{onEdit && <button className="small-button" onClick={onEdit} type="button">Edit</button>}{onDelete && <button className="small-button danger" onClick={onDelete} type="button">Delete</button>}</div>}</article>;
 }
 
 function NoteSectionCard({ item, onEdit, onDelete }: { item: NoteSection; onEdit?: () => void; onDelete?: () => void }) {
@@ -199,6 +199,20 @@ function QuizQuestionCard({ item, onEdit, onDelete }: { item: QuizQuestion; onEd
       </div>
     </div>
     <p className="mt-3 text-sm font-semibold text-[#496a5a]">{quizQuestionMetadata(item)}</p>
+    <div className="mt-3 grid gap-2 sm:grid-cols-2">
+      {item.options.map((option, index) => (
+        <div
+          className={`rounded-xl border px-3 py-2 text-sm ${index === item.correctOptionIndex ? "border-[#85af98] bg-[#edf7f1] font-semibold text-[#2f6048]" : "border-[#e5eae6] bg-[#f8faf8] text-slate-600"}`}
+          key={`${item.id}-option-${index}`}
+        >
+          {answerLabel(index)}. {option}
+        </div>
+      ))}
+    </div>
+    <div className="mt-3 rounded-xl bg-[#f8faf8] px-3 py-2 text-sm text-slate-600">
+      <span className="font-semibold text-[#496a5a]">Explanation:</span>{" "}
+      {item.explanation || "No explanation added."}
+    </div>
     {(onEdit || onDelete) && <div className="mt-4 flex gap-2 border-t border-[#e8ebe7] pt-3">{onEdit && <button className="small-button" onClick={onEdit} type="button">Edit</button>}{onDelete && <button className="small-button danger" onClick={onDelete} type="button">Delete</button>}</div>}
   </article>;
 }

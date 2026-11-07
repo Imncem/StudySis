@@ -17,12 +17,18 @@ import '../models/quiz_question.dart';
 import '../models/review_item.dart';
 import '../models/subchapter.dart';
 import '../models/chapter_progress.dart';
+import '../services/subject_readiness_service.dart';
 
 class LearningRepository {
-  LearningRepository({FirebaseFirestore? firestore})
-      : _firestore = firestore ?? FirebaseFirestore.instance;
+  LearningRepository({
+    FirebaseFirestore? firestore,
+    SubjectReadinessService? subjectReadinessService,
+  })  : _firestore = firestore ?? FirebaseFirestore.instance,
+        _subjectReadinessService =
+            subjectReadinessService ?? RemoteSubjectReadinessService();
 
   final FirebaseFirestore _firestore;
+  final SubjectReadinessService _subjectReadinessService;
 
   Future<String> getSubjectName(String subjectId) async {
     final snapshot =
@@ -373,21 +379,30 @@ class LearningRepository {
     LearningModuleParent parent,
     List<LearningModule> modules,
   ) async {
-    final usable = <LearningModule>[];
-    for (final module in modules) {
-      if (module.type != 'test' && module.type != 'review') {
-        usable.add(module);
-        continue;
+    final assessmentPaths = <String>{
+      for (final module in modules)
+        if (module.type == 'test' || module.type == 'review')
+          _moduleDocumentPath(parent, module.id),
+    };
+    Set<String> usableAssessmentPaths = const <String>{};
+    if (assessmentPaths.isNotEmpty) {
+      try {
+        usableAssessmentPaths = await _subjectReadinessService
+            .usableAssessmentModulePaths(assessmentPaths);
+      } catch (error, stackTrace) {
+        debugPrint(
+          '[StudySis] Assessment module readiness unavailable; protected '
+          'Test/Review modules will be omitted: $error',
+        );
+        debugPrintStack(stackTrace: stackTrace);
       }
-      final collectionName = module.type == 'test' ? 'questions' : 'items';
-      final content = await _firestore
-          .collection(_moduleContentPath(parent, module.id, collectionName))
-          .where('status', isEqualTo: 'active')
-          .limit(1)
-          .get();
-      if (content.docs.isNotEmpty) usable.add(module);
     }
-    return usable;
+    return modules.where((module) {
+      if (module.type != 'test' && module.type != 'review') return true;
+      return usableAssessmentPaths.contains(
+        _moduleDocumentPath(parent, module.id),
+      );
+    }).toList(growable: false);
   }
 
   Future<LearningContent?> getSubchapterNotesContent({

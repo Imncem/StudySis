@@ -21,6 +21,22 @@ export function hasStructuredContentEditor(type: ModuleType): boolean {
   return type !== "notes";
 }
 
+export function structuredContentCountLabel(
+  type: ModuleType,
+  count: number,
+): string {
+  const labels: Record<ModuleType, [string, string]> = {
+    notes: ["section", "sections"],
+    flashcards: ["card", "cards"],
+    practice: ["question", "questions"],
+    quiz: ["question", "questions"],
+    test: ["question", "questions"],
+    review: ["item", "items"],
+  };
+  const [singular, plural] = labels[type];
+  return `${count} ${count === 1 ? singular : plural}`;
+}
+
 export function canChangeModuleType(existing: boolean): boolean {
   return !existing;
 }

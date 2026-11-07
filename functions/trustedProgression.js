@@ -74,6 +74,108 @@ function createTestQuestionsHandler({ admin, db }) {
   };
 }
 
+function createAssessmentReadinessHandler({ admin, db }) {
+  return async (req, res) => {
+    const requestId = crypto.randomBytes(6).toString('hex');
+    if (req.method !== 'POST') {
+      res.status(405).json({ success: false, message: 'Method not allowed.' });
+      return;
+    }
+    const auth = await authenticateRequest(admin, req, res, requestId);
+    if (!auth) return;
+    try {
+      const modulePaths = req.body?.modulePaths;
+      if (!Array.isArray(modulePaths) || modulePaths.length > 100) {
+        throw eventError('invalid-argument', 'Invalid assessment module paths.');
+      }
+      const results = await Promise.all(modulePaths.map(async (rawPath) => {
+        const parsed = assessmentLocationFromModulePath(rawPath);
+        if (!parsed) return null;
+        try {
+          const refs = learningRefs(db, parsed.location, parsed.location.moduleId);
+          if (refs.moduleRef.path !== parsed.path) return null;
+          return await assessmentModuleHasUsableContent(refs) ? parsed.path : null;
+        } catch (error) {
+          console.warn(
+            `[StudySis][readiness] requestId=${requestId} ` +
+              `modulePath=${parsed.path} skipped=${String(error?.message || error)}`,
+          );
+          return null;
+        }
+      }));
+      res.status(200).json({
+        success: true,
+        usableModulePaths: results.filter(Boolean),
+      });
+    } catch (error) {
+      const normalized = normalizeError(error);
+      res.status(normalized.httpStatus).json({
+        success: false,
+        code: normalized.code,
+        message: normalized.publicMessage,
+      });
+    }
+  };
+}
+
+async function assessmentModuleHasUsableContent(refs) {
+  const [chapterSnapshot, parentSnapshot, moduleSnapshot] = await Promise.all([
+    refs.chapterRef.get(), refs.parentRef.get(), refs.moduleRef.get(),
+  ]);
+  if (!chapterSnapshot.exists || chapterSnapshot.data()?.status !== 'active' ||
+      !parentSnapshot.exists || parentSnapshot.data()?.status !== 'active' ||
+      !moduleSnapshot.exists || moduleSnapshot.data()?.status !== 'active') {
+    return false;
+  }
+  const type = String(moduleSnapshot.data()?.type || '').toLowerCase();
+  if (type !== 'test' && type !== 'review') return false;
+  const childCollection = type === 'test' ? 'questions' : 'items';
+  const content = await refs.moduleRef.collection(childCollection)
+    .where('status', '==', 'active').limit(1).get();
+  return !content.empty;
+}
+
+function assessmentLocationFromModulePath(value) {
+  const path = typeof value === 'string' ? value.trim() : '';
+  const parts = path.split('/');
+  if ((parts.length !== 8 && parts.length !== 10) ||
+      parts[0] !== 'curriculum' || parts[1] !== 'form2' ||
+      parts[2] !== 'subjects' || parts[4] !== 'chapters' ||
+      parts[parts.length - 2] !== 'modules') {
+    return null;
+  }
+  const subjectId = parts[3];
+  const verifiedSubjects = new Set([
+    'bahasa_melayu', 'english', 'math', 'science', 'sejarah',
+    'geography', 'rbt', 'pendidikan_islam', 'pjk', 'seni',
+  ]);
+  if (!verifiedSubjects.has(subjectId)) return null;
+  const moduleId = parts[parts.length - 1];
+  let location;
+  if (parts.length === 8 && parts[6] === 'modules') {
+    location = {
+      subjectId, parentKind: 'chapter', parentId: parts[5], moduleId,
+    };
+  } else if (parts.length === 10 && parts[6] === 'subchapters') {
+    location = {
+      subjectId, parentKind: 'subchapter', parentId: parts[7],
+      containerId: parts[5], moduleId,
+    };
+  } else if (parts.length === 10 && parts[6] === 'topics') {
+    location = {
+      subjectId, parentKind: 'topic', parentId: parts[7],
+      containerId: parts[5], moduleId,
+    };
+  } else {
+    return null;
+  }
+  try {
+    return { path, location: validateLocation(location) };
+  } catch (_) {
+    return null;
+  }
+}
+
 async function loadStudentTestQuestions({ db, input }) {
   const location = validateLocation(input);
   const refs = learningRefs(db, location, input.moduleId);
@@ -881,6 +983,7 @@ function normalizeError(error) {
 }
 
 module.exports = {
+  createAssessmentReadinessHandler,
   createTrustedProgressionHandler,
   createTestQuestionsHandler,
   processTrustedLearningEvent,
@@ -901,5 +1004,7 @@ module.exports = {
     initialProgress,
     loadStudentTestQuestions,
     sanitizeTestQuestionDocuments,
+    assessmentLocationFromModulePath,
+    assessmentModuleHasUsableContent,
   },
 };

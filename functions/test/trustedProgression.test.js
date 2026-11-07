@@ -58,6 +58,58 @@ test('Test question delivery strips answers and explanations before submission',
   assert.equal(Object.hasOwn(questions[0], 'explanation'), false);
 });
 
+test('assessment readiness accepts only valid parent-aware module paths', () => {
+  assert.deepEqual(
+    _test.assessmentLocationFromModulePath(
+      'curriculum/form2/subjects/geography/chapters/chapter-01/modules/test',
+    ),
+    {
+      path: 'curriculum/form2/subjects/geography/chapters/chapter-01/modules/test',
+      location: {
+        subjectId: 'geography', parentKind: 'chapter',
+        parentId: 'chapter-01', containerId: null, moduleId: 'test',
+      },
+    },
+  );
+  assert.equal(
+    _test.assessmentLocationFromModulePath(
+      'curriculum/form2/subjects/english/chapters/grammar/modules/test',
+    ),
+    null,
+  );
+  assert.deepEqual(
+    _test.assessmentLocationFromModulePath(
+      'curriculum/form2/subjects/english/chapters/grammar/topics/verbs/modules/test',
+    )?.location,
+    {
+      subjectId: 'english', parentKind: 'topic', parentId: 'verbs',
+      containerId: 'grammar', moduleId: 'test',
+    },
+  );
+});
+
+test('assessment readiness distinguishes empty and populated Test or Review', async () => {
+  const snapshot = (data) => ({exists: true, data: () => data});
+  const refs = (type, empty) => ({
+    chapterRef: {get: async () => snapshot({status: 'active'})},
+    parentRef: {get: async () => snapshot({status: 'active'})},
+    moduleRef: {
+      get: async () => snapshot({status: 'active', type}),
+      collection: (name) => ({
+        where: (field, operator, value) => {
+          assert.equal(name, type === 'test' ? 'questions' : 'items');
+          assert.deepEqual([field, operator, value], ['status', '==', 'active']);
+          return {limit: () => ({get: async () => ({empty})})};
+        },
+      }),
+    },
+  });
+  assert.equal(await _test.assessmentModuleHasUsableContent(refs('test', true)), false);
+  assert.equal(await _test.assessmentModuleHasUsableContent(refs('test', false)), true);
+  assert.equal(await _test.assessmentModuleHasUsableContent(refs('review', true)), false);
+  assert.equal(await _test.assessmentModuleHasUsableContent(refs('review', false)), true);
+});
+
 test('Quiz, Test and Review progression endpoints cannot cross module types', () => {
   assert.deepEqual([..._test.expectedModuleTypes('quiz')], ['quiz']);
   assert.deepEqual([..._test.expectedModuleTypes('test')], ['test']);

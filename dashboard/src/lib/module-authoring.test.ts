@@ -9,6 +9,7 @@ import {
   modulePatchForUpdate,
   modulePostSaveState,
   moduleSaveLabel,
+  structuredContentCountLabel,
   usesInlineLessonContent,
 } from "./module-authoring.ts";
 import type { ModuleFormValues } from "./module-editor-navigation.ts";
@@ -187,4 +188,13 @@ test("new structured modules never invent a dummy Notes module", () => {
   assert.equal(input.title, "Module title");
   assert.equal(input.type, "quiz");
   assert.equal(input.content, "");
+});
+
+test("structured content counts use module-specific terminology", () => {
+  assert.equal(structuredContentCountLabel("notes", 4), "4 sections");
+  assert.equal(structuredContentCountLabel("flashcards", 9), "9 cards");
+  assert.equal(structuredContentCountLabel("practice", 2), "2 questions");
+  assert.equal(structuredContentCountLabel("quiz", 5), "5 questions");
+  assert.equal(structuredContentCountLabel("test", 0), "0 questions");
+  assert.equal(structuredContentCountLabel("review", 1), "1 item");
 });

@@ -23,12 +23,30 @@ export function initialModuleFormValues(
     title: module?.title ?? "",
     type: module?.type ?? "notes",
     content: module?.content ?? "",
-    summary: module?.summary ?? "",
+    summary: isPlaceholderText(module?.summary) ? "" : module?.summary ?? "",
     estimatedMinutes: module?.estimatedMinutes ?? 10,
     difficulty: module?.difficulty ?? "medium",
     order: module?.order ?? 1,
     status: module?.status ?? "draft",
   };
+}
+
+export function isPlaceholderText(value: string | undefined): boolean {
+  const normalized = value?.trim() ?? "";
+  return normalized === "-" || normalized === "–" || normalized === "—";
+}
+
+export function summaryForSave({
+  storedSummary,
+  displayedSummary,
+  touched,
+}: {
+  storedSummary: string | undefined;
+  displayedSummary: string;
+  touched: boolean;
+}): string {
+  if (!touched && isPlaceholderText(storedSummary)) return storedSummary ?? "";
+  return displayedSummary;
 }
 
 export function moduleFormIsDirty(

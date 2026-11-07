@@ -396,6 +396,12 @@ export function ContentStudio({ access }: { access: DashboardAccess }) {
       ]);
       setNotice("Module created.");
     }
+    if (existingModule) {
+      setModuleEditor(null);
+      setStartStructuredItem(false);
+      setStructuredModuleId(savedModuleId);
+      return;
+    }
     if (moduleDestinationAfterSave(input.type) === "structured") {
       const next = modulePostSaveState(input.type, savedModuleId, isNew);
       setModuleEditor(null);
@@ -405,8 +411,8 @@ export function ContentStudio({ access }: { access: DashboardAccess }) {
       setModuleEditor({
         id: savedModuleId,
         ...input,
-        createdAt: existingModule?.createdAt ?? null,
-        updatedAt: existingModule?.updatedAt ?? null,
+        createdAt: null,
+        updatedAt: null,
       });
       setStartStructuredItem(false);
       setStructuredModuleId(null);
@@ -622,7 +628,6 @@ export function ContentStudio({ access }: { access: DashboardAccess }) {
           onEditDetails={() => {
             setStartStructuredItem(false);
             setModuleEditor(structuredModule);
-            setStructuredModuleId(null);
           }}
           onPublish={() => publishModule(structuredModule)}
           canActivate={structuredModule.status === "draft"}
@@ -702,15 +707,22 @@ export function ContentStudio({ access }: { access: DashboardAccess }) {
                   className="small-button"
                   onClick={() => {
                     setStartStructuredItem(false);
-                    if (module.type === "notes") {
-                      setStructuredModuleId(module.id);
-                    } else {
-                      setModuleEditor(module);
-                    }
+                    setStructuredModuleId(module.id);
                   }}
                   type="button"
                 >
-                  {module.type === "notes" ? "Manage content" : "Edit"}
+                  Manage content
+                </button>
+                <button
+                  className="small-button"
+                  onClick={() => {
+                    setStartStructuredItem(false);
+                    setStructuredModuleId(module.id);
+                    setModuleEditor(module);
+                  }}
+                  type="button"
+                >
+                  Edit details
                 </button>
                 {module.status === "draft" && (
                   <button

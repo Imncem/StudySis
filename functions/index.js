@@ -10,6 +10,7 @@ const {
   validateMuffinRequest,
 } = require('./muffinPolicy');
 const {
+  createAssessmentReadinessHandler,
   createTestQuestionsHandler,
   createTrustedProgressionHandler,
 } = require('./trustedProgression');
@@ -78,6 +79,11 @@ for (const [functionName, activityType] of Object.entries(trustedProgressionFunc
 exports.getTestQuestions = onRequest(
   { timeoutSeconds: 30, cors: true },
   createTestQuestionsHandler({ admin, db }),
+);
+
+exports.getAssessmentReadiness = onRequest(
+  { timeoutSeconds: 30, cors: true },
+  createAssessmentReadinessHandler({ admin, db }),
 );
 
 exports.askMuffin = onRequest(

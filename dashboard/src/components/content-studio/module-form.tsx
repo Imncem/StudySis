@@ -3,6 +3,7 @@
 import { FormEvent, useMemo, useState } from "react";
 import {
   initialModuleFormValues,
+  summaryForSave,
   moduleFormIsDirty,
 } from "@/lib/module-editor-navigation";
 import { moduleContentLabel } from "@/lib/notes-authoring";
@@ -41,6 +42,7 @@ export function ModuleForm({
   const [type, setType] = useState<ModuleType>(initialValues.type);
   const [content, setContent] = useState(initialValues.content);
   const [summary, setSummary] = useState(initialValues.summary);
+  const [summaryTouched, setSummaryTouched] = useState(false);
   const [estimatedMinutes, setEstimatedMinutes] = useState(
     initialValues.estimatedMinutes,
   );
@@ -82,7 +84,11 @@ export function ModuleForm({
         title,
         type,
         content,
-        summary,
+        summary: summaryForSave({
+          storedSummary: module?.summary,
+          displayedSummary: summary,
+          touched: summaryTouched,
+        }),
         estimatedMinutes,
         difficulty,
         order,
@@ -106,7 +112,7 @@ export function ModuleForm({
         onClick={requestExit}
         type="button"
       >
-        &larr; Back to module list
+        &larr; {module ? "Back to content workspace" : "Back to module list"}
       </button>
       <form className="editor-card space-y-5" onSubmit={submit}>
         <div>
@@ -174,10 +180,13 @@ export function ModuleForm({
           </label>
         )}
         <label className="field-label">
-          Summary
+          Summary (optional)
           <textarea
             className="field mt-2 min-h-28 resize-y"
-            onChange={(event) => setSummary(event.target.value)}
+            onChange={(event) => {
+              setSummaryTouched(true);
+              setSummary(event.target.value);
+            }}
             value={summary}
           />
         </label>

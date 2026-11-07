@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:studysis/config/content_paths.dart';
 import 'package:studysis/models/subject.dart';
 import 'package:studysis/services/firestore_service.dart';
+import 'package:studysis/services/subject_readiness_service.dart';
 
 void main() {
   test('static subject metadata and draft modules do not make a subject ready',
@@ -158,23 +159,96 @@ void main() {
 
   test('empty Test and Review do not unlock, active children do', () async {
     final firestore = FakeFirebaseFirestore();
+    final readiness = _FakeSubjectReadinessService();
     await _seedSubject(firestore, 'science', 1);
     final modules =
         firestore.collection(ContentPaths.modules('science', 'chapter-01'));
     await modules.doc('test').set(_moduleData('active', type: 'test'));
     await modules.doc('review').set(_moduleData('active', type: 'review'));
-    var subjects =
-        await FirestoreService(firestore: firestore).watchSubjects().first;
+    var subjects = await FirestoreService(
+      firestore: firestore,
+      subjectReadinessService: readiness,
+    ).watchSubjects().first;
     expect(_byId(subjects, 'science').isComingSoon, isTrue);
 
     await modules.doc('test').collection('questions').doc('q1').set({
       'status': 'active',
       'order': 1,
     });
-    subjects =
-        await FirestoreService(firestore: firestore).watchSubjects().first;
+    readiness.usablePaths.add(modules.doc('test').path);
+    subjects = await FirestoreService(
+      firestore: firestore,
+      subjectReadinessService: readiness,
+    ).watchSubjects().first;
     expect(_byId(subjects, 'science').isComingSoon, isFalse);
   });
+
+  test('populated Review is usable through protected readiness metadata',
+      () async {
+    final firestore = FakeFirebaseFirestore();
+    final readiness = _FakeSubjectReadinessService();
+    await _seedSubject(firestore, 'geography', 1);
+    final review = firestore.doc(
+      '${ContentPaths.modules('geography', 'chapter-01')}/review',
+    );
+    await review.set(_moduleData('active', type: 'review'));
+
+    var subjects = await FirestoreService(
+      firestore: firestore,
+      subjectReadinessService: readiness,
+    ).watchSubjects().first;
+    expect(_byId(subjects, 'geography').isComingSoon, isTrue);
+
+    readiness.usablePaths.add(review.path);
+    subjects = await FirestoreService(
+      firestore: firestore,
+      subjectReadinessService: readiness,
+    ).watchSubjects().first;
+    expect(_byId(subjects, 'geography').isComingSoon, isFalse);
+  });
+
+  test('assessment readiness failure is isolated from the Subjects stream',
+      () async {
+    final firestore = FakeFirebaseFirestore();
+    await _seedSubject(firestore, 'science', 1);
+    await _seedSubject(firestore, 'geography', 2);
+    await _seedModule(
+      firestore,
+      subjectId: 'science',
+      itemId: 'chapter-01',
+      status: 'active',
+    );
+    await _seedModule(
+      firestore,
+      subjectId: 'geography',
+      itemId: 'chapter-01',
+      status: 'active',
+      type: 'test',
+    );
+
+    final subjects = await FirestoreService(
+      firestore: firestore,
+      subjectReadinessService: _FakeSubjectReadinessService(shouldThrow: true),
+    ).watchSubjects().first.timeout(const Duration(seconds: 2));
+
+    expect(_byId(subjects, 'science').isComingSoon, isFalse);
+    expect(_byId(subjects, 'geography').isComingSoon, isTrue);
+  });
+}
+
+class _FakeSubjectReadinessService implements SubjectReadinessService {
+  _FakeSubjectReadinessService({this.shouldThrow = false});
+
+  final bool shouldThrow;
+  final Set<String> usablePaths = <String>{};
+
+  @override
+  Future<Set<String>> usableAssessmentModulePaths(
+    Iterable<String> modulePaths,
+  ) async {
+    if (shouldThrow) throw StateError('readiness unavailable');
+    return usablePaths.intersection(modulePaths.toSet());
+  }
 }
 
 Subject _byId(List<Subject> subjects, String id) {

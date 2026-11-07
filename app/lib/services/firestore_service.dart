@@ -7,12 +7,18 @@ import 'package:flutter/foundation.dart';
 import '../config/content_paths.dart';
 import '../models/student.dart';
 import '../models/subject.dart';
+import 'subject_readiness_service.dart';
 
 class FirestoreService {
-  FirestoreService({FirebaseFirestore? firestore})
-      : _firestore = firestore ?? FirebaseFirestore.instance;
+  FirestoreService({
+    FirebaseFirestore? firestore,
+    SubjectReadinessService? subjectReadinessService,
+  })  : _firestore = firestore ?? FirebaseFirestore.instance,
+        _subjectReadinessService =
+            subjectReadinessService ?? RemoteSubjectReadinessService();
 
   final FirebaseFirestore _firestore;
+  final SubjectReadinessService _subjectReadinessService;
 
   Stream<Student> watchQidah() {
     return _firestore.doc('students/qidah').snapshots().map((snapshot) {
@@ -46,6 +52,7 @@ class FirestoreService {
         .snapshots()
         .asyncMap((snapshot) async {
       final ready = <String>{};
+      final assessmentSubjectsByPath = <String, String>{};
       for (final document in snapshot.docs) {
         final subjectId = _subjectIdForUsableModule(
           document.reference.path,
@@ -54,15 +61,26 @@ class FirestoreService {
         if (subjectId == null) continue;
         final type = document.data()['type'];
         if (type == 'test' || type == 'review') {
-          final childName = type == 'test' ? 'questions' : 'items';
-          final content = await document.reference
-              .collection(childName)
-              .where('status', isEqualTo: 'active')
-              .limit(1)
-              .get();
-          if (content.docs.isEmpty) continue;
+          assessmentSubjectsByPath[document.reference.path] = subjectId;
+          continue;
         }
         ready.add(subjectId);
+      }
+      if (assessmentSubjectsByPath.isNotEmpty) {
+        try {
+          final usablePaths = await _subjectReadinessService
+              .usableAssessmentModulePaths(assessmentSubjectsByPath.keys);
+          for (final path in usablePaths) {
+            final subjectId = assessmentSubjectsByPath[path];
+            if (subjectId != null) ready.add(subjectId);
+          }
+        } catch (error, stackTrace) {
+          debugPrint(
+            '[StudySis] Assessment readiness unavailable; protected Test/Review '
+            'modules will remain unavailable: $error',
+          );
+          debugPrintStack(stackTrace: stackTrace);
+        }
       }
       return ready;
     });

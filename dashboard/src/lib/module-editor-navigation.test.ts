@@ -2,8 +2,10 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   initialModuleFormValues,
+  isPlaceholderText,
   moduleEditorBreadcrumb,
   moduleFormIsDirty,
+  summaryForSave,
 } from "./module-editor-navigation.ts";
 import type { LearningModule } from "./types.ts";
 
@@ -48,6 +50,30 @@ test("new module defaults stay clean until an author changes a field", () => {
   assert.equal(
     moduleFormIsDirty(initial, { ...initial, title: "New module" }),
     true,
+  );
+});
+
+test("placeholder summaries display as empty without being overwritten implicitly", () => {
+  const moduleWithPlaceholder = { ...geographyModule, summary: "-" };
+
+  assert.equal(initialModuleFormValues(moduleWithPlaceholder).summary, "");
+  assert.equal(isPlaceholderText("-"), true);
+  assert.equal(isPlaceholderText("—"), true);
+  assert.equal(
+    summaryForSave({
+      storedSummary: moduleWithPlaceholder.summary,
+      displayedSummary: "",
+      touched: false,
+    }),
+    "-",
+  );
+  assert.equal(
+    summaryForSave({
+      storedSummary: moduleWithPlaceholder.summary,
+      displayedSummary: "Useful summary",
+      touched: true,
+    }),
+    "Useful summary",
   );
 });
 

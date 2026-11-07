@@ -8,6 +8,7 @@ import 'package:studysis/models/learning_module_sequence.dart';
 import 'package:studysis/repositories/learning_repository.dart';
 import 'package:studysis/screens/learning_module_sequence_screen.dart';
 import 'package:studysis/services/saved_flashcard_service.dart';
+import 'package:studysis/services/subject_readiness_service.dart';
 
 void main() {
   test('active modules sort by order and exclude draft and archived modules',
@@ -81,9 +82,10 @@ void main() {
           order: 3,
         ));
 
-    final active = await LearningRepository(firestore: firestore)
-        .getActiveChapterModules(
-            subjectId: 'geography', chapterId: 'chapter-01');
+    final active = await LearningRepository(
+      firestore: firestore,
+      subjectReadinessService: _FakeReadinessService(),
+    ).getActiveChapterModules(subjectId: 'geography', chapterId: 'chapter-01');
     expect(active.map((module) => module.id), ['notes']);
   });
 
@@ -118,9 +120,13 @@ void main() {
       'status': 'active',
     });
 
-    final active = await LearningRepository(firestore: firestore)
-        .getActiveChapterModules(
-            subjectId: 'geography', chapterId: 'chapter-01');
+    final active = await LearningRepository(
+      firestore: firestore,
+      subjectReadinessService: _FakeReadinessService({
+        modules.doc('test').path,
+        modules.doc('review').path,
+      }),
+    ).getActiveChapterModules(subjectId: 'geography', chapterId: 'chapter-01');
     expect(active.map((module) => module.id), ['test', 'review']);
   });
 
@@ -157,7 +163,15 @@ void main() {
         'order': 1,
       });
     }
-    final repository = LearningRepository(firestore: firestore);
+    final repository = LearningRepository(
+      firestore: firestore,
+      subjectReadinessService: _FakeReadinessService({
+        sejarahModules.doc('test').path,
+        sejarahModules.doc('review').path,
+        englishModules.doc('test').path,
+        englishModules.doc('review').path,
+      }),
+    );
 
     final sejarah = await repository.getActiveSubchapterModules(
       subjectId: 'sejarah',
@@ -399,6 +413,18 @@ void main() {
     expect(find.text('What does map scale compare?'), findsOneWidget);
     expect(find.text('Module 4 of 4'), findsOneWidget);
   });
+}
+
+class _FakeReadinessService implements SubjectReadinessService {
+  _FakeReadinessService([this.usablePaths = const <String>{}]);
+
+  final Set<String> usablePaths;
+
+  @override
+  Future<Set<String>> usableAssessmentModulePaths(
+    Iterable<String> modulePaths,
+  ) async =>
+      usablePaths.intersection(modulePaths.toSet());
 }
 
 Future<({LearningRepository repository, List<LearningModule> modules})>

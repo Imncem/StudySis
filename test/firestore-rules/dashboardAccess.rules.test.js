@@ -10,10 +10,16 @@ const {
 const {
   doc,
   deleteDoc,
+  collection,
+  collectionGroup,
   getDoc,
+  getDocs,
+  orderBy,
+  query,
   setDoc,
   Timestamp,
   updateDoc,
+  where,
   writeBatch,
 } = require('firebase/firestore');
 
@@ -110,6 +116,14 @@ test('students cannot read Test answer documents but retain active Quiz reads', 
   const studentDb = testEnv.authenticatedContext('test-student', {
     firebase: {sign_in_provider: 'anonymous'},
   }).firestore();
+  await assertSucceeds(getDocs(query(
+    collection(studentDb, 'curriculum/form2/subjects'),
+    orderBy('order'),
+  )));
+  await assertSucceeds(getDocs(query(
+    collectionGroup(studentDb, 'modules'),
+    where('status', '==', 'active'),
+  )));
   await assertFails(getDoc(doc(
     moduleRef(studentDb, 'science', 'chapter-01', 'secure-test'),
     'questions',
